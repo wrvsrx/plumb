@@ -140,7 +140,7 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
             {
                 "startLine": 7,
                 "endLine": 9,
-                "collapsedText": "`- 2026-08-02T14:00| Standup"
+                "collapsedText": "`- 2026-08-02T14:00 Standup"
             }
         ])
     );
@@ -165,7 +165,7 @@ fn exposes_single_line_semantic_folds_to_line_and_character_range_clients() {
             {
                 "startLine": 7,
                 "endLine": 9,
-                "collapsedText": "`- 2026-08-02T14:00| Standup"
+                "collapsedText": "`- 2026-08-02T14:00 Standup"
             }
         ])
     );
@@ -340,7 +340,7 @@ fn folds_with_locally_determined_labels_before_initial_index_completes() {
         .collect::<Vec<_>>();
     for expected in [
         "title  Workspace",
-        "`- 2026-08-02T14:00| Standup",
+        "`- 2026-08-02T14:00 Standup",
         "`- [ ]  Blocker",
         "`- [o]  Closed dependency",
         "`- [ ]  Ready",
@@ -491,10 +491,10 @@ fn labels_event_folds_with_abbreviated_times() {
     assert_eq!(
         response(&run_server(&messages), 2)["result"],
         json!([
-            { "startLine": 0, "endLine": 8, "collapsedText": "`- 2026-08-02T14:00| Standup" },
-            { "startLine": 9, "endLine": 17, "collapsedText": "`- 2026-08-02T09:00--10:30| Review" },
-            { "startLine": 18, "endLine": 35, "collapsedText": "`- 2026-08-02T11:00| Parent" },
-            { "startLine": 27, "endLine": 34, "collapsedText": " `- 2026-08-02T12:00| Nested" },
+            { "startLine": 0, "endLine": 8, "collapsedText": "`- 2026-08-02T14:00 Standup" },
+            { "startLine": 9, "endLine": 17, "collapsedText": "`- 2026-08-02T09:00--10:30 Review" },
+            { "startLine": 18, "endLine": 35, "collapsedText": "`- 2026-08-02T11:00 Parent" },
+            { "startLine": 27, "endLine": 34, "collapsedText": " `- 2026-08-02T12:00 Nested" },
             { "startLine": 36, "endLine": 40 }
         ])
     );
