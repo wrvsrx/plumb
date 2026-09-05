@@ -3181,6 +3181,26 @@ fn inserts_metadata_with_revision_and_escaped_title() {
 }
 
 #[test]
+fn inserts_metadata_title_with_spaces_as_first_rest_value() {
+    let mut workspace = Workspace::new();
+    workspace.insert("notes/Project Guide.plumb", 8, "");
+
+    let edit = workspace
+        .insert_metadata(
+            "notes/Project Guide.plumb",
+            0,
+            "Project Guide",
+            "2026-07-19T12:34:56+08:00",
+        )
+        .unwrap();
+
+    assert_eq!(
+        edit.document_changes[0].edits[0].new_text,
+        "`= title   Project Guide\n`= created 2026-07-19T12:34:56+08:00\n"
+    );
+}
+
+#[test]
 fn inserts_formatted_metadata_into_an_empty_document() {
     let mut workspace = Workspace::new();
     workspace.insert("notes/empty.plumb", 11, "");

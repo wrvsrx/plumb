@@ -247,7 +247,7 @@ fn aligns_block_arguments_only_when_the_sibling_run_needs_it() {
 
 #[test]
 fn inserts_metadata_into_an_empty_document_over_stdio() {
-    let uri = "file:///tmp/empty-note.plumb";
+    let uri = "file:///tmp/empty%20note.plumb";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -298,7 +298,11 @@ fn inserts_metadata_into_an_empty_document_over_stdio() {
         json!({ "line": 0, "character": 0 })
     );
     let generated = change["edits"][0]["newText"].as_str().unwrap();
-    assert_eq!(attribute_value(generated, "title"), "empty-note");
+    assert_eq!(attribute_value(generated, "title"), "empty note");
+    assert!(
+        generated.starts_with("`= title   empty note\n"),
+        "{generated:?}"
+    );
     chrono::DateTime::parse_from_rfc3339(attribute_value(generated, "created")).unwrap();
     let parsed = plumb_syntax::parse(generated);
     assert!(

@@ -275,9 +275,11 @@ pub fn align_green_block_arguments(
 pub fn aligned_associations(entries: &[(&str, &str)]) -> Vec<OwnedBlock> {
     let mut blocks = entries
         .iter()
-        .map(|(key, value)| OwnedBlock::padded_association(*key, *value))
+        .map(|(key, value)| OwnedBlock::association(*key, *value))
         .collect::<Vec<_>>();
-    align_owned_sibling_arguments(&mut blocks);
+    if blocks.len() >= 2 {
+        align_owned_argument_run(&mut blocks, 2);
+    }
     blocks
 }
 
@@ -462,10 +464,17 @@ impl OwnedAttribute {
 
 impl OwnedBlock {
     pub fn association(key: impl Into<String>, value: impl Into<String>) -> Self {
-        let mut head = owned_authored_text(&key.into());
+        let mut key = owned_authored_text(&key.into());
+        trim_owned_padding_start(&mut key);
+        trim_owned_padding_end(&mut key);
+        group_multi_element_argument(&mut key);
+        let mut value = owned_authored_text(&value.into());
+        trim_owned_padding_start(&mut value);
+        trim_owned_padding_end(&mut value);
+        let mut head = key;
         head.push(OwnedInline::Space(" ".to_string()));
         head.push(OwnedInline::ArgumentSeparator);
-        head.extend(owned_authored_text(&value.into()));
+        head.extend(value);
         Self::Parsed {
             marker: Some("=".into()),
             head,
@@ -2476,12 +2485,7 @@ fn padded_owned_arguments(mut arguments: Vec<Vec<OwnedInline>>) -> Vec<OwnedInli
     for argument in &mut arguments {
         trim_owned_padding_start(argument);
         trim_owned_padding_end(argument);
-        if owned_positional_indices(argument).len() > 1 {
-            *argument = vec![OwnedInline::Element {
-                kind: String::new(),
-                members: vec![OwnedInlineMember::ParsedArgument(std::mem::take(argument))],
-            }];
-        }
+        group_multi_element_argument(argument);
     }
     let mut head = Vec::new();
     for (index, argument) in arguments.into_iter().enumerate() {
@@ -2492,6 +2496,15 @@ fn padded_owned_arguments(mut arguments: Vec<Vec<OwnedInline>>) -> Vec<OwnedInli
         head.extend(argument);
     }
     head
+}
+
+fn group_multi_element_argument(argument: &mut Vec<OwnedInline>) {
+    if owned_positional_indices(argument).len() > 1 {
+        *argument = vec![OwnedInline::Element {
+            kind: String::new(),
+            members: vec![OwnedInlineMember::ParsedArgument(std::mem::take(argument))],
+        }];
+    }
 }
 
 fn trim_owned_padding_start(argument: &mut Vec<OwnedInline>) {
@@ -3371,15 +3384,24 @@ mod tests {
     }
 
     #[test]
-    fn creates_aligned_association_groups() {
+    fn creates_aligned_first_rest_associations() {
         let metadata = aligned_associations(&[
-            ("title", "Example"),
+            ("title", "Project Guide"),
             ("created", "2026-08-26T00:00:00+08:00"),
         ]);
         let formatted = format_owned_blocks(&metadata, "\n").unwrap();
         assert_eq!(
             formatted,
-            "`= title   Example\n`= created 2026-08-26T00:00:00+08:00\n"
+            "`= title   Project Guide\n`= created 2026-08-26T00:00:00+08:00\n"
+        );
+    }
+
+    #[test]
+    fn groups_multi_element_association_keys_but_not_first_rest_values() {
+        let association = OwnedBlock::association("project title", "Project Guide");
+        assert_eq!(
+            association.format().unwrap(),
+            "`= {project title} Project Guide\n"
         );
     }
 
