@@ -348,6 +348,27 @@ pub struct GreenOwnedBlockPaths {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GreenOwnedSibling {
+    pub content_range: Range<usize>,
+    pub block: OwnedBlock,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GreenOwnedBlockCandidate {
+    pub range: Range<usize>,
+    pub content_range: Range<usize>,
+    pub path: Vec<usize>,
+    pub next_sibling: Option<GreenOwnedSibling>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GreenOwnedBlockGroup {
+    pub range: Range<usize>,
+    pub block: OwnedBlock,
+    pub candidates: Vec<GreenOwnedBlockCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedBlock {
     Parsed {
         marker: Option<String>,
@@ -539,6 +560,15 @@ impl OwnedBlock {
             }
             Self::Verbatim { .. } => Vec::new(),
         }
+    }
+
+    pub fn head_plain_text(&self) -> Option<String> {
+        let Self::Parsed { head, .. } = self else {
+            return None;
+        };
+        let mut output = String::new();
+        append_owned_plain_text(head, &mut output);
+        Some(output.trim().to_string())
     }
 
     pub fn retain_attributes(&mut self, mut predicate: impl FnMut(&OwnedAttribute) -> bool) {
@@ -839,6 +869,112 @@ pub fn own_green_block_paths(
     })
 }
 
+pub fn own_green_marked_block_groups(
+    document: &GreenDocument,
+    selection: Range<usize>,
+    markers: &[&str],
+) -> Result<Vec<GreenOwnedBlockGroup>, EditError> {
+    validate_range(document.source(), &selection)?;
+    struct Root<'a> {
+        parsed: &'a ParsedDocument,
+        block: &'a Block,
+        offset: usize,
+    }
+    let mut roots = Vec::new();
+    for shard in document.shards() {
+        let parsed = shard.shard().parsed();
+        roots.extend(parsed.syntax.blocks.iter().map(|block| Root {
+            parsed,
+            block,
+            offset: shard.offset(),
+        }));
+    }
+
+    let mut groups = Vec::new();
+    for (index, root) in roots.iter().enumerate() {
+        let next = roots
+            .get(index + 1)
+            .map(|next| (next.parsed, next.block, next.offset));
+        let mut candidates = Vec::new();
+        collect_green_marked_candidates(
+            root.parsed,
+            root.block,
+            next,
+            root.offset,
+            &selection,
+            markers,
+            &mut Vec::new(),
+            &mut candidates,
+        );
+        if !candidates.is_empty() {
+            groups.push(GreenOwnedBlockGroup {
+                range: root.block.range().start + root.offset..root.block.range().end + root.offset,
+                block: OwnedBlock::from_syntax(&root.parsed.source, root.block),
+                candidates,
+            });
+        }
+    }
+    Ok(groups)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_green_marked_candidates(
+    parsed: &ParsedDocument,
+    block: &Block,
+    next_sibling: Option<(&ParsedDocument, &Block, usize)>,
+    offset: usize,
+    selection: &Range<usize>,
+    markers: &[&str],
+    path: &mut Vec<usize>,
+    output: &mut Vec<GreenOwnedBlockCandidate>,
+) {
+    let Block::Parsed(block) = block else {
+        return;
+    };
+    let content_range = block.content.range.start + offset..block.content.range.end + offset;
+    if content_range.start < selection.end
+        && selection.start < content_range.end
+        && block
+            .mark
+            .as_ref()
+            .is_some_and(|mark| markers.iter().any(|marker| *marker == mark.marker.as_str()))
+    {
+        let next_sibling = next_sibling.and_then(|(parsed, sibling, offset)| {
+            let Block::Parsed(sibling) = sibling else {
+                return None;
+            };
+            Some(GreenOwnedSibling {
+                content_range: sibling.content.range.start + offset
+                    ..sibling.content.range.end + offset,
+                block: OwnedBlock::from_parsed(&parsed.source, sibling),
+            })
+        });
+        output.push(GreenOwnedBlockCandidate {
+            range: block.range.start + offset..block.range.end + offset,
+            content_range,
+            path: path.clone(),
+            next_sibling,
+        });
+    }
+    for (index, child) in block.children.iter().enumerate() {
+        path.push(index);
+        collect_green_marked_candidates(
+            parsed,
+            child,
+            block
+                .children
+                .get(index + 1)
+                .map(|next| (parsed, next, offset)),
+            offset,
+            selection,
+            markers,
+            path,
+            output,
+        );
+        path.pop();
+    }
+}
+
 pub fn own_deepest_green_marked_block(
     document: &GreenDocument,
     offset: usize,
@@ -858,6 +994,47 @@ pub fn own_deepest_green_marked_block(
     (previous.offset() != current.offset())
         .then(|| own_deepest_marked_in_shard(previous, offset, markers))
         .flatten()
+}
+
+pub fn next_green_sibling_block(
+    document: &GreenDocument,
+    range: Range<usize>,
+) -> Option<GreenOwnedBlockTarget> {
+    let location = green_block_location(document, &range).ok()?;
+    if location.path.is_empty() {
+        let mut found = false;
+        for shard in document.shards() {
+            let parsed = shard.shard().parsed();
+            for block in &parsed.syntax.blocks {
+                let absolute =
+                    block.range().start + shard.offset()..block.range().end + shard.offset();
+                if found {
+                    return Some(GreenOwnedBlockTarget {
+                        range: absolute,
+                        block: OwnedBlock::from_syntax(&parsed.source, block),
+                    });
+                }
+                found = absolute == range;
+            }
+        }
+        return None;
+    }
+
+    let (parsed, local, offset) = green_block_target(document, &range).ok()?;
+    for root in &parsed.syntax.blocks {
+        let Some(path) = block_path_with_range(root, &local) else {
+            continue;
+        };
+        let (&index, parent_path) = path.split_last()?;
+        let sibling = block_at_path(root, parent_path)?
+            .children()
+            .get(index + 1)?;
+        return Some(GreenOwnedBlockTarget {
+            range: sibling.range().start + offset..sibling.range().end + offset,
+            block: OwnedBlock::from_syntax(&parsed.source, sibling),
+        });
+    }
+    None
 }
 
 fn own_deepest_marked_in_shard(
@@ -1820,6 +1997,32 @@ fn render_owned_inlines(
 ) {
     for inline in inlines {
         render_owned_inline(inline, nested, continuation_indent, output, true);
+    }
+}
+
+fn append_owned_plain_text(inlines: &[OwnedInline], output: &mut String) {
+    for inline in inlines {
+        match inline {
+            OwnedInline::Text(text) | OwnedInline::Verbatim { text, .. } => output.push_str(text),
+            OwnedInline::Space(_) | OwnedInline::SoftBreak => output.push(' '),
+            OwnedInline::ArgumentSeparator => {}
+            OwnedInline::Element { members, .. } => {
+                for (index, member) in members.iter().enumerate() {
+                    if index > 0 {
+                        output.push(' ');
+                    }
+                    match member {
+                        OwnedInlineMember::ParsedArgument(argument) => {
+                            append_owned_plain_text(argument, output);
+                        }
+                        OwnedInlineMember::VerbatimArgument(argument) => output.push_str(argument),
+                        OwnedInlineMember::Child(child) => {
+                            append_owned_plain_text(std::slice::from_ref(child.as_ref()), output);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2824,6 +3027,36 @@ mod tests {
                 range: child.range.clone(),
                 block: OwnedBlock::from_parsed(source, child),
             }
+        );
+        let next = next_green_sibling_block(&green, child.range.clone()).unwrap();
+        assert_eq!(next.range, parent.children[1].range().clone());
+        assert_eq!(next.block.head_plain_text().as_deref(), Some("Two"));
+        let top_level_next =
+            next_green_sibling_block(&green, parsed.syntax.blocks[0].range().clone()).unwrap();
+        assert_eq!(top_level_next.range, parent.range);
+        let groups = own_green_marked_block_groups(
+            &green,
+            source.find("One").unwrap()..source.find("Two").unwrap() + "Two".len(),
+            &["a", "b"],
+        )
+        .unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].range, parent.range);
+        assert_eq!(
+            groups[0]
+                .candidates
+                .iter()
+                .map(|candidate| candidate.path.clone())
+                .collect::<Vec<_>>(),
+            vec![vec![0], vec![1]]
+        );
+        assert_eq!(
+            groups[0].candidates[0]
+                .next_sibling
+                .as_ref()
+                .and_then(|sibling| sibling.block.head_plain_text())
+                .as_deref(),
+            Some("Two")
         );
         assert_eq!(
             green_block_attribute_target(&green, source.find("One").unwrap()).unwrap(),

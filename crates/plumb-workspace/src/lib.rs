@@ -7,9 +7,9 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZon
 use plumb_edit::{
     align_green_block_arguments, append_green_blocks, green_block_attribute_target,
     insert_green_block_attribute, insert_green_child_blocks, insert_green_top_level_blocks_after,
-    move_green_block, own_green_block, prepend_green_blocks, remove_green_block,
-    replace_green_block, replace_owned_block, AttributePosition, EditError, OwnedAttribute,
-    OwnedBlock, OwnedInline,
+    move_green_block, next_green_sibling_block, own_deepest_green_marked_block, own_green_block,
+    own_green_marked_block_groups, prepend_green_blocks, remove_green_block, replace_green_block,
+    AttributePosition, EditError, OwnedAttribute, OwnedBlock, OwnedInline,
 };
 pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_semantics::{
@@ -25,9 +25,7 @@ use plumb_semantics::{
 use plumb_semantics::{
     EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext, TaskStatus,
 };
-use plumb_syntax::{
-    Block, Diagnostic, DiagnosticSeverity, GreenDocument, ParsedBlock, ParsedDocument,
-};
+use plumb_syntax::{Diagnostic, DiagnosticSeverity, GreenDocument, ParsedDocument};
 
 #[cfg(test)]
 fn parse(source: impl Into<String>) -> ParsedDocument {
@@ -833,19 +831,22 @@ impl Workspace {
         offset: usize,
     ) -> Option<DocumentMetadataTarget> {
         let entry = self.get(path)?;
-        entry.current.as_ref()?;
-        if let Some(range) = entry.parsed.syntax.blocks.iter().find_map(|block| {
-            let Block::Parsed(block) = block else {
-                return None;
-            };
-            let is_metadata = block.mark.as_ref().is_some_and(|mark| mark.marker == "=");
-            (is_metadata && block.range.start <= offset && offset < block.range.end)
-                .then(|| block.range.clone())
-        }) {
+        let metadata = entry
+            .current
+            .as_ref()?
+            .output
+            .metadata()
+            .metadata
+            .as_ref()?;
+        if let Some(range) = metadata
+            .entries
+            .iter()
+            .find(|metadata| metadata.range.start <= offset && offset < metadata.range.end)
+            .map(|metadata| metadata.range.clone())
+        {
             return Some(DocumentMetadataTarget { range });
         }
-        (offset == 0 && self.document_metadata(&entry.path).is_some())
-            .then_some(DocumentMetadataTarget { range: 0..0 })
+        (offset == 0).then_some(DocumentMetadataTarget { range: 0..0 })
     }
 
     pub fn reference_target_at(
@@ -2620,33 +2621,36 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.current.is_some())
             .ok_or(EventShorthandError::StaleOrInvalidDocument)?;
-        let item = deepest_list_item(&entry.parsed.syntax.blocks, offset)
+        let item = own_deepest_green_marked_block(entry.parsed.green(), offset, &["-", "."])
             .ok_or(EventShorthandError::ListItemNotFound)?;
-        let mark = item.mark.as_ref().expect("list item has a mark");
-        if mark.attrs.has_class("event") {
+        if item
+            .block
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, OwnedAttribute::Class(value) if value == "event"))
+        {
             return Err(EventShorthandError::EventAlreadyExists);
         }
         let current = entry.current.as_ref().expect("current output checked");
-        let next = next_parsed_sibling(&entry.parsed.syntax.blocks, &item.range);
-        let inferred_end = next.and_then(|next| {
-            inferred_end_from_sibling(entry.parsed.source(), next, now, &current.output.metadata())
+        let next = next_green_sibling_block(entry.parsed.green(), item.range.clone());
+        let inferred_end = next.as_ref().and_then(|next| {
+            inferred_end_from_owned_sibling(&next.block, now, &current.output.metadata())
         });
-        let (input, title_start) = parse_event_shorthand_head(
-            entry.parsed.source(),
-            item,
+        let input = parse_owned_event_shorthand_head(
+            &item.block,
             now,
             &current.output.metadata(),
             inferred_end,
         )?;
-        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), item);
+        let mut owned = item.block;
         owned.retain_attributes(
             |attribute| !matches!(attribute, OwnedAttribute::Class(value) if value == "event"),
         );
         owned.prepend_attribute(OwnedAttribute::class("event"));
-        strip_event_shorthand_prefix(&mut owned, title_start)?;
+        strip_event_shorthand_prefix(&mut owned)?;
         owned.extend_attributes(event_attributes(&input, &current.output.metadata()));
         prepend_event_schedule(&mut owned, &input);
-        let event_edit = replace_owned_block(&entry.parsed, item.range.clone(), &owned)
+        let event_edit = replace_green_block(entry.parsed.green(), item.range, &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, event_edit))
     }
@@ -2669,34 +2673,46 @@ impl Workspace {
             .expect("current output checked")
             .output
             .metadata();
+        let groups =
+            own_green_marked_block_groups(entry.parsed.green(), selection.clone(), &["-", "."])
+                .map_err(|_| EventShorthandError::StaleOrInvalidDocument)?;
         let mut edits = Vec::new();
         let mut converted = 0;
-        for (index, block) in entry.parsed.syntax.blocks.iter().enumerate() {
-            let Block::Parsed(parsed) = block else {
-                continue;
-            };
-            let next_sibling = entry
-                .parsed
-                .syntax
-                .blocks
-                .get(index + 1)
-                .and_then(parsed_block);
-            let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), parsed);
-            let count = convert_shorthands_in_block(
-                entry.parsed.source(),
-                parsed,
-                next_sibling,
-                &mut owned,
-                &selection,
-                now,
-                metadata,
-            );
-            if count == 0 {
+        for mut group in groups {
+            group
+                .candidates
+                .sort_by_key(|candidate| std::cmp::Reverse(candidate.path.len()));
+            let mut changed = false;
+            for candidate in group.candidates {
+                let inferred_end = candidate
+                    .next_sibling
+                    .as_ref()
+                    .filter(|next| {
+                        next.content_range.start < selection.end
+                            && selection.start < next.content_range.end
+                    })
+                    .and_then(|next| inferred_end_from_owned_sibling(&next.block, now, metadata));
+                let owned = owned_at_path_mut(&mut group.block, &candidate.path)
+                    .ok_or(EventShorthandError::GeneratedInvalid)?;
+                let Ok(input) =
+                    parse_owned_event_shorthand_head(owned, now, metadata, inferred_end)
+                else {
+                    continue;
+                };
+                if strip_event_shorthand_prefix(owned).is_err() {
+                    continue;
+                }
+                owned.prepend_attribute(OwnedAttribute::class("event"));
+                owned.extend_attributes(event_attributes(&input, metadata));
+                prepend_event_schedule(owned, &input);
+                converted += 1;
+                changed = true;
+            }
+            if !changed {
                 continue;
             }
-            converted += count;
             edits.push(
-                replace_owned_block(&entry.parsed, parsed.range.clone(), &owned)
+                replace_green_block(entry.parsed.green(), group.range, &group.block)
                     .map_err(|_| EventShorthandError::GeneratedInvalid)?,
             );
         }
@@ -3604,53 +3620,6 @@ impl Workspace {
     }
 }
 
-fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
-    let mut result = None;
-    for block in blocks {
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if block.range.start <= offset && offset <= block.range.end {
-            if block
-                .mark
-                .as_ref()
-                .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."))
-            {
-                result = Some(block);
-            }
-            if let Some(child) = deepest_list_item(&block.children, offset) {
-                result = Some(child);
-            }
-        }
-    }
-    result
-}
-
-fn parsed_block(block: &Block) -> Option<&ParsedBlock> {
-    match block {
-        Block::Parsed(block) => Some(block),
-        Block::Verbatim(_) => None,
-    }
-}
-
-fn next_parsed_sibling<'a>(
-    blocks: &'a [Block],
-    target: &std::ops::Range<usize>,
-) -> Option<&'a ParsedBlock> {
-    for (index, block) in blocks.iter().enumerate() {
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if &block.range == target {
-            return blocks.get(index + 1).and_then(parsed_block);
-        }
-        if block.range.start <= target.start && target.end <= block.range.end {
-            return next_parsed_sibling(&block.children, target);
-        }
-    }
-    None
-}
-
 fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) -> WorkspaceEdit {
     single_document_edits(entry, path, vec![edit])
 }
@@ -3810,49 +3779,55 @@ fn parse_event_shorthand_with_title_start(
     }
 }
 
-fn parse_event_shorthand_head(
-    source: &str,
-    syntax: &ParsedBlock,
+fn parse_owned_event_shorthand_head(
+    block: &OwnedBlock,
     now: DateTime<FixedOffset>,
     metadata: &MetadataOutput,
     inferred_end: Option<ShorthandStart>,
-) -> Result<(EventInput, usize), EventShorthandError> {
-    let content = syntax.content.trim_boundary_padding();
-    if content.is_empty() {
+) -> Result<EventInput, EventShorthandError> {
+    let OwnedBlock::Parsed { head, .. } = block else {
         return Err(EventShorthandError::InvalidShorthand);
-    }
-    let shorthand = &source[content.range.clone()];
-    let (mut input, title_start) =
-        parse_event_shorthand_with_title_start(shorthand, now, Some(metadata), inferred_end)?;
-    let plain = syntax.content.plain_text();
-    let title = plain
-        .get(title_start..)
-        .map(str::trim)
+    };
+    let Some(OwnedInline::Text(schedule)) = head.first() else {
+        return Err(EventShorthandError::InvalidShorthand);
+    };
+    let mut title = block.clone();
+    strip_event_shorthand_prefix(&mut title)?;
+    let title = title
+        .head_plain_text()
         .filter(|title| !title.is_empty())
         .ok_or(EventShorthandError::InvalidShorthand)?;
-    input.title = title.to_string();
-    Ok((input, title_start))
+    let shorthand = format!("{schedule} {title}");
+    let (mut input, _) =
+        parse_event_shorthand_with_title_start(&shorthand, now, Some(metadata), inferred_end)?;
+    input.title = title;
+    Ok(input)
 }
 
-fn inferred_end_from_sibling(
-    source: &str,
-    sibling: &ParsedBlock,
+fn inferred_end_from_owned_sibling(
+    sibling: &OwnedBlock,
     now: DateTime<FixedOffset>,
     metadata: &MetadataOutput,
 ) -> Option<ShorthandStart> {
-    let mark = sibling.mark.as_ref()?;
-    if !matches!(mark.marker.as_str(), "-" | ".") || mark.attrs.has_class("event") {
+    let OwnedBlock::Parsed { marker, head, .. } = sibling else {
+        return None;
+    };
+    if !matches!(marker.as_deref(), Some("-" | "."))
+        || sibling
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, OwnedAttribute::Class(value) if value == "event"))
+    {
         return None;
     }
-    let content = sibling.content.trim_boundary_padding();
-    let shorthand = &source[content.range.clone()];
-    let separator = shorthand
-        .char_indices()
-        .find_map(|(index, character)| matches!(character, ' ' | '\t').then_some(index))?;
-    if shorthand[separator..].trim().is_empty() {
+    let OwnedInline::Text(schedule) = head.first()? else {
+        return None;
+    };
+    let mut title = sibling.clone();
+    strip_event_shorthand_prefix(&mut title).ok()?;
+    if title.head_plain_text()?.is_empty() {
         return None;
     }
-    let schedule = &shorthand[..separator];
     let start = match schedule.split_once("--") {
         Some((start, end))
             if !start.is_empty()
@@ -3896,10 +3871,7 @@ fn shorthand_context(
     (date, offset)
 }
 
-fn strip_event_shorthand_prefix(
-    owned: &mut OwnedBlock,
-    _title_start: usize,
-) -> Result<(), EventShorthandError> {
+fn strip_event_shorthand_prefix(owned: &mut OwnedBlock) -> Result<(), EventShorthandError> {
     let OwnedBlock::Parsed { head, .. } = owned else {
         return Err(EventShorthandError::GeneratedInvalid);
     };
@@ -4005,62 +3977,6 @@ fn owned_event(input: &EventInput, metadata: &MetadataOutput) -> OwnedBlock {
     let mut event = OwnedBlock::marked("-", "").with_aligned_attributes(attributes);
     set_event_head(&mut event, input);
     event
-}
-
-fn convert_shorthands_in_block(
-    source: &str,
-    syntax: &ParsedBlock,
-    next_sibling: Option<&ParsedBlock>,
-    owned: &mut OwnedBlock,
-    selection: &std::ops::Range<usize>,
-    now: DateTime<FixedOffset>,
-    metadata: &MetadataOutput,
-) -> usize {
-    let mut converted = 0;
-    if let OwnedBlock::Parsed { children, .. } = owned {
-        for (index, (syntax_child, owned_child)) in syntax.children.iter().zip(children).enumerate()
-        {
-            let Block::Parsed(syntax_child) = syntax_child else {
-                continue;
-            };
-            let next_sibling = syntax.children.get(index + 1).and_then(parsed_block);
-            converted += convert_shorthands_in_block(
-                source,
-                syntax_child,
-                next_sibling,
-                owned_child,
-                selection,
-                now,
-                metadata,
-            );
-        }
-    }
-    if syntax.content.range.start < selection.end
-        && selection.start < syntax.content.range.end
-        && syntax
-            .mark
-            .as_ref()
-            .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."))
-    {
-        let inferred_end = next_sibling
-            .filter(|next| {
-                next.content.range.start < selection.end && selection.start < next.content.range.end
-            })
-            .and_then(|next| inferred_end_from_sibling(source, next, now, metadata));
-        if let Ok((input, title_start)) =
-            parse_event_shorthand_head(source, syntax, now, metadata, inferred_end)
-        {
-            if strip_event_shorthand_prefix(owned, title_start).is_err() {
-                return converted;
-            }
-            let attributes = event_attributes(&input, metadata);
-            owned.prepend_attribute(OwnedAttribute::class("event"));
-            owned.extend_attributes(attributes);
-            prepend_event_schedule(owned, &input);
-            converted += 1;
-        }
-    }
-    converted
 }
 
 fn compact_event_schedule(input: &EventInput) -> Result<(String, String, String), EventEditError> {

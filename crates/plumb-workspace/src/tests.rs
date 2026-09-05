@@ -692,7 +692,7 @@ fn invalid_green_revision_exposes_diagnostics_without_materializing() {
 
 #[test]
 fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
-    let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- Old task\n `+ task\n `@ task\n\n`- 09:00 Event\n `+ event\n\n`- Ordinary\n";
+    let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- Old task\n `+ task\n `@ task\n\n`- 09:00 Event\n `+ event\n\n`- Ordinary\n`- 10:00 Shorthand\n";
     let source = old.replace("Old task", "Task");
     let mut workspace = Workspace::new();
     workspace.insert("work.plumb", 1, old);
@@ -816,6 +816,17 @@ fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
         .unwrap();
     workspace
         .move_task("work.plumb", task.range.clone(), &TaskPlacement::default())
+        .unwrap();
+    let now = DateTime::parse_from_rfc3339("2026-09-05T08:00:00+08:00").unwrap();
+    let shorthand = source.find("Shorthand").unwrap();
+    workspace
+        .convert_event_shorthand("work.plumb", shorthand, now)
+        .unwrap();
+    workspace
+        .convert_event_shorthands("work.plumb", shorthand..source.len(), now)
+        .unwrap();
+    workspace
+        .document_metadata_target_at("work.plumb", source.find("date").unwrap())
         .unwrap();
 
     assert!(!workspace
