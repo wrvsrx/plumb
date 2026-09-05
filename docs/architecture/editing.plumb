@@ -4,9 +4,9 @@
 
 plumb-edit 是 valid strict syntax tree 上的 protocol-neutral mutation/finalization layer。它依赖 plumb-syntax 与
 plumb-format，不依赖 semantics、workspace、LSP 或 filesystem。LSP/CLI/Web/workspace adapters 传同一
-green/ParsedDocument revision 与 mutation intent，只翻译/apply returned byte edits。whole-document formatting接受
-GreenDocument authority；contained formatting与 structural mutation在迁移完成前仍可接受同 revision的 lazy
-ParsedDocument compatibility view。
+GreenDocument revision 与 mutation intent，只翻译/apply returned byte edits。whole-document/contained formatting、
+structural mutation与syntax-aware authoring均接受GreenDocument authority；workspace revision不提供implicit
+ParsedDocument compatibility view。standalone ParsedDocument入口只服务独立parser consumer与differential tests。
 
 adapter 不得直接调用 plumb-format、重复 parse 已有 revision、手算 indentation/delimiters 或拼 subtree text。
 raw token replacement 只用于 validated mechanical rename；structure changes 使用 owned syntax。

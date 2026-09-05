@@ -2,18 +2,6 @@
 
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在 `->{roadmap roadmap.plumb}；已经结束的任务及其验收记录保存在 `->{{completed tasks} completed-tasks.plumb}。
 
-`- Make green syntax the sole recovered representation
- `+ task
- `@ green-red-syntax-views
- `= created 2026-09-05T03:24:13+08:00
-
- Workspace revision已改为 GreenDocument authority与 lazy ParsedDocument compatibility cache；didChange、syntax
- diagnostics、ordinary incremental semantics、folding、completion及 document/range formatting不 materialize
- absolute tree。继续把 structural editing及剩余 syntax-aware operation inputs迁移到 typed red views，最终删除
- compatibility cache。保持 fresh/incremental lossless
- 与 diagnostic parity、deep-tree stack safety和 current editor behavior；acceptance继续要求 didOpen/didChange
- end-to-end benchmark无 common-path regression。
-
 `- Finish semantic reducer deltas and equality invalidation
  `+ task
  `@ green-semantic-reducers

@@ -8,6 +8,30 @@
 
 `# Core syntax
 
+`- Make green syntax the sole recovered representation
+ `+ task
+
+ `@ green-red-syntax-views
+
+ `= created 2026-09-05T03:24:13+08:00
+ `= done 2026-09-05T10:08:09+08:00
+
+ `note Workspace revision只保存 Arc<GreenDocument>与syntax diagnostics；删除lazy ParsedDocument cache及implicit
+
+ Deref。fresh/incremental semantics使用不可伪造ValidGreenDocument，metadata/heading document reducers与task pending
+ projection直接遍历shards；standalone ParsedDocument只保留为parser API与differential oracle。
+
+ `note Folding、completion、document/range formatting、metadata hover、task/event authoring、explicit id、argument
+
+ alignment、event shorthand selection、recurring clone及same/cross-root task move均使用green owner/path/transaction
+ APIs。workspace不计算shard offsets，也没有生产代码读取revision-wide absolute syntax。
+
+ `note Strict green materialization继续与fresh parser做property parity；fresh green semantics与完整profile逐项
+
+ differential覆盖metadata/definitions、heading sections、lists、tasks/events、tables、records和diagnostics。全workspace
+ all-target check/tests及Criterion smoke通过；33,512-record synchronous insert midpoint为415.92 ms，较前一基线改善约
+ 15.8%，ordinary incremental pipeline保持green node reuse。
+
 `- 实现 recursive owner syntax 与 member-envelope-v1 migration
  `+ task
 

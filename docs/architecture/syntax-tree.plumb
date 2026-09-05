@@ -118,11 +118,10 @@ ParsedDocument 的 source、tree、diagnostic order、validity、token kinds/ran
 
 `## 9.1 Production green/red target
 
-Status：phase 1 已实现。`"GreenDocument" 以 top-level source region 为 relative-range immutable shards，known
+Status：workspace green/red replacement已实现。`"GreenDocument" 以 top-level source region 为 relative-range immutable shards，known
 `"SourceChange" 直接构造 revision并复用 unchanged `"Arc<GreenShard>"；fresh/incremental property tests 证明
-materialized compatibility tree 与 strict fresh parse 相等。当前 `"ParsedDocument" 仍是多数 syntax/edit consumers
-使用的 eager absolute-range compatibility representation，green root 尚未成为唯一 authoritative storage；以下
-其余 contract 仍是 replacement boundary。
+explicit materialize projection与 strict fresh parse 相等。`"ParsedDocument" 仍是standalone strict parser API与
+differential oracle，但workspace revision只保存green root，不缓存或implicit Deref第二棵absolute-range tree。
 
 每个 syntax revision 以 immutable green root 为 authoritative recovered representation。green node/token 保存
 kind、children/source text 与 subtree byte length，range 相对该 subtree；不保存 parent、revision absolute offset 或
@@ -142,33 +141,30 @@ full-document flat mutable range graph。需要 source-ordered flat token stream
 
 `## 9.2 Workspace green authority transition
 
-Status：workspace green authority阶段已实现。workspace document revision以 `"Arc<GreenDocument>" 保存 source、validity、syntax diagnostics
-与 shard identity。旧 `"ParsedDocument" 只允许作为绑定该 revision的 lazy compatibility cache；format/edit及尚未
-迁移的 recovered query首次明确请求 absolute tree时可以 materialize一次，之后同 revision共享该 allocation。
-didChange source installation、syntax diagnostic publication、semantic pending判断与 ordinary green incremental
-document analysis不得触发 compatibility materialization。
+Status：workspace green authority阶段已实现。workspace document revision只以 `"Arc<GreenDocument>" 保存 source、validity、syntax diagnostics
+与 shard identity，不保存lazy `"ParsedDocument" cache且不实现到absolute tree的implicit Deref。format/edit、recovered
+queries、fresh/incremental semantics与authoring operations直接消费green/typed shard views。
 
-revision guard比较 workspace revision object identity，不比较 lazy cache是否已经初始化。相同 source rebind继续共享
-green root及已存在的 compatibility cache；不同 source必须建立新 revision。invalid green revision同样直接发布按
+revision guard比较 workspace revision object identity。相同 source rebind继续共享green root；不同 source必须建立
+新 revision。invalid green revision同样直接发布按
 current shard offsets投影的 syntax diagnostics，并保留 previous last-valid semantic output provenance。
 
-incremental semantics优先接收 current green revision、previous DocumentOutput与 shard-aligned old/new change。若 metadata、
-nonempty heading或其它 document reducer不能从 changed shards及 previous reducer state安全更新，可以仅在 blocking
-semantic worker内 materialize current compatibility tree并回退完整 reducer；该 fallback不能重新进入 LSP event loop
-的 didChange parse stage。fresh synchronous didOpen在所有 no-refresh editor requests完成 green/red迁移前仍允许建立
-compatibility tree。
+fresh/incremental semantics接收current valid green revision、previous DocumentOutput与可选shard-aligned old/new change。
+metadata、heading及其它document reducers直接遍历green shard views；metadata context变化可以重算local nodes，但不得
+materialize current compatibility tree。fresh synchronous didOpen仍同步生成完整semantic snapshot，但不建立absolute
+ParsedDocument。
 
 `"GreenDocument" 保存 invalid shard count；validity与 valid revision的 empty diagnostics projection为 O(1)，invalid
-revision才遍历 shards并投影 diagnostics。Workspace lifecycle tests必须证明 valid pending、ordinary incremental
-semantic worker与 invalid diagnostic publication均不初始化 compatibility cache。folding按 shard收集 block ranges并
+revision才遍历 shards并投影 diagnostics。Workspace lifecycle tests必须证明fresh/valid pending、ordinary incremental
+semantic worker与 invalid diagnostic publication只持有green revision。folding按 shard收集 block ranges并
 以 document reducer计算 heading sections；completion定位 cursor shard、运行同一 recovered query并平移 context
 ranges，bibliography fallback同样按 metadata shard投影。whole-document及 contained/range formatting由 plumb-edit
-调用 green formatter，跨 shard保持 sibling spacing/alignment并生成同一 edits。structural edits及少数 syntax-aware
-operations直接使用 typed red views仍未完成，属于 `"green-red-syntax-views" task的剩余范围。
+调用 green formatter，跨 shard保持 sibling spacing/alignment并生成同一 edits。structural edits、authoring queries与
+selection conversions通过plumb-edit的green owner/path/transaction views完成，不建立revision-wide absolute syntax。
 
 只消费 revision bytes 的 symbols、hover、semantic tokens、position conversion、Web与notes projection必须调用
-green-backed `"source()"，不能通过 compatibility ParsedDocument的 public field自动解引用。只有确实读取 typed
-absolute syntax/lossless tokens的 consumer可以初始化 lazy cache。
+green-backed `"source()"。需要flat absolute syntax/lossless tokens的standalone consumer显式调用materialize projection；
+workspace/adapters不得持有或缓存该 projection。
 
 `# 10. Lenient tree and identity
 

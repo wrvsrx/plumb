@@ -78,9 +78,10 @@ fresh-owned、green-shared还是 persistent projection。
 equality比较 observable typed views与 diagnostics，不比较 Arc allocation；debug/test metrics可以报告 reused child
 count，但 allocation address不是 record identity或 protocol data。
 
-fresh analysis先执行一次完整 profile，再按 syntax owner partition为同一种 SemanticRoot；transient full results不被
-保留为 compatibility authority。incremental analysis按 syntax identity与 metadata context key复用 SemanticNode，
-只重建 changed children与 document reducers。旧 absolute-range splice、`"GreenSemanticRevision"、eager
+fresh analysis直接逐 valid green shard执行 local analyzers，并由green metadata/heading及其它document reducers组合
+同一种SemanticRoot；不得先materialize完整absolute syntax、执行完整profile再partition transient results。
+incremental analysis按 syntax identity与 metadata context key复用 SemanticNode，只重建 changed children与document
+reducers。旧 absolute-range splice、`"GreenSemanticRevision"、eager
 `"GreenLocalOutput::materialize" 和 public field访问均已删除；workspace snapshot只保存一个
 `"Arc<DocumentOutput>"，对应 green syntax revision由该 output tree持有。
 
