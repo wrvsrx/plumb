@@ -70,7 +70,8 @@ list与definition adjacency、duplicate anchor ids与event-link containment。ro
 
 公开 consumer API 使用 typed collection/view：`"output.events()"、`"output.tasks()"、`"output.links()" 等返回
 source-ordered iterator与按 start查询；view把 child-relative range加 current child offset得到 absolute revision
-range，owned iterator只投影实际访问的 record。不得公开 mutable collection或要求 caller理解 storage 是
+range，exact-start single-record query返回typed borrowed view，不为查找clone preceding或matched records；需要
+ownership的iterator只投影实际访问的record。不得公开 mutable collection或要求 caller理解 storage 是
 fresh-owned、green-shared还是 persistent projection。
 
 需要 owned absolute records 的 SQLite publication、Pandoc lowering或 protocol response必须显式调用边界 projection，
