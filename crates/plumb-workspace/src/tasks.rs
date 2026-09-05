@@ -2,7 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset};
-use plumb_edit::{replace_owned_block, EditSession, OwnedAttribute, OwnedBlock};
+use plumb_edit::{
+    own_green_block, replace_green_block, replace_owned_block, EditSession, OwnedAttribute,
+    OwnedBlock,
+};
 use plumb_semantics::{
     analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
     TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
@@ -351,11 +354,10 @@ impl Workspace {
         if task.created.is_some() {
             return Err(TaskEditError::CreatedAlreadyExists);
         }
-        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
-            .ok_or(TaskEditError::TaskNotFound)?;
-        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), block);
+        let mut owned = own_green_block(entry.parsed.green(), task.range.clone())
+            .map_err(|_| TaskEditError::TaskNotFound)?;
         owned.push_attribute(OwnedAttribute::quoted("created", timestamp));
-        let edit = replace_owned_block(&entry.parsed, block.range.clone(), &owned)
+        let edit = replace_green_block(entry.parsed.green(), task.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
@@ -390,18 +392,11 @@ impl Workspace {
         {
             return Err(TaskEditError::TaskBlocked.into());
         }
-        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
-            .ok_or(TaskEditError::TaskNotFound)?;
-        if block.mark.is_none() {
-            return Err(TaskEditError::TaskNotFound.into());
-        }
-        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), block);
+        let mut owned = own_green_block(entry.parsed.green(), task.range.clone())
+            .map_err(|_| TaskEditError::TaskNotFound)?;
         owned.push_attribute(OwnedAttribute::quoted(status.attribute(), timestamp));
-        let mut edit = EditSession::new(&entry.parsed, block.range.clone())
+        let edit = replace_green_block(entry.parsed.green(), task.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        edit.replace_block(block.range.clone(), &owned)
-            .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path.to_path_buf(), edit))
     }
 
@@ -774,7 +769,20 @@ pub(super) fn updated_owned_task(
     input: &TaskAuthoringInput,
     timestamp: &str,
 ) -> OwnedBlock {
-    let mut owned = OwnedBlock::from_parsed(source, block);
+    update_owned_task(
+        OwnedBlock::from_parsed(source, block),
+        task,
+        input,
+        timestamp,
+    )
+}
+
+pub(super) fn update_owned_task(
+    mut owned: OwnedBlock,
+    task: &TaskRecord,
+    input: &TaskAuthoringInput,
+    timestamp: &str,
+) -> OwnedBlock {
     owned.set_head_text(&input.title);
     owned.retain_attributes(|attribute| {
         !matches!(attribute, OwnedAttribute::Pair { key, .. }

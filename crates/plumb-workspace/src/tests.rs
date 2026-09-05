@@ -691,6 +691,89 @@ fn invalid_green_revision_exposes_diagnostics_without_materializing() {
 }
 
 #[test]
+fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
+    let old =
+        "`= timezone +08:00\n\n`- Old task\n `+ task\n `@ task\n\n`- 09:00 Event\n `+ event\n";
+    let source = old.replace("Old task", "Task");
+    let mut workspace = Workspace::new();
+    workspace.insert("work.plumb", 1, old);
+    let pending = workspace
+        .begin_document_revision("work.plumb", 2, source)
+        .unwrap();
+    assert!(
+        !pending.parsed.is_materialized(),
+        "materialized during begin"
+    );
+    let prepared = pending.analyze();
+    assert!(
+        !prepared.parsed.is_materialized(),
+        "materialized during analysis"
+    );
+    assert!(workspace.install_document_analysis(prepared));
+    assert!(
+        !workspace
+            .get("work.plumb")
+            .unwrap()
+            .parsed
+            .is_materialized(),
+        "materialized during install"
+    );
+
+    let entry = workspace.get("work.plumb").unwrap();
+    let output = entry.current.as_ref().unwrap().output.clone();
+    assert!(
+        !entry.parsed.is_materialized(),
+        "materialized while reading output"
+    );
+    let task = output.tasks().tasks.get(0).unwrap().clone();
+    let event = output.events().events.get(0).unwrap().clone();
+    assert!(!entry.parsed.is_materialized());
+
+    workspace
+        .add_task_created("work.plumb", task.range.start, "2026-09-05T08:00:00+08:00")
+        .unwrap();
+    workspace
+        .set_task_status(
+            "work.plumb",
+            task.range.start,
+            TaskStatus::Done,
+            "2026-09-05T09:00:00+08:00",
+        )
+        .unwrap();
+    workspace
+        .update_task_patch(
+            "work.plumb",
+            task.range,
+            &TaskAuthoringPatch {
+                title: Some("Updated task".to_string()),
+                ..TaskAuthoringPatch::default()
+            },
+            "2026-09-05T09:00:00+08:00",
+        )
+        .unwrap();
+    workspace
+        .update_event(
+            "work.plumb",
+            event.range.clone(),
+            &EventInput {
+                title: "Updated event".to_string(),
+                at: Some("2026-09-05T10:00:00+08:00".to_string()),
+                start: None,
+                end: None,
+                tasks: Vec::new(),
+            },
+        )
+        .unwrap();
+    workspace.delete_event("work.plumb", event.range).unwrap();
+
+    assert!(!workspace
+        .get("work.plumb")
+        .unwrap()
+        .parsed
+        .is_materialized());
+}
+
+#[test]
 fn pending_and_invalid_open_revisions_do_not_fall_back_to_disk_semantics() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store);

@@ -669,6 +669,50 @@ pub fn replace_owned_block(
     replace_owned_blocks(parsed, range, std::slice::from_ref(block))
 }
 
+pub fn own_green_block(
+    document: &GreenDocument,
+    range: Range<usize>,
+) -> Result<OwnedBlock, EditError> {
+    let (parsed, local, _) = green_block_target(document, &range)?;
+    let block = block_with_range(&parsed.syntax.blocks, &local).ok_or(EditError::InvalidRange)?;
+    Ok(OwnedBlock::from_syntax(&parsed.source, block))
+}
+
+pub fn replace_green_block(
+    document: &GreenDocument,
+    range: Range<usize>,
+    block: &OwnedBlock,
+) -> Result<TextEdit, EditError> {
+    replace_green_blocks(document, range, std::slice::from_ref(block))
+}
+
+pub fn replace_green_blocks(
+    document: &GreenDocument,
+    range: Range<usize>,
+    blocks: &[OwnedBlock],
+) -> Result<TextEdit, EditError> {
+    let (parsed, local, offset) = green_block_target(document, &range)?;
+    let mut edit = replace_owned_blocks(parsed, local, blocks)?;
+    edit.range.start += offset;
+    edit.range.end += offset;
+    Ok(edit)
+}
+
+fn green_block_target<'a>(
+    document: &'a GreenDocument,
+    range: &Range<usize>,
+) -> Result<(&'a ParsedDocument, Range<usize>, usize), EditError> {
+    validate_range(document.source(), range)?;
+    let shard = document
+        .shard_at(range.start)
+        .ok_or(EditError::InvalidRange)?;
+    if range.end > shard.range().end {
+        return Err(EditError::InvalidRange);
+    }
+    let local = range.start - shard.offset()..range.end - shard.offset();
+    Ok((shard.shard().parsed(), local, shard.offset()))
+}
+
 pub fn replace_owned_blocks(
     parsed: &ParsedDocument,
     range: Range<usize>,
@@ -829,6 +873,17 @@ pub fn remove_block(parsed: &ParsedDocument, range: Range<usize>) -> Result<Text
     let mut edit = EditSession::new(parsed, range.clone())?;
     edit.remove_block(range)?;
     edit.finish()
+}
+
+pub fn remove_green_block(
+    document: &GreenDocument,
+    range: Range<usize>,
+) -> Result<TextEdit, EditError> {
+    let (parsed, local, offset) = green_block_target(document, &range)?;
+    let mut edit = remove_block(parsed, local)?;
+    edit.range.start += offset;
+    edit.range.end += offset;
+    Ok(edit)
 }
 
 impl OwnedInline {
@@ -1376,6 +1431,18 @@ fn has_block_range(blocks: &[Block], target: &Range<usize>) -> bool {
     blocks
         .iter()
         .any(|block| block.range() == target || has_block_range(block.children(), target))
+}
+
+fn block_with_range<'a>(blocks: &'a [Block], target: &Range<usize>) -> Option<&'a Block> {
+    for block in blocks {
+        if block.range() == target {
+            return Some(block);
+        }
+        if let Some(found) = block_with_range(block.children(), target) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn parsed_block_with_range<'a>(
@@ -2048,6 +2115,40 @@ mod tests {
                 FormatScope::ContainedBlocks(0..usize::MAX)
             ),
             Err(EditError::InvalidRange)
+        );
+    }
+
+    #[test]
+    fn green_block_ownership_and_replacement_match_materialized_edits() {
+        let source = "Prelude\n\n`- Task\n `+ task\n `@ task\n\n`note After\n";
+        let parsed = parse(source);
+        let green = GreenDocument::parse(source);
+        let Block::Parsed(task) = &parsed.syntax.blocks[1] else {
+            panic!("task is parsed")
+        };
+        let mut expected = OwnedBlock::from_parsed(source, task);
+        assert_eq!(
+            own_green_block(&green, task.range.clone()).unwrap(),
+            expected
+        );
+        expected.push_attribute(OwnedAttribute::quoted("done", "2026-09-05T12:00:00Z"));
+        assert_eq!(
+            replace_green_block(&green, task.range.clone(), &expected).unwrap(),
+            replace_owned_block(&parsed, task.range.clone(), &expected).unwrap()
+        );
+        assert_eq!(
+            replace_green_blocks(
+                &green,
+                task.range.clone(),
+                &[expected.clone(), expected.clone()],
+            )
+            .unwrap(),
+            replace_owned_blocks(&parsed, task.range.clone(), &[expected.clone(), expected])
+                .unwrap()
+        );
+        assert_eq!(
+            remove_green_block(&green, task.range.clone()).unwrap(),
+            remove_block(&parsed, task.range.clone()).unwrap()
         );
     }
 

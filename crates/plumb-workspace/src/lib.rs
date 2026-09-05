@@ -6,8 +6,9 @@ use std::sync::{Arc, OnceLock};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Timelike};
 pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_edit::{
-    remove_block as remove_syntax_block, replace_owned_block, replace_owned_blocks,
-    AttributePosition, EditSession, OwnedAttribute, OwnedBlock, OwnedInline,
+    own_green_block, remove_block as remove_syntax_block, remove_green_block, replace_green_block,
+    replace_owned_block, replace_owned_blocks, AttributePosition, EditSession, OwnedAttribute,
+    OwnedBlock, OwnedInline,
 };
 use plumb_semantics::{
     analyze_document, analyze_document_incremental, analyze_green_document,
@@ -82,8 +83,8 @@ pub use task_sort::{
 };
 use tasks::{
     adjust_path_after_removal, block_index_path, child_insertion_index, owned_at_path_mut,
-    owned_authored_task, remove_owned_at_path, remove_owned_descendant, updated_owned_task,
-    validate_task_authoring_input, TaskTargetResolution,
+    owned_authored_task, remove_owned_at_path, remove_owned_descendant, update_owned_task,
+    updated_owned_task, validate_task_authoring_input, TaskTargetResolution,
 };
 pub use tasks::{ResolvedTaskDependency, TaskEditError, TaskRef};
 
@@ -2947,10 +2948,10 @@ impl Workspace {
             task.id.as_ref().map(|id| id.value.as_str()),
             &input,
         )?;
-        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
-            .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let owned = updated_owned_task(entry.parsed.source(), block, &task, &input, timestamp);
-        let edit = replace_owned_block(&entry.parsed, task.range.clone(), &owned)
+        let owned = own_green_block(entry.parsed.green(), task.range.clone())
+            .map_err(|_| TaskAuthoringError::TaskNotFound)?;
+        let owned = update_owned_task(owned, &task, &input, timestamp);
+        let edit = replace_green_block(entry.parsed.green(), task.range.clone(), &owned)
             .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
@@ -3216,20 +3217,14 @@ impl Workspace {
             .iter()
             .find(|event| event.range == event_range)
             .ok_or(EventEditError::EventNotFound)?;
-        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &event.range)
-            .ok_or(EventEditError::EventNotFound)?;
-        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), block);
+        let mut owned = own_green_block(entry.parsed.green(), event.range.clone())
+            .map_err(|_| EventEditError::EventNotFound)?;
         set_event_head(&mut owned, input);
         owned.retain_attributes(|attribute| {
             !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "date" | "timezone" | "at" | "start" | "end" | "tasks"))
         });
         owned.extend_attributes(event_attributes(input, &current.output.metadata()));
-        let mut edit = EditSession::new(&entry.parsed, event.range.clone())
-            .map_err(|_| EventEditError::GeneratedInvalid)?;
-        edit.replace_block(event.range.clone(), &owned)
-            .map_err(|_| EventEditError::GeneratedInvalid)?;
-        let edit = edit
-            .finish()
+        let edit = replace_green_block(entry.parsed.green(), event.range.clone(), &owned)
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
@@ -3255,12 +3250,7 @@ impl Workspace {
             .iter()
             .find(|event| event.range == event_range)
             .ok_or(EventEditError::EventNotFound)?;
-        let mut edit = EditSession::new(&entry.parsed, event.range.clone())
-            .map_err(|_| EventEditError::GeneratedInvalid)?;
-        edit.remove_block(event.range.clone())
-            .map_err(|_| EventEditError::GeneratedInvalid)?;
-        let edit = edit
-            .finish()
+        let edit = remove_green_block(entry.parsed.green(), event.range.clone())
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
