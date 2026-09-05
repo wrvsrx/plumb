@@ -732,6 +732,37 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     group.bench_function("diagnostic_incremental_semantic_tree", |b| {
         b.iter(|| black_box(diagnostic_pending.clone().analyze()))
     });
+    let mut root_diagnostic_source = String::new();
+    for index in 0..10_000 {
+        root_diagnostic_source.push_str(&format!(
+            "Invalid {index}: `->\"https://example.test/bad path\"\n\n"
+        ));
+    }
+    let mut root_diagnostic_workspace = Workspace::new();
+    root_diagnostic_workspace.insert(
+        "root-diagnostics.plumb",
+        1,
+        root_diagnostic_source.clone(),
+    );
+    let root_diagnostic_start = root_diagnostic_source.find("Invalid 5000").unwrap();
+    let root_diagnostic_changed =
+        root_diagnostic_source.replacen("Invalid 5000", "Changed invalid 5000", 1);
+    let root_diagnostic_pending = root_diagnostic_workspace
+        .begin_document_revision_with_change(
+            "root-diagnostics.plumb",
+            2,
+            root_diagnostic_changed,
+            Some(SourceChange {
+                old_range: root_diagnostic_start
+                    ..root_diagnostic_start + "Invalid 5000".len(),
+                new_range: root_diagnostic_start
+                    ..root_diagnostic_start + "Changed invalid 5000".len(),
+            }),
+        )
+        .unwrap();
+    group.bench_function("root_diagnostic_incremental_semantic_tree", |b| {
+        b.iter(|| black_box(root_diagnostic_pending.clone().analyze()))
+    });
     let completion_cursor = source.find("Event 16756").unwrap() + "Event 16756".len();
     let completion_green = previous_workspace
         .get("events.plumb")

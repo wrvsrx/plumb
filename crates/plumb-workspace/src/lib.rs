@@ -1914,7 +1914,7 @@ impl Workspace {
         diagnostics.extend(current.output.math().diagnostics.iter());
         diagnostics.extend(current.output.tasks().diagnostics.iter());
         diagnostics.extend(current.output.events().diagnostics.iter());
-        diagnostics.extend(current.output.diagnostics().iter().cloned());
+        diagnostics.extend(current.output.diagnostics().iter());
         for link in current.output.links() {
             let (code, message) = match self.resolve_link_value(&path, &link)? {
                 ResolvedTarget::UnresolvedPath { path } => (

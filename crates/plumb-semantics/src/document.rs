@@ -200,7 +200,7 @@ pub struct SemanticRoot {
     first_link_start: Option<usize>,
     pub(crate) images: SemanticRecords<ImageRecord>,
     pub(crate) files: SemanticRecords<FileRecord>,
-    pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) diagnostics: SemanticDiagnostics,
 }
 
 #[derive(Debug, Clone)]
@@ -252,7 +252,7 @@ pub(crate) struct SemanticNodeOutput {
     lists: ListOutput,
     tables: TableOutput,
     records: RecordOutput,
-    association_diagnostics: Vec<Diagnostic>,
+    root_diagnostics: SemanticDiagnostics,
 }
 
 #[derive(Default)]
@@ -285,8 +285,7 @@ struct RootProjectionIndex {
     task_diagnostics: DiagnosticProjectionIndex,
     event_diagnostics: DiagnosticProjectionIndex,
     table_diagnostics: DiagnosticProjectionIndex,
-    record_diagnostics: Vec<Diagnostic>,
-    association_diagnostics: Vec<Diagnostic>,
+    root_diagnostics: DiagnosticProjectionIndex,
 }
 
 impl Default for SemanticRoot {
@@ -310,7 +309,7 @@ impl Default for SemanticRoot {
             first_link_start: None,
             images: SemanticRecords::default(),
             files: SemanticRecords::default(),
-            diagnostics: Vec::new(),
+            diagnostics: SemanticDiagnostics::default(),
         }
     }
 }
@@ -439,7 +438,7 @@ impl DocumentOutput {
         &self.root.files
     }
 
-    pub fn diagnostics(&self) -> &[Diagnostic] {
+    pub fn diagnostics(&self) -> &SemanticDiagnostics {
         &self.root.diagnostics
     }
 
@@ -597,8 +596,7 @@ fn analyze_semantic_tree(
     let same_node_count = previous_nodes.is_some_and(|nodes| nodes.len() == reusable_nodes.len());
     let mut records_rebindable = same_node_count;
     let mut diagnostics_rebindable = same_node_count;
-    let mut root_diagnostics_stay_empty =
-        same_node_count && previous.is_some_and(|previous| previous.root.diagnostics.is_empty());
+    let mut root_diagnostics_rebindable = same_node_count;
     let mut anchor_ids_rebindable = same_node_count
         && previous.is_some_and(|previous| {
             !previous
@@ -635,6 +633,16 @@ fn analyze_semantic_tree(
                         .valid_syntax()
                         .expect("valid green document has valid shards");
                     let local_headings = analyze_headings(local);
+                    let tables = analyze_tables(local);
+                    let mut records =
+                        collect_document_records(local.source(), local.syntax(), &local_headings);
+                    let record_diagnostics = std::mem::take(&mut records.diagnostics);
+                    let association_diagnostics = association_arity_diagnostics(local.syntax());
+                    let root_diagnostics = local_root_diagnostics(
+                        &record_diagnostics,
+                        &association_diagnostics,
+                        &tables.diagnostics,
+                    );
                     Arc::new(SemanticNodeOutput {
                         headings: local_headings.clone(),
                         citations: analyze_citations(local),
@@ -644,13 +652,9 @@ fn analyze_semantic_tree(
                         tasks: analyze_tasks(local),
                         events: analyze_events(local, &metadata),
                         lists: analyze_lists(local),
-                        tables: analyze_tables(local),
-                        records: collect_document_records(
-                            local.source(),
-                            local.syntax(),
-                            &local_headings,
-                        ),
-                        association_diagnostics: association_arity_diagnostics(local.syntax()),
+                        tables,
+                        records,
+                        root_diagnostics,
                     })
                 });
             if let Some(previous_node) = previous_nodes.and_then(|nodes| nodes.get(node_index)) {
@@ -659,10 +663,8 @@ fn analyze_semantic_tree(
                     exact_reuse || same_record_counts(&previous_node.output, &output);
                 diagnostics_rebindable &=
                     exact_reuse || same_diagnostic_counts(&previous_node.output, &output);
-                root_diagnostics_stay_empty &= exact_reuse
-                    || (output.records.diagnostics.is_empty()
-                        && output.association_diagnostics.is_empty()
-                        && output.tables.diagnostics.is_empty());
+                root_diagnostics_rebindable &= exact_reuse
+                    || previous_node.output.root_diagnostics.len() == output.root_diagnostics.len();
                 anchor_ids_rebindable &= exact_reuse
                     || previous_node
                         .output
@@ -679,7 +681,7 @@ fn analyze_semantic_tree(
             } else {
                 records_rebindable = false;
                 diagnostics_rebindable = false;
-                root_diagnostics_stay_empty = false;
+                root_diagnostics_rebindable = false;
                 anchor_ids_rebindable = false;
                 lists_rebindable = false;
                 heading_topology_rebindable = false;
@@ -712,12 +714,17 @@ fn analyze_semantic_tree(
     );
     let record_projection_source = previous.filter(|_| records_rebindable);
     let diagnostic_projection_source = previous.filter(|_| diagnostics_rebindable);
-    let mut projections =
-        if records_rebindable && diagnostics_rebindable && root_diagnostics_stay_empty {
-            RootProjectionIndex::default()
-        } else {
-            RootProjectionIndex::build(&nodes)
-        };
+    let root_diagnostic_projection_source = previous.filter(|previous| {
+        root_diagnostics_rebindable && previous.root.diagnostics.is_tree_rebindable()
+    });
+    let mut projections = if records_rebindable
+        && diagnostics_rebindable
+        && root_diagnostic_projection_source.is_some()
+    {
+        RootProjectionIndex::default()
+    } else {
+        RootProjectionIndex::build(&nodes)
+    };
     let tree = Arc::new(SemanticTree {
         syntax,
         nodes,
@@ -835,34 +842,35 @@ fn analyze_semantic_tree(
         |output| &output.records.files,
     );
     let first_link_start = links.first().map(|link| link.range.start);
-    let mut record_diagnostics = std::mem::take(&mut projections.record_diagnostics);
-    record_diagnostics.retain(|diagnostic| diagnostic.code != "anchor.duplicate-id");
-    let duplicate_ids_still_absent = anchor_ids_rebindable;
-    if !duplicate_ids_still_absent {
+    let local_root_diagnostics = projected_diagnostics(
+        &tree,
+        root_diagnostic_projection_source.map(|previous| &previous.root.diagnostics),
+        std::mem::take(&mut projections.root_diagnostics),
+        |output| &output.root_diagnostics,
+    );
+    let mut duplicate_anchor_diagnostics = Vec::new();
+    if !anchor_ids_rebindable {
         let absolute_anchors = anchors.iter().collect::<Vec<_>>();
-        append_duplicate_anchor_diagnostics(&absolute_anchors, &mut record_diagnostics);
+        append_duplicate_anchor_diagnostics(&absolute_anchors, &mut duplicate_anchor_diagnostics);
     }
-    record_diagnostics.sort_by_key(|diagnostic| {
-        (
-            diagnostic.range.start,
-            diagnostic.range.end,
-            diagnostic.code,
-        )
-    });
     let lists = previous
         .filter(|_| lists_rebindable)
         .and_then(|previous| rebind_lists(previous.lists(), &tree))
         .unwrap_or_else(|| reduce_lists(&tree));
-    let mut diagnostics = std::mem::take(&mut projections.association_diagnostics);
-    diagnostics.extend(record_diagnostics.iter().cloned());
-    diagnostics.extend(tables.diagnostics.iter());
-    diagnostics.sort_by_key(|diagnostic| {
-        (
-            diagnostic.range.start,
-            diagnostic.range.end,
-            diagnostic.code,
-        )
-    });
+    let diagnostics = if duplicate_anchor_diagnostics.is_empty() {
+        local_root_diagnostics
+    } else {
+        let mut diagnostics = local_root_diagnostics.to_vec();
+        diagnostics.append(&mut duplicate_anchor_diagnostics);
+        diagnostics.sort_by_key(|diagnostic| {
+            (
+                diagnostic.range.start,
+                diagnostic.range.end,
+                diagnostic.code,
+            )
+        });
+        SemanticDiagnostics::from_owned(diagnostics)
+    };
 
     Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
@@ -1061,38 +1069,12 @@ impl RootProjectionIndex {
             output
                 .table_diagnostics
                 .add(index, local.tables.diagnostics.len());
-            append_projected_diagnostics(
-                &mut output.record_diagnostics,
-                &local.records.diagnostics,
-                node.offset,
-            );
-            append_projected_diagnostics(
-                &mut output.association_diagnostics,
-                &local.association_diagnostics,
-                node.offset,
-            );
-        }
-        for diagnostics in [
-            &mut output.record_diagnostics,
-            &mut output.association_diagnostics,
-        ] {
-            diagnostics.sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.range.end));
+            output
+                .root_diagnostics
+                .add(index, local.root_diagnostics.len());
         }
         output
     }
-}
-
-fn append_projected_diagnostics(
-    output: &mut Vec<Diagnostic>,
-    diagnostics: &[Diagnostic],
-    offset: usize,
-) {
-    if diagnostics.is_empty() {
-        return;
-    }
-    let start = output.len();
-    output.extend_from_slice(diagnostics);
-    shift_diagnostics(&mut output[start..], offset as isize);
 }
 
 fn projected_records<T: RelativeSemanticRecord>(
@@ -1323,7 +1305,8 @@ fn collect_document_records(
     output.headings = headings.clone();
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
-    output.diagnostics.sort_by_key(|diagnostic| {
+    let mut diagnostics = output.diagnostics.to_vec();
+    diagnostics.sort_by_key(|diagnostic| {
         (
             diagnostic.range.start,
             diagnostic.range.end,
@@ -1335,8 +1318,31 @@ fn collect_document_records(
         links: output.links,
         images: output.images,
         files: output.files,
-        diagnostics: output.diagnostics,
+        diagnostics,
     }
+}
+
+fn local_root_diagnostics(
+    record_diagnostics: &[Diagnostic],
+    association_diagnostics: &[Diagnostic],
+    table_diagnostics: &SemanticDiagnostics,
+) -> SemanticDiagnostics {
+    let mut diagnostics = association_diagnostics.to_vec();
+    diagnostics.extend(
+        record_diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code != "anchor.duplicate-id")
+            .cloned(),
+    );
+    diagnostics.extend(table_diagnostics.iter());
+    diagnostics.sort_by_key(|diagnostic| {
+        (
+            diagnostic.range.start,
+            diagnostic.range.end,
+            diagnostic.code,
+        )
+    });
+    SemanticDiagnostics::from_owned(diagnostics)
 }
 
 fn append_duplicate_anchor_diagnostics(
@@ -1363,15 +1369,6 @@ fn shift_source_backed(value: &mut SourceBacked<String>, delta: isize) {
     shift_range(&mut value.range, delta);
     for boundary in &mut value.decoded_boundaries {
         *boundary = boundary.checked_add_signed(delta).unwrap();
-    }
-}
-
-fn shift_diagnostics(diagnostics: &mut [Diagnostic], delta: isize) {
-    for diagnostic in diagnostics {
-        shift_range(&mut diagnostic.range, delta);
-        for related in &mut diagnostic.related {
-            shift_range(related, delta);
-        }
     }
 }
 
@@ -2290,7 +2287,7 @@ mod tests {
         assert_eq!(output.links(), &records.links);
         assert_eq!(output.images(), &records.images);
         assert_eq!(output.files(), &records.files);
-        assert_eq!(output.diagnostics(), diagnostics);
+        assert_eq!(output.diagnostics().to_vec(), diagnostics);
     }
 
     #[test]
@@ -2556,6 +2553,72 @@ mod tests {
             .diagnostics
             .shares_segment_topology(&previous_output.tasks().diagnostics));
         assert_eq!(incremental.tasks().diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn semantic_tree_reuses_stable_root_diagnostic_topology() {
+        let old =
+            "`->\"https://example.test/bad path\"\n\n`->\"https://example.test/other bad path\"\n";
+        let new = old.replacen("bad path", "worse path", 1);
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let start = old.find("bad path").unwrap();
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: start..start + "bad path".len(),
+                new_range: start..start + "worse path".len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert!(incremental
+            .diagnostics()
+            .shares_segment_topology(previous_output.diagnostics()));
+        assert_eq!(incremental.diagnostics().len(), 2);
+    }
+
+    #[test]
+    fn semantic_tree_rebuilds_duplicate_anchor_overlay_on_identity_changes() {
+        let unique = "`node One\n `@ one\n\n`node Two\n `@ two\n";
+        let duplicate = unique.replace("`@ two", "`@ one");
+        let previous = parse(unique);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&duplicate);
+        let start = unique.rfind("two").unwrap();
+        let with_duplicate = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: start..start + "two".len(),
+                new_range: start..start + "one".len(),
+            },
+        );
+        let fresh_duplicate = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(with_duplicate, fresh_duplicate);
+        assert_eq!(with_duplicate.diagnostics().len(), 1);
+        assert_eq!(
+            with_duplicate.diagnostics().get(0).unwrap().code,
+            "anchor.duplicate-id"
+        );
+
+        let restored = parse(unique);
+        let without_duplicate = analyze_document_incremental(
+            restored.valid_syntax().unwrap(),
+            &with_duplicate,
+            &DocumentChange {
+                old_range: start..start + "one".len(),
+                new_range: start..start + "two".len(),
+            },
+        );
+        let fresh_unique = analyze_document(restored.valid_syntax().unwrap());
+
+        assert_eq!(without_duplicate, fresh_unique);
+        assert!(without_duplicate.diagnostics().is_empty());
     }
 
     #[test]
@@ -2942,6 +3005,9 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        assert_eq!(output.diagnostics[0].code, "anchor.duplicate-id");
+        assert_eq!(
+            output.diagnostics.get(0).unwrap().code,
+            "anchor.duplicate-id"
+        );
     }
 }

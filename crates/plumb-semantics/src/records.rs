@@ -171,6 +171,16 @@ impl SemanticDiagnostics {
         }
     }
 
+    pub(crate) fn from_owned(diagnostics: Vec<Diagnostic>) -> Self {
+        if diagnostics.is_empty() {
+            Self::default()
+        } else {
+            Self {
+                storage: DiagnosticStorage::Owned(Arc::new(diagnostics)),
+            }
+        }
+    }
+
     pub(crate) fn rebind_tree(&self, tree: Arc<SemanticTree>) -> Option<Self> {
         match &self.storage {
             DiagnosticStorage::Empty => Some(Self::default()),
@@ -184,6 +194,13 @@ impl SemanticDiagnostics {
             }),
             DiagnosticStorage::Owned(_) => None,
         }
+    }
+
+    pub(crate) fn is_tree_rebindable(&self) -> bool {
+        matches!(
+            self.storage,
+            DiagnosticStorage::Empty | DiagnosticStorage::Segmented(_)
+        )
     }
 
     #[cfg(test)]
