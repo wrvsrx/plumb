@@ -10,8 +10,9 @@
  Tree-based DocumentOutput、relative semantic shards、typed segmented collections、linear node splice与list span
  reducer已完成。Stable record topology现共享Arc node-index segments并O(1) rebind current SemanticTree；projection、
  anchor-id与list delta在node construction中单次累计。33,512-record incremental semantic tree为2.48 ms，完整
- revision pipeline为4.13 ms。继续把 nonempty heading hierarchy/section ends及带 diagnostics revision的 reducer state
- 改为 persistent/chunked delta，并把 query hot path中剩余的 owned single-record projections替换为borrowed typed views。
+ revision pipeline为4.13 ms。Nonempty heading facts现存于local nodes，稳定count/level topology共享Arc heading-node
+ index；10,000-heading body edit的semantic tree为2.75 ms。继续把带 diagnostics revision的 reducer state改为
+ persistent/chunked delta，并把 query hot path中剩余的 owned single-record projections替换为borrowed typed views。
  发布 added/changed/removed exported summaries，使纯
  layout或 semantic-equal edits不 invalidate无关 workspace dependency computations；differential tests覆盖
  semantic-analysis中尚未验收的 reducer delta规则。
