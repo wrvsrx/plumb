@@ -93,7 +93,13 @@ duplicate key 使用 first value并诊断。title 必须 scalar；created 是完
 RFC 3339，timezone 是 numeric UTC offset。
 
 metadata insertion 只在 valid document、document 尚无 metadata 且 cursor byte offset 0 提供。title 取 filename
-stem，created 取 operation local RFC 3339；通过 plumb-edit 生成 current space-separated properties。
+stem，created 取 operation local RFC 3339；通过 plumb-edit 生成 current space-separated properties。生成的
+leaf property 保持 first-rest shape：key 是 first element，scalar value 是 ungrouped remaining element
+sequence；filename stem 中的 spaces 不引入 anonymous Group。例如 `"Project Guide.plumb" 生成：
+
+`plumb"
+ `= title   Project Guide
+ `= created 2026-09-02T09:00:00+08:00
 
 `# 6. Links
 
