@@ -11,8 +11,9 @@
  reducer已完成。Stable record topology现共享Arc node-index segments并O(1) rebind current SemanticTree；projection、
  anchor-id与list delta在node construction中单次累计。33,512-record incremental semantic tree为2.48 ms，完整
  revision pipeline为4.13 ms。Nonempty heading facts现存于local nodes，稳定count/level topology共享Arc heading-node
- index；10,000-heading body edit的semantic tree为2.75 ms。继续把带 diagnostics revision的 reducer state改为
- persistent/chunked delta，并把 query hot path中剩余的 owned single-record projections替换为borrowed typed views。
- 发布 added/changed/removed exported summaries，使纯
- layout或 semantic-equal edits不 invalidate无关 workspace dependency computations；differential tests覆盖
- semantic-analysis中尚未验收的 reducer delta规则。
+ index；10,000-heading body edit的semantic tree为2.75 ms。Analyzer与root aggregate diagnostics现使用segmented
+ projection；query-hot exact-start lookup返回borrowed typed view，2,000-record export从约921 ms降至88.5 ms。
+ Document exported-summary equality现阻止semantic-equal edit重建dependency context或刷新dependent diagnostics、
+ CodeLens与Folding；10,000-task benchmark从无条件27.55 ms降至guarded 4.58 us。剩余工作是重新计算的local summary
+ 相等时停止document reducer传播，并发布added/changed/removed record identities；differential tests继续覆盖
+ semantic-analysis中尚未验收的reducer delta规则。
