@@ -4352,8 +4352,6 @@ fn dependency_cycle_contains(graph: &HashMap<TaskRef, Vec<TaskRef>>, start: &Tas
 }
 
 struct RecurringTaskCloneContext<'a> {
-    tasks: &'a [TaskRecord],
-    root: &'a TaskRecord,
     next_id: &'a str,
     timestamp: &'a str,
     next_due: &'a str,
@@ -4364,34 +4362,28 @@ struct RecurringTaskCloneContext<'a> {
 
 fn prepare_recurring_task_clone(
     owned: &mut OwnedBlock,
-    block: &ParsedBlock,
+    task_paths: &[Vec<usize>],
     context: &RecurringTaskCloneContext<'_>,
 ) {
-    if let OwnedBlock::Parsed { children, .. } = owned {
-        for (owned_child, syntax_child) in children.iter_mut().zip(&block.children) {
-            let Block::Parsed(syntax_child) = syntax_child else {
-                continue;
-            };
-            prepare_recurring_task_clone(owned_child, syntax_child, context);
-        }
+    let mut task_paths = task_paths.iter().collect::<Vec<_>>();
+    task_paths.sort_by_key(|path| std::cmp::Reverse(path.len()));
+    for path in task_paths {
+        owned_at_path_mut(owned, path)
+            .expect("plumb-edit returns paths into the owned root")
+            .retain_attributes(persistent_task_attribute);
     }
 
-    if let Some(task) = context.tasks.iter().find(|task| task.range == block.range) {
-        owned.retain_attributes(persistent_task_attribute);
-        if task.range == context.root.range {
-            owned.push_attribute(OwnedAttribute::id(context.next_id));
-            owned.push_attribute(OwnedAttribute::quoted("created", context.timestamp));
-            owned.push_attribute(OwnedAttribute::quoted("due", context.next_due));
-            if let Some(wait) = context.next_wait {
-                owned.push_attribute(OwnedAttribute::quoted("wait", wait));
-            }
-            owned.push_attribute(OwnedAttribute::quoted("recur", context.recur));
-            owned.push_attribute(OwnedAttribute::quoted(
-                "prev",
-                format!("#{}", context.current_id),
-            ));
-        }
+    owned.push_attribute(OwnedAttribute::id(context.next_id));
+    owned.push_attribute(OwnedAttribute::quoted("created", context.timestamp));
+    owned.push_attribute(OwnedAttribute::quoted("due", context.next_due));
+    if let Some(wait) = context.next_wait {
+        owned.push_attribute(OwnedAttribute::quoted("wait", wait));
     }
+    owned.push_attribute(OwnedAttribute::quoted("recur", context.recur));
+    owned.push_attribute(OwnedAttribute::quoted(
+        "prev",
+        format!("#{}", context.current_id),
+    ));
 }
 
 fn persistent_task_attribute(attribute: &OwnedAttribute) -> bool {

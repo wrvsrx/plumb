@@ -342,6 +342,12 @@ pub struct GreenOwnedBlockTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GreenOwnedBlockPaths {
+    pub block: OwnedBlock,
+    pub target_paths: Vec<Vec<usize>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedBlock {
     Parsed {
         marker: Option<String>,
@@ -803,6 +809,34 @@ pub fn own_green_block(
     let (parsed, local, _) = green_block_target(document, &range)?;
     let block = block_with_range(&parsed.syntax.blocks, &local).ok_or(EditError::InvalidRange)?;
     Ok(OwnedBlock::from_syntax(&parsed.source, block))
+}
+
+pub fn own_green_block_paths(
+    document: &GreenDocument,
+    root: Range<usize>,
+    targets: &[Range<usize>],
+) -> Result<GreenOwnedBlockPaths, EditError> {
+    let (parsed, local_root, offset) = green_block_target(document, &root)?;
+    let root =
+        block_with_range(&parsed.syntax.blocks, &local_root).ok_or(EditError::InvalidRange)?;
+    let mut target_paths = Vec::with_capacity(targets.len());
+    for target in targets {
+        validate_range(document.source(), target)?;
+        let start = target
+            .start
+            .checked_sub(offset)
+            .ok_or(EditError::InvalidRange)?;
+        let end = target
+            .end
+            .checked_sub(offset)
+            .ok_or(EditError::InvalidRange)?;
+        let path = block_path_with_range(root, &(start..end)).ok_or(EditError::InvalidRange)?;
+        target_paths.push(path);
+    }
+    Ok(GreenOwnedBlockPaths {
+        block: OwnedBlock::from_syntax(&parsed.source, root),
+        target_paths,
+    })
 }
 
 pub fn own_deepest_green_marked_block(
@@ -1783,6 +1817,22 @@ fn block_with_range<'a>(blocks: &'a [Block], target: &Range<usize>) -> Option<&'
     None
 }
 
+fn block_path_with_range(block: &Block, target: &Range<usize>) -> Option<Vec<usize>> {
+    if block.range() == target {
+        return Some(Vec::new());
+    }
+    if !(block.range().start <= target.start && target.end <= block.range().end) {
+        return None;
+    }
+    for (index, child) in block.children().iter().enumerate() {
+        if let Some(mut path) = block_path_with_range(child, target) {
+            path.insert(0, index);
+            return Some(path);
+        }
+    }
+    None
+}
+
 fn parsed_block_with_range<'a>(
     blocks: &'a [Block],
     target: &Range<usize>,
@@ -2548,6 +2598,18 @@ mod tests {
         let Block::Parsed(child) = &parent.children[0] else {
             panic!("child is parsed")
         };
+        assert_eq!(
+            own_green_block_paths(
+                &green,
+                parent.range.clone(),
+                &[parent.range.clone(), parent.children[1].range().clone()],
+            )
+            .unwrap(),
+            GreenOwnedBlockPaths {
+                block: OwnedBlock::from_parsed(source, parent),
+                target_paths: vec![vec![], vec![1]],
+            }
+        );
         assert_eq!(
             own_deepest_green_marked_block(&green, child.range.end, &["a", "b"]).unwrap(),
             GreenOwnedBlockTarget {

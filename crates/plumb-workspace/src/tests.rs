@@ -834,6 +834,27 @@ fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
         .unwrap()
         .parsed
         .is_materialized());
+
+    let old = "`- Old recurring\n `+ task\n `= due 2026-09-05T12:00:00+08:00\n `= recur P1D\n";
+    let source = old.replace("Old recurring", "Recurring");
+    workspace.insert("recurring.plumb", 1, old);
+    let pending = workspace
+        .begin_document_revision("recurring.plumb", 2, source)
+        .unwrap();
+    assert!(workspace.install_document_analysis(pending.analyze()));
+    workspace
+        .set_task_status(
+            "recurring.plumb",
+            0,
+            TaskStatus::Done,
+            "2026-09-05T13:00:00+08:00",
+        )
+        .unwrap();
+    assert!(!workspace
+        .get("recurring.plumb")
+        .unwrap()
+        .parsed
+        .is_materialized());
 }
 
 #[test]
@@ -3098,7 +3119,7 @@ fn recurring_task_clone_preserves_crlf_and_nested_base_indent() {
         .unwrap();
     assert_eq!(edit.document_changes[0].edits.len(), 1);
     let replacement = &edit.document_changes[0].edits[0].new_text;
-    assert!(replacement.starts_with(" `-"), "{replacement:?}");
+    assert!(replacement.starts_with("`-"), "{replacement:?}");
     assert!(
         replacement.contains("\r\n\r\n  `+ task\r\n"),
         "{replacement:?}"
@@ -3112,6 +3133,10 @@ fn recurring_task_clone_preserves_crlf_and_nested_base_indent() {
     for edit in edits {
         edited.replace_range(edit.range, &edit.new_text);
     }
+    assert!(
+        edited.contains("`node Parent\r\n\r\n `- Weekly review"),
+        "{edited:?}"
+    );
     let parsed = parse(&edited);
     assert!(parsed.is_valid(), "{edited:?}\n{:?}", parsed.diagnostics);
     assert!(!edited.contains("\r\n\r\n\r\n"));

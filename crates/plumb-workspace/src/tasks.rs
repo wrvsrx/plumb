@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset};
 use plumb_edit::{
-    own_deepest_green_marked_block, own_green_block, replace_green_block, EditSession,
-    OwnedAttribute, OwnedBlock,
+    own_deepest_green_marked_block, own_green_block, own_green_block_paths, replace_green_block,
+    replace_green_blocks, OwnedAttribute, OwnedBlock,
 };
 use plumb_semantics::{
     analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
@@ -12,8 +12,8 @@ use plumb_semantics::{
 };
 
 use super::{
-    derive_task_workflow_state, normalize, parsed_block_with_range, prepare_recurring_task_clone,
-    resolve_relative, single_document_edit, unique_task_instance_id, DocumentEntry, QueryResult,
+    derive_task_workflow_state, normalize, prepare_recurring_task_clone, resolve_relative,
+    single_document_edit, unique_task_instance_id, DocumentEntry, QueryResult,
     RecurringTaskCloneContext, TaskAuthoringError, TaskAuthoringInput, TaskWaitReason,
     TaskWorkflowState, Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
 };
@@ -474,17 +474,21 @@ impl Workspace {
             });
         let next_id = unique_task_instance_id(&task.title, &next_due, &reserved);
 
-        let source = entry.parsed.source();
-        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
-            .ok_or(TaskEditError::TaskNotFound)?;
-        if block.mark.is_none() {
-            return Err(TaskEditError::TaskNotFound);
-        }
-        let mut next = OwnedBlock::from_parsed(source, block);
-        let tasks = current.output.tasks().tasks.iter().collect::<Vec<_>>();
+        let task_ranges = current
+            .output
+            .tasks()
+            .tasks
+            .iter()
+            .filter(|candidate| {
+                task.range.start <= candidate.range.start && candidate.range.end <= task.range.end
+            })
+            .map(|candidate| candidate.range.clone())
+            .collect::<Vec<_>>();
+        let owned = own_green_block_paths(entry.parsed.green(), task.range.clone(), &task_ranges)
+            .map_err(|_| TaskEditError::TaskNotFound)?;
+        let mut current = owned.block.clone();
+        let mut next = owned.block;
         let clone_context = RecurringTaskCloneContext {
-            tasks: &tasks,
-            root: task,
             next_id: &next_id,
             timestamp,
             next_due: &next_due,
@@ -492,18 +496,14 @@ impl Workspace {
             recur: &recur.value,
             current_id: &current_id,
         };
-        prepare_recurring_task_clone(&mut next, block, &clone_context);
+        prepare_recurring_task_clone(&mut next, &owned.target_paths, &clone_context);
 
-        let mut current = OwnedBlock::from_parsed(source, block);
         if task.id.is_none() {
             current.push_attribute(OwnedAttribute::id(current_id));
         }
         current.push_attribute(OwnedAttribute::quoted(status.attribute(), timestamp));
-        let mut edit = EditSession::new(&entry.parsed, task.range.clone())
+        let edit = replace_green_blocks(entry.parsed.green(), task.range.clone(), &[current, next])
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        edit.replace_block_with_blocks(task.range.clone(), &[current, next])
-            .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        let edit = edit.finish().map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, entry.path.clone(), edit))
     }
 
