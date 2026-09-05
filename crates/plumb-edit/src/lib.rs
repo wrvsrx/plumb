@@ -991,7 +991,7 @@ pub fn insert_green_child_blocks(
             .map(|index| index + 1)
             .ok_or(EditError::InvalidRange)?
     } else {
-        0
+        parent.children.len()
     };
     let mut owned = OwnedBlock::from_parsed(&parsed.source, parent);
     owned
@@ -999,6 +999,167 @@ pub fn insert_green_child_blocks(
         .ok_or(EditError::InvalidRange)?
         .splice(index..index, blocks.iter().cloned());
     rebase_edit(replace_owned_block(parsed, local_parent, &owned)?, offset)
+}
+
+pub fn move_green_block(
+    document: &GreenDocument,
+    source: Range<usize>,
+    parent: Option<&Range<usize>>,
+    after: Option<&Range<usize>>,
+    moved: OwnedBlock,
+) -> Result<Vec<TextEdit>, EditError> {
+    if parent.is_some_and(|parent| source.start <= parent.start && parent.end <= source.end)
+        || after == Some(&source)
+    {
+        return Err(EditError::InvalidRange);
+    }
+    let source_location = green_block_location(document, &source)?;
+
+    if let Some(parent) = parent {
+        let parent_location = green_block_location(document, parent)?;
+        let after_location = after
+            .map(|after| green_block_location(document, after))
+            .transpose()?;
+        if after_location
+            .as_ref()
+            .is_some_and(|after| after.parent.as_ref() != Some(parent))
+        {
+            return Err(EditError::InvalidRange);
+        }
+        if source_location.root == parent_location.root {
+            let mut targets = vec![source.clone(), parent.clone()];
+            if let Some(after) = after {
+                targets.push(after.clone());
+            }
+            let mut owned =
+                own_green_block_paths(document, source_location.root.clone(), &targets)?;
+            let source_path = owned.target_paths[0].clone();
+            let mut parent_path = owned.target_paths[1].clone();
+            let mut insertion = if let Some(after_path) = owned.target_paths.get(2) {
+                after_path
+                    .last()
+                    .copied()
+                    .map(|index| index + 1)
+                    .ok_or(EditError::InvalidRange)?
+            } else {
+                owned_at_path_mut(&mut owned.block, &parent_path)
+                    .and_then(OwnedBlock::children_mut)
+                    .ok_or(EditError::InvalidRange)?
+                    .len()
+            };
+            if source_path.len() == parent_path.len() + 1
+                && source_path[..parent_path.len()] == parent_path
+                && insertion > source_path[parent_path.len()]
+            {
+                insertion -= 1;
+            }
+            adjust_owned_path_after_removal(&mut parent_path, &source_path);
+            remove_owned_at_path(&mut owned.block, &source_path).ok_or(EditError::InvalidRange)?;
+            owned_at_path_mut(&mut owned.block, &parent_path)
+                .and_then(OwnedBlock::children_mut)
+                .ok_or(EditError::InvalidRange)?
+                .insert(insertion, moved);
+            return Ok(vec![replace_green_block(
+                document,
+                source_location.root,
+                &owned.block,
+            )?]);
+        }
+
+        let remove = remove_green_location(document, &source_location)?;
+        let insert = insert_green_child_blocks(document, parent.clone(), after, &[moved])?;
+        return Ok(vec![remove, insert]);
+    }
+
+    let top_level_after = match after {
+        Some(after) => Some(after.clone()),
+        None => last_green_top_level_range_excluding(document, &source),
+    };
+    let Some(after) = top_level_after else {
+        return Ok(vec![replace_green_block(document, source, &moved)?]);
+    };
+    let after_location = green_block_location(document, &after)?;
+    if !after_location.path.is_empty() {
+        return Err(EditError::InvalidRange);
+    }
+    if after.start <= source.start && source.end <= after.end {
+        let mut owned = own_green_block_paths(document, after.clone(), &[source])?;
+        remove_owned_at_path(&mut owned.block, &owned.target_paths[0])
+            .ok_or(EditError::InvalidRange)?;
+        return Ok(vec![replace_green_blocks(
+            document,
+            after,
+            &[owned.block, moved],
+        )?]);
+    }
+
+    let remove = remove_green_location(document, &source_location)?;
+    let insert = insert_green_top_level_blocks_after(document, after, &[moved])?;
+    Ok(vec![remove, insert])
+}
+
+#[derive(Debug)]
+struct GreenBlockLocation {
+    range: Range<usize>,
+    root: Range<usize>,
+    parent: Option<Range<usize>>,
+    path: Vec<usize>,
+}
+
+fn green_block_location(
+    document: &GreenDocument,
+    range: &Range<usize>,
+) -> Result<GreenBlockLocation, EditError> {
+    let (parsed, local, offset) = green_block_target(document, range)?;
+    for root in &parsed.syntax.blocks {
+        let Some(path) = block_path_with_range(root, &local) else {
+            continue;
+        };
+        let parent = (!path.is_empty())
+            .then(|| block_at_path(root, &path[..path.len() - 1]))
+            .flatten()
+            .map(|block| block.range().start + offset..block.range().end + offset);
+        return Ok(GreenBlockLocation {
+            range: range.clone(),
+            root: root.range().start + offset..root.range().end + offset,
+            parent,
+            path,
+        });
+    }
+    Err(EditError::InvalidRange)
+}
+
+fn remove_green_location(
+    document: &GreenDocument,
+    location: &GreenBlockLocation,
+) -> Result<TextEdit, EditError> {
+    let Some(parent) = &location.parent else {
+        return remove_green_block(document, location.range.clone());
+    };
+    let mut owned = own_green_block_paths(
+        document,
+        parent.clone(),
+        std::slice::from_ref(&location.range),
+    )?;
+    remove_owned_at_path(&mut owned.block, &owned.target_paths[0])
+        .ok_or(EditError::InvalidRange)?;
+    replace_green_block(document, parent.clone(), &owned.block)
+}
+
+fn last_green_top_level_range_excluding(
+    document: &GreenDocument,
+    excluded: &Range<usize>,
+) -> Option<Range<usize>> {
+    let mut last = None;
+    for shard in document.shards() {
+        for block in &shard.shard().parsed().syntax.blocks {
+            let range = block.range().start + shard.offset()..block.range().end + shard.offset();
+            if &range != excluded {
+                last = Some(range);
+            }
+        }
+    }
+    last
 }
 
 pub fn green_block_attribute_target(
@@ -1833,6 +1994,42 @@ fn block_path_with_range(block: &Block, target: &Range<usize>) -> Option<Vec<usi
     None
 }
 
+fn block_at_path<'a>(mut block: &'a Block, path: &[usize]) -> Option<&'a Block> {
+    for index in path {
+        block = block.children().get(*index)?;
+    }
+    Some(block)
+}
+
+fn owned_at_path_mut<'a>(
+    mut block: &'a mut OwnedBlock,
+    path: &[usize],
+) -> Option<&'a mut OwnedBlock> {
+    for index in path {
+        block = block.children_mut()?.get_mut(*index)?;
+    }
+    Some(block)
+}
+
+fn remove_owned_at_path(block: &mut OwnedBlock, path: &[usize]) -> Option<OwnedBlock> {
+    let (index, parent_path) = path.split_last()?;
+    let parent = owned_at_path_mut(block, parent_path)?;
+    let children = parent.children_mut()?;
+    (*index < children.len()).then(|| children.remove(*index))
+}
+
+fn adjust_owned_path_after_removal(path: &mut [usize], removed: &[usize]) {
+    for (target, source) in path.iter_mut().zip(removed) {
+        if *target == *source {
+            continue;
+        }
+        if *source < *target {
+            *target -= 1;
+        }
+        break;
+    }
+}
+
 fn parsed_block_with_range<'a>(
     blocks: &'a [Block],
     target: &Range<usize>,
@@ -2594,6 +2791,17 @@ mod tests {
                 .unwrap(),
             replace_owned_block(&parsed, parent.range.clone(), &expected_parent).unwrap(),
         );
+        let appended_child = OwnedBlock::marked("note", "Appended");
+        let mut expected_parent = OwnedBlock::from_parsed(source, parent);
+        expected_parent
+            .children_mut()
+            .unwrap()
+            .push(appended_child.clone());
+        assert_same_source(
+            insert_green_child_blocks(&green, parent.range.clone(), None, &[appended_child])
+                .unwrap(),
+            replace_owned_block(&parsed, parent.range.clone(), &expected_parent).unwrap(),
+        );
 
         let Block::Parsed(child) = &parent.children[0] else {
             panic!("child is parsed")
@@ -2670,6 +2878,70 @@ mod tests {
                 align_block_arguments(&parsed, offset).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn green_move_handles_same_root_cross_root_promotion_and_append() {
+        let source = "`root Left\n `item A\n `item B\n\n`root Right\n `item C\n";
+        let parsed = parse(source);
+        let green = GreenDocument::parse(source);
+        let Block::Parsed(left) = &parsed.syntax.blocks[0] else {
+            panic!("left root is parsed")
+        };
+        let Block::Parsed(right) = &parsed.syntax.blocks[1] else {
+            panic!("right root is parsed")
+        };
+        let a = left.children[0].range().clone();
+        let b = left.children[1].range().clone();
+        let c = right.children[0].range().clone();
+        let moved = own_green_block(&green, a.clone()).unwrap();
+
+        let same_root = apply_text_edits(
+            source.to_string(),
+            move_green_block(
+                &green,
+                a.clone(),
+                Some(&left.range),
+                Some(&b),
+                moved.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(same_root.find("`item B").unwrap() < same_root.find("`item A").unwrap());
+
+        let cross_root = apply_text_edits(
+            source.to_string(),
+            move_green_block(
+                &green,
+                a.clone(),
+                Some(&right.range),
+                Some(&c),
+                moved.clone(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!cross_root[..cross_root.find("`root Right").unwrap()].contains("`item A"));
+        assert!(cross_root.find("`item C").unwrap() < cross_root.find("`item A").unwrap());
+
+        let promoted = apply_text_edits(
+            source.to_string(),
+            move_green_block(&green, a, None, Some(&left.range), moved.clone()).unwrap(),
+        )
+        .unwrap();
+        assert!(promoted.contains("`item B\n\n`item A\n\n`root Right"));
+
+        let appended = apply_text_edits(
+            source.to_string(),
+            move_green_block(&green, left.range.clone(), None, None, moved).unwrap(),
+        )
+        .unwrap();
+        assert!(appended.find("`root Right").unwrap() < appended.find("`item A").unwrap());
+        assert!(parse(&same_root).is_valid());
+        assert!(parse(&cross_root).is_valid());
+        assert!(parse(&promoted).is_valid());
+        assert!(parse(&appended).is_valid());
     }
 
     #[test]

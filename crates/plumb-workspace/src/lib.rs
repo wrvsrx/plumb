@@ -7,9 +7,9 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZon
 use plumb_edit::{
     align_green_block_arguments, append_green_blocks, green_block_attribute_target,
     insert_green_block_attribute, insert_green_child_blocks, insert_green_top_level_blocks_after,
-    own_green_block, prepend_green_blocks, remove_block as remove_syntax_block, remove_green_block,
-    replace_green_block, replace_owned_block, replace_owned_blocks, AttributePosition, EditSession,
-    OwnedAttribute, OwnedBlock, OwnedInline,
+    move_green_block, own_green_block, prepend_green_blocks, remove_green_block,
+    replace_green_block, replace_owned_block, AttributePosition, EditError, OwnedAttribute,
+    OwnedBlock, OwnedInline,
 };
 pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_semantics::{
@@ -84,9 +84,8 @@ pub use task_sort::{
     TaskSortOrder,
 };
 use tasks::{
-    adjust_path_after_removal, block_index_path, child_insertion_index, owned_at_path_mut,
-    owned_authored_task, remove_owned_at_path, remove_owned_descendant, update_owned_task,
-    updated_owned_task, validate_task_authoring_input, TaskTargetResolution,
+    owned_at_path_mut, owned_authored_task, update_owned_task, validate_task_authoring_input,
+    TaskTargetResolution,
 };
 pub use tasks::{ResolvedTaskDependency, TaskEditError, TaskRef};
 
@@ -2818,9 +2817,9 @@ impl Workspace {
             task.id.as_ref().map(|id| id.value.as_str()),
             input,
         )?;
-        let block = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
-            .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let moved = updated_owned_task(entry.parsed.source(), block, &task, input, timestamp);
+        let moved = own_green_block(entry.parsed.green(), task.range.clone())
+            .map_err(|_| TaskAuthoringError::TaskNotFound)?;
+        let moved = update_owned_task(moved, &task, input, timestamp);
         self.move_task_owned(entry, path, task.range.clone(), placement, moved)
             .map_err(Into::into)
     }
@@ -2922,9 +2921,8 @@ impl Workspace {
             .iter()
             .find(|task| task.range == task_range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let source = parsed_block_with_range(&entry.parsed.syntax.blocks, &task.range)
-            .ok_or(TaskAuthoringError::TaskNotFound)?;
-        let moved = OwnedBlock::from_parsed(entry.parsed.source(), source);
+        let moved = own_green_block(entry.parsed.green(), task.range.clone())
+            .map_err(|_| TaskAuthoringError::TaskNotFound)?;
         self.move_task_owned(entry, path, task.range.clone(), placement, moved)
     }
 
@@ -2936,118 +2934,7 @@ impl Workspace {
         placement: &TaskPlacement,
         moved: OwnedBlock,
     ) -> Result<WorkspaceEdit, TaskAuthoringError> {
-        if placement
-            .parent
-            .as_ref()
-            .is_some_and(|parent| task_range.start <= parent.start && parent.end <= task_range.end)
-            || placement.after.as_ref() == Some(&task_range)
-        {
-            return Err(TaskAuthoringError::InvalidPlacement);
-        }
-        let source_parent = direct_parent_range(&entry.parsed.syntax.blocks, &task_range);
         if let Some(parent_range) = &placement.parent {
-            let source_path = block_index_path(&entry.parsed.syntax.blocks, &task_range)
-                .ok_or(TaskAuthoringError::InvalidPlacement)?;
-            let parent_path = block_index_path(&entry.parsed.syntax.blocks, parent_range)
-                .ok_or(TaskAuthoringError::InvalidPlacement)?;
-            if source_path.first() == parent_path.first() {
-                let is_task = entry
-                    .current
-                    .as_ref()
-                    .expect("current output checked")
-                    .output
-                    .tasks()
-                    .tasks
-                    .iter()
-                    .any(|task| task.range == *parent_range);
-                if !is_task {
-                    return Err(TaskAuthoringError::InvalidPlacement);
-                }
-                let root_index = source_path[0];
-                let root = parsed_block(&entry.parsed.syntax.blocks[root_index])
-                    .ok_or(TaskAuthoringError::InvalidPlacement)?;
-                let parent = parsed_block_with_range(&entry.parsed.syntax.blocks, parent_range)
-                    .ok_or(TaskAuthoringError::InvalidPlacement)?;
-                let mut insertion =
-                    child_insertion_index(&parent.children, placement.after.as_ref())?;
-                let source_relative = &source_path[1..];
-                let mut parent_relative = parent_path[1..].to_vec();
-                if source_relative.len() == parent_relative.len() + 1
-                    && source_relative[..parent_relative.len()] == parent_relative
-                    && insertion > source_relative[parent_relative.len()]
-                {
-                    insertion -= 1;
-                }
-                adjust_path_after_removal(&mut parent_relative, source_relative);
-                let mut owned_root = OwnedBlock::from_parsed(entry.parsed.source(), root);
-                remove_owned_at_path(&mut owned_root, source_relative)
-                    .ok_or(TaskAuthoringError::InvalidPlacement)?;
-                owned_at_path_mut(&mut owned_root, &parent_relative)
-                    .and_then(OwnedBlock::children_mut)
-                    .ok_or(TaskAuthoringError::InvalidPlacement)?
-                    .insert(insertion, moved);
-                let edit = replace_owned_block(&entry.parsed, root.range.clone(), &owned_root)
-                    .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-                return Ok(single_document_edit(entry, path, edit));
-            }
-        }
-        let top_level_after = if placement.parent.is_none() {
-            placement.after.clone().or_else(|| {
-                entry
-                    .parsed
-                    .syntax
-                    .blocks
-                    .iter()
-                    .rev()
-                    .map(Block::range)
-                    .find(|range| **range != task_range)
-                    .cloned()
-            })
-        } else {
-            None
-        };
-        if top_level_after
-            .as_ref()
-            .is_some_and(|after| after.start <= task_range.start && task_range.end <= after.end)
-        {
-            let after = top_level_after.as_ref().expect("checked after");
-            let ancestor = parsed_block_with_range(&entry.parsed.syntax.blocks, after)
-                .ok_or(TaskAuthoringError::InvalidPlacement)?;
-            let mut owned_ancestor = OwnedBlock::from_parsed(entry.parsed.source(), ancestor);
-            if !remove_owned_descendant(ancestor, &mut owned_ancestor, &task_range) {
-                return Err(TaskAuthoringError::InvalidPlacement);
-            }
-            let edit = replace_owned_blocks(&entry.parsed, after.clone(), &[owned_ancestor, moved])
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-            return Ok(single_document_edit(entry, path, edit));
-        }
-        let target_parent = placement.parent.as_ref();
-        let remove = if let Some(parent_range) = source_parent.as_ref().filter(|source_parent| {
-            target_parent.is_none_or(|target_parent| {
-                source_parent.end <= target_parent.start || target_parent.end <= source_parent.start
-            })
-        }) {
-            let parent = parsed_block_with_range(&entry.parsed.syntax.blocks, parent_range)
-                .ok_or(TaskAuthoringError::InvalidPlacement)?;
-            let source_index = parent
-                .children
-                .iter()
-                .position(|child| child.range() == &task_range)
-                .ok_or(TaskAuthoringError::InvalidPlacement)?;
-            let mut owned_parent = OwnedBlock::from_parsed(entry.parsed.source(), parent);
-            owned_parent
-                .children_mut()
-                .expect("parsed parent")
-                .remove(source_index);
-            replace_owned_block(&entry.parsed, parent_range.clone(), &owned_parent)
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
-        } else {
-            remove_syntax_block(&entry.parsed, task_range.clone())
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
-        };
-        let target_edit = if let Some(parent_range) = &placement.parent {
-            let parent = parsed_block_with_range(&entry.parsed.syntax.blocks, parent_range)
-                .ok_or(TaskAuthoringError::InvalidPlacement)?;
             let is_task = entry
                 .current
                 .as_ref()
@@ -3060,43 +2947,27 @@ impl Workspace {
             if !is_task {
                 return Err(TaskAuthoringError::InvalidPlacement);
             }
-            let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), parent);
-            let index = child_insertion_index(&parent.children, placement.after.as_ref())?;
-            owned
-                .children_mut()
-                .expect("parsed parent")
-                .insert(index, moved);
-            replace_owned_block(&entry.parsed, parent_range.clone(), &owned)
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
-        } else {
-            let Some(after) = top_level_after.as_ref() else {
-                let edit = replace_owned_block(&entry.parsed, task_range, &moved)
-                    .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-                return Ok(single_document_edit(entry, path, edit));
-            };
-            if !entry
-                .parsed
-                .syntax
-                .blocks
-                .iter()
-                .any(|block| block.range() == after)
-            {
-                return Err(TaskAuthoringError::InvalidPlacement);
+        }
+        let edits = move_green_block(
+            entry.parsed.green(),
+            task_range,
+            placement.parent.as_ref(),
+            placement.after.as_ref(),
+            moved,
+        )
+        .map_err(|error| match error {
+            EditError::InvalidRange | EditError::InvalidAttributePosition => {
+                TaskAuthoringError::InvalidPlacement
             }
-            let mut insert = EditSession::new(&entry.parsed, after.clone())
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-            insert
-                .insert_sibling_blocks(after, &[moved])
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-            insert
-                .finish()
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
-        };
+            EditError::OverlappingEdits | EditError::GeneratedInvalid => {
+                TaskAuthoringError::GeneratedInvalid
+            }
+        })?;
         Ok(WorkspaceEdit {
             document_changes: vec![DocumentEdit {
                 path,
                 expected_revision: entry.revision,
-                edits: vec![remove, target_edit],
+                edits,
             }],
             resource_operations: Vec::new(),
         })
@@ -3755,26 +3626,6 @@ fn deepest_list_item(blocks: &[Block], offset: usize) -> Option<&ParsedBlock> {
     result
 }
 
-fn parsed_block_with_range<'a>(
-    blocks: &'a [Block],
-    range: &std::ops::Range<usize>,
-) -> Option<&'a ParsedBlock> {
-    for block in blocks {
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if &block.range == range {
-            return Some(block);
-        }
-        if block.range.start <= range.start && range.end <= block.range.end {
-            if let Some(found) = parsed_block_with_range(&block.children, range) {
-                return Some(found);
-            }
-        }
-    }
-    None
-}
-
 fn parsed_block(block: &Block) -> Option<&ParsedBlock> {
     match block {
         Block::Parsed(block) => Some(block),
@@ -3795,30 +3646,6 @@ fn next_parsed_sibling<'a>(
         }
         if block.range.start <= target.start && target.end <= block.range.end {
             return next_parsed_sibling(&block.children, target);
-        }
-    }
-    None
-}
-
-fn direct_parent_range(
-    blocks: &[Block],
-    child_range: &std::ops::Range<usize>,
-) -> Option<std::ops::Range<usize>> {
-    for block in blocks {
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if block
-            .children
-            .iter()
-            .any(|child| child.range() == child_range)
-        {
-            return Some(block.range.clone());
-        }
-        if block.range.start <= child_range.start && child_range.end <= block.range.end {
-            if let Some(parent) = direct_parent_range(&block.children, child_range) {
-                return Some(parent);
-            }
         }
     }
     None

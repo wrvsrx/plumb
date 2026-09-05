@@ -814,6 +814,9 @@ fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
             "2026-09-05T11:00:00+08:00",
         )
         .unwrap();
+    workspace
+        .move_task("work.plumb", task.range.clone(), &TaskPlacement::default())
+        .unwrap();
 
     assert!(!workspace
         .get("work.plumb")

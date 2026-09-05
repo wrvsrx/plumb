@@ -18,7 +18,6 @@ use super::{
     TaskWorkflowState, Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
 };
 use crate::store::StoredTaskKey;
-use plumb_syntax::{Block, ParsedBlock};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskEditError {
@@ -663,39 +662,6 @@ fn dependency_task_ref(source_path: &Path, target: &TaskReferenceTarget) -> Opti
     }
 }
 
-pub(super) fn block_index_path(
-    blocks: &[Block],
-    target: &std::ops::Range<usize>,
-) -> Option<Vec<usize>> {
-    for (index, block) in blocks.iter().enumerate() {
-        if block.range() == target {
-            return Some(vec![index]);
-        }
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if block.range.start <= target.start && target.end <= block.range.end {
-            if let Some(mut path) = block_index_path(&block.children, target) {
-                path.insert(0, index);
-                return Some(path);
-            }
-        }
-    }
-    None
-}
-
-pub(super) fn adjust_path_after_removal(path: &mut [usize], removed: &[usize]) {
-    for (target, source) in path.iter_mut().zip(removed) {
-        if *target == *source {
-            continue;
-        }
-        if *source < *target {
-            *target -= 1;
-        }
-        break;
-    }
-}
-
 pub(super) fn owned_at_path_mut<'a>(
     owned: &'a mut OwnedBlock,
     path: &[usize],
@@ -705,13 +671,6 @@ pub(super) fn owned_at_path_mut<'a>(
     };
     let child = owned.children_mut()?.get_mut(*index)?;
     owned_at_path_mut(child, remaining)
-}
-
-pub(super) fn remove_owned_at_path(owned: &mut OwnedBlock, path: &[usize]) -> Option<OwnedBlock> {
-    let (index, parent_path) = path.split_last()?;
-    let parent = owned_at_path_mut(owned, parent_path)?;
-    let children = parent.children_mut()?;
-    (*index < children.len()).then(|| children.remove(*index))
 }
 
 pub(super) fn validate_task_authoring_input(
@@ -765,21 +724,6 @@ pub(super) fn owned_authored_task(
     OwnedBlock::marked("-", &input.title).with_aligned_attributes(attributes)
 }
 
-pub(super) fn updated_owned_task(
-    source: &str,
-    block: &ParsedBlock,
-    task: &TaskRecord,
-    input: &TaskAuthoringInput,
-    timestamp: &str,
-) -> OwnedBlock {
-    update_owned_task(
-        OwnedBlock::from_parsed(source, block),
-        task,
-        input,
-        timestamp,
-    )
-}
-
 pub(super) fn update_owned_task(
     mut owned: OwnedBlock,
     task: &TaskRecord,
@@ -828,48 +772,4 @@ fn append_authored_task_fields(
     if let Some(priority) = input.priority {
         attributes.push(OwnedAttribute::bare("priority", priority.to_string()));
     }
-}
-
-pub(super) fn child_insertion_index(
-    children: &[Block],
-    after: Option<&std::ops::Range<usize>>,
-) -> Result<usize, TaskAuthoringError> {
-    let Some(after) = after else {
-        return Ok(children.len());
-    };
-    children
-        .iter()
-        .position(|child| child.range() == after)
-        .map(|index| index + 1)
-        .ok_or(TaskAuthoringError::InvalidPlacement)
-}
-
-pub(super) fn remove_owned_descendant(
-    syntax: &ParsedBlock,
-    owned: &mut OwnedBlock,
-    target: &std::ops::Range<usize>,
-) -> bool {
-    let Some(children) = owned.children_mut() else {
-        return false;
-    };
-    if let Some(index) = syntax
-        .children
-        .iter()
-        .position(|child| child.range() == target)
-    {
-        children.remove(index);
-        return true;
-    }
-    for (index, syntax_child) in syntax.children.iter().enumerate() {
-        let Block::Parsed(syntax_child) = syntax_child else {
-            continue;
-        };
-        if syntax_child.range.start <= target.start
-            && target.end <= syntax_child.range.end
-            && remove_owned_descendant(syntax_child, &mut children[index], target)
-        {
-            return true;
-        }
-    }
-    false
 }
