@@ -14,6 +14,7 @@
  index；10,000-heading body edit的semantic tree为2.75 ms。Analyzer与root aggregate diagnostics现使用segmented
  projection；query-hot exact-start lookup返回borrowed typed view，2,000-record export从约921 ms降至88.5 ms。
  Document exported-summary equality现阻止semantic-equal edit重建dependency context或刷新dependent diagnostics、
- CodeLens与Folding；10,000-task benchmark从无条件27.55 ms降至guarded 4.58 us。剩余工作是重新计算的local summary
- 相等时停止document reducer传播，并发布added/changed/removed record identities；differential tests继续覆盖
- semantic-analysis中尚未验收的reducer delta规则。
+ CodeLens与Folding；10,000-task benchmark从无条件27.55 ms降至guarded 4.58 us。Local semantic summary相等且
+ source geometry稳定时现直接复用document reducers；10,000-heading等长body edit从2.816 ms降至1.328 ms。剩余工作
+ 是发布added/changed/removed record identities；differential tests继续覆盖semantic-analysis中尚未验收的reducer
+ delta规则。
