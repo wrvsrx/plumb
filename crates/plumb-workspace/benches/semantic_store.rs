@@ -708,6 +708,33 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     group.bench_function("heading_incremental_semantic_tree", |b| {
         b.iter(|| black_box(heading_pending.clone().analyze()))
     });
+    let heading_semantic_equal_changed = heading_source.replacen("Body 5000", "Text 5000", 1);
+    let mut heading_semantic_equal_workspace = Workspace::new();
+    heading_semantic_equal_workspace.insert("headings.plumb", 1, heading_source.clone());
+    let heading_semantic_equal_pending = heading_semantic_equal_workspace
+        .begin_document_revision_with_change(
+            "headings.plumb",
+            2,
+            heading_semantic_equal_changed,
+            Some(SourceChange {
+                old_range: heading_start..heading_start + "Body 5000".len(),
+                new_range: heading_start..heading_start + "Text 5000".len(),
+            }),
+        )
+        .unwrap();
+    assert!(heading_semantic_equal_workspace
+        .install_document_analysis(heading_semantic_equal_pending.clone().analyze()));
+    assert!(heading_semantic_equal_workspace
+        .get("headings.plumb")
+        .unwrap()
+        .current
+        .as_ref()
+        .unwrap()
+        .output
+        .reused_document_reducers());
+    group.bench_function("heading_semantic_equal_reducer", |b| {
+        b.iter(|| black_box(heading_semantic_equal_pending.clone().analyze()))
+    });
     let mut diagnostic_source = String::new();
     for index in 0..10_000 {
         diagnostic_source.push_str(&format!(

@@ -266,7 +266,7 @@ pub struct SemanticRoot {
     tree: Arc<SemanticTree>,
     document_declaration_end: usize,
     heading_nodes: Arc<[usize]>,
-    pub(crate) headings: HeadingOutput,
+    pub(crate) headings: Arc<HeadingOutput>,
     pub(crate) metadata: MetadataOutput,
     pub(crate) citations: CitationOutput,
     pub(crate) inline_styles: InlineStyleOutput,
@@ -289,6 +289,8 @@ pub struct SemanticTree {
     syntax: Arc<plumb_syntax::GreenDocument>,
     nodes: Vec<SemanticNode>,
     cache_hits: usize,
+    semantic_equal_hits: usize,
+    document_reducers_reused: bool,
 }
 
 impl SemanticTree {
@@ -379,7 +381,7 @@ impl Default for SemanticRoot {
             tree: Arc::new(SemanticTree::empty()),
             document_declaration_end: 0,
             heading_nodes: Arc::from([]),
-            headings: HeadingOutput::default(),
+            headings: Arc::new(HeadingOutput::default()),
             metadata: MetadataOutput::default(),
             citations: CitationOutput::default(),
             inline_styles: InlineStyleOutput::default(),
@@ -405,6 +407,8 @@ impl SemanticTree {
             syntax: Arc::new(plumb_syntax::GreenDocument::parse(String::new())),
             nodes: Vec::new(),
             cache_hits: 0,
+            semantic_equal_hits: 0,
+            document_reducers_reused: false,
         }
     }
 }
@@ -537,6 +541,14 @@ impl DocumentOutput {
 
     pub fn reused_semantic_node_count(&self) -> usize {
         self.root.tree.cache_hits
+    }
+
+    pub fn semantic_equal_node_count(&self) -> usize {
+        self.root.tree.semantic_equal_hits
+    }
+
+    pub fn reused_document_reducers(&self) -> bool {
+        self.root.tree.document_reducers_reused
     }
 
     pub fn link_at_node_start(&self, start: usize) -> Option<LinkRecordView<'_>> {
@@ -711,12 +723,19 @@ fn analyze_semantic_tree(
     let mut lists_rebindable = same_node_count;
     let mut heading_topology_rebindable = same_node_count;
     let mut cache_hits = 0;
+    let mut semantic_equal_hits = 0;
+    let mut all_local_summaries_equal = same_node_count && reusable.is_some();
+    let mut all_node_geometry_equal = same_node_count
+        && previous.is_some_and(|previous| {
+            previous.root.document_declaration_end == document_declaration_end
+                && previous.root.tree.syntax.source().len() == syntax.source().len()
+        });
     let nodes = syntax
         .shards()
         .enumerate()
         .map(|(node_index, view)| {
             let node_syntax = Arc::clone(view.shard());
-            let output = reusable_nodes[node_index]
+            let mut output = reusable_nodes[node_index]
                 .map(|previous_index| {
                     Arc::clone(
                         &reusable
@@ -763,13 +782,27 @@ fn analyze_semantic_tree(
                 });
             if let Some(previous_node) = previous_nodes.and_then(|nodes| nodes.get(node_index)) {
                 let exact_reuse = reusable_nodes[node_index] == Some(node_index);
+                let same_root_role = exact_reuse
+                    || root_list_role(&previous_node.syntax) == root_list_role(&node_syntax);
+                let semantic_equal =
+                    exact_reuse || previous_node.output.as_ref() == output.as_ref();
+                if !exact_reuse && semantic_equal && same_root_role {
+                    output = Arc::clone(&previous_node.output);
+                    semantic_equal_hits += 1;
+                }
+                let semantic_reuse = Arc::ptr_eq(&previous_node.output, &output);
+                all_local_summaries_equal &= semantic_reuse && same_root_role;
+                all_node_geometry_equal &= previous_node.offset == view.offset()
+                    && (exact_reuse
+                        || previous_node.syntax.parsed().source.len()
+                            == node_syntax.parsed().source.len());
                 records_rebindable &=
-                    exact_reuse || same_record_counts(&previous_node.output, &output);
+                    semantic_reuse || same_record_counts(&previous_node.output, &output);
                 diagnostics_rebindable &=
-                    exact_reuse || same_diagnostic_counts(&previous_node.output, &output);
-                root_diagnostics_rebindable &= exact_reuse
+                    semantic_reuse || same_diagnostic_counts(&previous_node.output, &output);
+                root_diagnostics_rebindable &= semantic_reuse
                     || previous_node.output.root_diagnostics.len() == output.root_diagnostics.len();
-                anchor_ids_rebindable &= exact_reuse
+                anchor_ids_rebindable &= semantic_reuse
                     || previous_node
                         .output
                         .records
@@ -777,10 +810,10 @@ fn analyze_semantic_tree(
                         .iter()
                         .map(|anchor| anchor.id.value)
                         .eq(output.records.anchors.iter().map(|anchor| anchor.id.value));
-                lists_rebindable &= exact_reuse
+                lists_rebindable &= semantic_reuse
                     || (list_topology_eq(&previous_node.output.lists, &output.lists)
-                        && root_list_role(&previous_node.syntax) == root_list_role(&node_syntax));
-                heading_topology_rebindable &= exact_reuse
+                        && same_root_role);
+                heading_topology_rebindable &= semantic_reuse
                     || heading_topology_eq(&previous_node.output.headings, &output.headings);
             } else {
                 records_rebindable = false;
@@ -789,6 +822,8 @@ fn analyze_semantic_tree(
                 anchor_ids_rebindable = false;
                 lists_rebindable = false;
                 heading_topology_rebindable = false;
+                all_local_summaries_equal = false;
+                all_node_geometry_equal = false;
             }
             SemanticNode {
                 syntax: node_syntax,
@@ -797,11 +832,26 @@ fn analyze_semantic_tree(
             }
         })
         .collect::<Vec<_>>();
+    let tree = Arc::new(SemanticTree {
+        syntax,
+        nodes,
+        cache_hits,
+        semantic_equal_hits,
+        document_reducers_reused: all_local_summaries_equal && all_node_geometry_equal,
+    });
+    if tree.document_reducers_reused {
+        return rebind_unchanged_document(
+            previous.expect("reused reducers require a previous document"),
+            tree,
+            metadata,
+            document_declaration_end,
+        );
+    }
     let heading_nodes = previous
         .filter(|_| heading_topology_rebindable)
         .map(|previous| Arc::clone(&previous.root.heading_nodes))
         .unwrap_or_else(|| {
-            nodes
+            tree.nodes
                 .iter()
                 .enumerate()
                 .filter_map(|(index, node)| {
@@ -810,12 +860,15 @@ fn analyze_semantic_tree(
                 .collect::<Vec<_>>()
                 .into()
         });
-    let headings = reduce_heading_outputs(
-        heading_nodes
-            .iter()
-            .map(|index| (nodes[*index].offset, &nodes[*index].output.headings)),
-        syntax.source().len(),
-    );
+    let headings = Arc::new(reduce_heading_outputs(
+        heading_nodes.iter().map(|index| {
+            (
+                tree.nodes[*index].offset,
+                &tree.nodes[*index].output.headings,
+            )
+        }),
+        tree.syntax.source().len(),
+    ));
     let record_projection_source = previous.filter(|_| records_rebindable);
     let diagnostic_projection_source = previous.filter(|_| diagnostics_rebindable);
     let root_diagnostic_projection_source = previous.filter(|previous| {
@@ -827,13 +880,8 @@ fn analyze_semantic_tree(
     {
         RootProjectionIndex::default()
     } else {
-        RootProjectionIndex::build(&nodes)
+        RootProjectionIndex::build(&tree.nodes)
     };
-    let tree = Arc::new(SemanticTree {
-        syntax,
-        nodes,
-        cache_hits,
-    });
 
     let citations = CitationOutput {
         citations: projected_records(
@@ -1001,6 +1049,102 @@ fn analyze_semantic_tree(
     })
 }
 
+fn rebind_unchanged_document(
+    previous: &DocumentOutput,
+    tree: Arc<SemanticTree>,
+    metadata: MetadataOutput,
+    document_declaration_end: usize,
+) -> Option<DocumentOutput> {
+    let citations = CitationOutput {
+        citations: previous
+            .root
+            .citations
+            .citations
+            .rebind_tree(Arc::clone(&tree))?,
+        diagnostics: previous
+            .root
+            .citations
+            .diagnostics
+            .rebind_tree(Arc::clone(&tree))?,
+    };
+    let inline_styles = InlineStyleOutput {
+        styles: previous
+            .root
+            .inline_styles
+            .styles
+            .rebind_tree(Arc::clone(&tree))?,
+    };
+    let math = MathOutput {
+        records: previous.root.math.records.rebind_tree(Arc::clone(&tree))?,
+        diagnostics: previous
+            .root
+            .math
+            .diagnostics
+            .rebind_tree(Arc::clone(&tree))?,
+    };
+    let quotes = QuoteOutput {
+        quotes: previous.root.quotes.quotes.rebind_tree(Arc::clone(&tree))?,
+    };
+    let tasks = TaskOutput {
+        tasks: previous.root.tasks.tasks.rebind_tree(Arc::clone(&tree))?,
+        diagnostics: previous
+            .root
+            .tasks
+            .diagnostics
+            .rebind_tree(Arc::clone(&tree))?,
+    };
+    let events = EventOutput {
+        events: previous.root.events.events.rebind_tree(Arc::clone(&tree))?,
+        diagnostics: previous
+            .root
+            .events
+            .diagnostics
+            .rebind_tree(Arc::clone(&tree))?,
+    };
+    let tables = TableOutput {
+        tables: previous.root.tables.tables.rebind_tree(Arc::clone(&tree))?,
+        diagnostics: previous
+            .root
+            .tables
+            .diagnostics
+            .rebind_tree(Arc::clone(&tree))?,
+    };
+    let anchors = previous.root.anchors.rebind_tree(Arc::clone(&tree))?;
+    let links = previous.root.links.rebind_tree(Arc::clone(&tree))?;
+    let images = previous.root.images.rebind_tree(Arc::clone(&tree))?;
+    let files = previous.root.files.rebind_tree(Arc::clone(&tree))?;
+    let lists = previous.root.lists.clone();
+    let diagnostics = previous
+        .root
+        .diagnostics
+        .rebind_tree(Arc::clone(&tree))
+        .unwrap_or_else(|| previous.root.diagnostics.clone());
+
+    Some(DocumentOutput {
+        root: Arc::new(SemanticRoot {
+            tree,
+            document_declaration_end,
+            heading_nodes: Arc::clone(&previous.root.heading_nodes),
+            headings: Arc::clone(&previous.root.headings),
+            metadata,
+            citations,
+            inline_styles,
+            lists,
+            math,
+            quotes,
+            tasks,
+            events,
+            tables,
+            anchors,
+            links,
+            first_link_start: previous.root.first_link_start,
+            images,
+            files,
+            diagnostics,
+        }),
+    })
+}
+
 fn reusable_node_indices(
     previous: Option<&DocumentOutput>,
     syntax: &plumb_syntax::GreenDocument,
@@ -1076,7 +1220,19 @@ fn can_reuse_metadata(
     if change.old_range.start < previous.root.document_declaration_end {
         return false;
     }
-    !changed_green_blocks(syntax, Some(change)).any(crate::is_document_declaration)
+    if !previous.metadata().definition_lists.is_empty() {
+        return false;
+    }
+    !changed_green_blocks(syntax, Some(change))
+        .any(|block| crate::is_document_declaration(block) || contains_definition(block))
+}
+
+fn contains_definition(block: &Block) -> bool {
+    let Block::Parsed(block) = block else {
+        return false;
+    };
+    block.mark.as_ref().is_some_and(|mark| mark.marker == ":")
+        || crate::body_children(block).any(contains_definition)
 }
 
 fn changed_green_blocks<'a>(
@@ -1406,7 +1562,7 @@ fn collect_document_records(
     headings: &HeadingOutput,
 ) -> RecordOutput {
     let mut output = SemanticRoot::default();
-    output.headings = headings.clone();
+    output.headings = Arc::new(headings.clone());
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
     collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
     let mut diagnostics = output.diagnostics.to_vec();
@@ -2504,6 +2660,7 @@ mod tests {
             incremental.tasks().tasks.get(0).unwrap().range.start,
             previous_output.tasks().tasks.get(0).unwrap().range.start + prefix.len()
         );
+        assert!(!incremental.reused_document_reducers());
     }
 
     #[test]
@@ -2524,6 +2681,7 @@ mod tests {
         );
 
         assert_eq!(incremental.reused_semantic_node_count(), 0);
+        assert!(!incremental.reused_document_reducers());
         assert_eq!(
             incremental
                 .events()
@@ -2590,6 +2748,107 @@ mod tests {
             incremental.headings().headings[0].section_range.end,
             new.len()
         );
+    }
+
+    #[test]
+    fn semantic_equal_local_change_reuses_document_reducers() {
+        let old = "`# One\n\nBody one\n\n`## Two\n\nBody two\n\n`# Three\n";
+        let new = old.replace("Body two", "Text two");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let start = old.find("Body two").unwrap();
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: start..start + "Body two".len(),
+                new_range: start..start + "Text two".len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert!(incremental.semantic_equal_node_count() >= 1);
+        assert!(incremental.reused_document_reducers());
+        assert!(Arc::ptr_eq(
+            &incremental.root.headings,
+            &previous_output.root.headings
+        ));
+    }
+
+    #[test]
+    fn semantic_equal_local_change_rebinds_nonempty_reducer_outputs() {
+        let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`node One\n `@ same\n\n`node Two\n `@ same\n\n`- Task\n `+ task\n `@ task\n\n`- 10:00 Event\n `+ event\n\n`table\n `- name 1\n  `+ header\n\nBody one\n";
+        let new = old.replace("Body one", "Text one");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let start = old.find("Body one").unwrap();
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: start..start + "Body one".len(),
+                new_range: start..start + "Text one".len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert!(incremental.reused_document_reducers());
+        assert_eq!(incremental.tasks().tasks.len(), 1);
+        assert_eq!(incremental.events().events.len(), 1);
+        assert_eq!(incremental.tables().tables.len(), 1);
+        assert_eq!(
+            incremental
+                .diagnostics()
+                .iter()
+                .filter(|diagnostic| diagnostic.code == "anchor.duplicate-id")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn semantic_changes_with_stable_geometry_do_not_reuse_document_reducers() {
+        for (old, new) in [
+            ("`# Heading\n", "`! Heading\n"),
+            ("`- One\n\n`- Two\n", "`- One\n\n`. Two\n"),
+            ("`: Term body\n", "`: Word body\n"),
+            (
+                "`node\n `@ one\n\n`node\n `@ one\n",
+                "`node\n `@ one\n\n`node\n `@ two\n",
+            ),
+            ("`- Task A\n `+ task\n", "`- Task B\n `+ task\n"),
+            (
+                "`- 10:00 Event\n `+ event\n `= date 2026-09-05\n `= timezone +08:00\n",
+                "`- 10:00 Event\n `+ event\n `= date 2026-09-06\n `= timezone +08:00\n",
+            ),
+            (
+                "`table\n `- name 1\n  `+ header\n",
+                "`table\n `- name 1\n  `+ footer\n",
+            ),
+        ] {
+            let previous = parse(old);
+            let previous_output = analyze_document(previous.valid_syntax().unwrap());
+            let current = parse(new);
+            let incremental = analyze_document_incremental(
+                current.valid_syntax().unwrap(),
+                &previous_output,
+                &DocumentChange {
+                    old_range: 0..old.len(),
+                    new_range: 0..new.len(),
+                },
+            );
+            let fresh = analyze_document(current.valid_syntax().unwrap());
+
+            assert_eq!(incremental, fresh, "incremental mismatch for {new:?}");
+            assert!(
+                !incremental.reused_document_reducers(),
+                "semantic change incorrectly reused reducers for {new:?}"
+            );
+        }
     }
 
     #[test]
