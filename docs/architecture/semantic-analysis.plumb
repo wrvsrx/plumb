@@ -89,8 +89,9 @@ reducers。旧 absolute-range splice、`"GreenSemanticRevision"、eager
 document semantics 直接消费 syntax red views，并以 green node allocation identity、semantic analyzer version 与
 explicit inherited-context key 缓存 shard-local facts。pointer-identical green subtree 只有在 context key 相同
 时才能复用；date/timezone、task/event depth、table structural role 与其它 ancestor-derived input 必须进入 key。
-changed syntax 不必产生 changed semantics。重新计算的 local summary 与旧 summary 相等时停止 reducer/workspace
-传播仍未实现，属于 `"green-semantic-reducers" task的剩余范围。
+changed syntax 不必产生 changed semantics。重新计算的 local summary 与旧 summary 相等时停止 reducer传播仍未实现；
+document exported-summary equality与workspace notification stop已实现，属于 `"green-semantic-reducers" task的已完成
+子范围。
 
 incremental tree revision使用 green parser返回的 old/new shard-aligned replacement range，以 prefix/replacement/suffix
 线性 splice复用 nodes，不为每个 revision重建 identity hash table。metadata只有在 edit位于上一版最后一个 document
@@ -128,10 +129,13 @@ semantic record 的 authoritative location 由 green owner identity 加 node-rel
 current red revision投影 absolute byte/LSP ranges；persistent SQLite generation仍写入稳定 revision 的 absolute
 ranges，但该 serialization projection 不回流为 open-document semantic authority。
 
-下一阶段的 SemanticRevision 必须输出 changed/added/removed record identities与 document exported-summary equality。workspace 只在
-exported facts 变化时 invalidates直接或传递 dependents；纯 layout edit、或 changed syntax 产生相同 semantic summary
-时，不得重建无关 dependency graph。current invalid syntax仍不进入 authoritative semantics，并保留原 last-valid
-provenance。
+SemanticRevision必须输出 changed/added/removed record identities与document exported-summary equality。exported summary
+精确比较persistent/open workspace generation发布的document title value/range，以及source-ordered anchor、Link、Task与
+Event records；record中的observable source locations参与比较。Heading、List、Definition、Citation、inline style、Math、
+Quote、Table与document-local diagnostics不属于跨文档exported summary。workspace只在exported facts变化时invalidates
+直接或传递dependents；纯layout edit、或changed syntax产生相同exported summary时，不得重建无关dependency graph。
+current invalid syntax仍不进入authoritative semantics，并保留原last-valid provenance；invalid/valid transition即使恢复到
+与last-valid相同的summary也属于exported change，因为invalid current generation期间该output没有workspace authority。
 
 tree replacement的验收 differential compare fresh/incremental semantic revisions，覆盖 metadata context change、
 duplicate id、nested task/event/table、link containment 与 file-start range shift，并证明 unchanged green identity
@@ -206,7 +210,12 @@ LSP initial workspace indexing 不得阻塞 current open-document lifecycle 或�
 
 `"textDocument/foldingRange" 是上述 open-document exception：structural ranges 与 current-document labels 不得因 task workspace facts incomplete 而整体失败。adapter 对 task state 使用保守的 local determination， 无法证明唯一状态时只省略该 task 的 `"collapsedText"。不支持 `"workspace/foldingRange/refresh" 的 client 保留这份立即可用的 response，直到 document lifecycle 或 client 自身触发下一次 folding request；不得为等待 完整 label 延迟首次 response。
 
-LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的 `"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能 改变跨文档 task dependency facts 的 open-document/watched-file revision replacement 都触发 refresh。不声明 support 的 client 不接收未知 request。
+LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的 `"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能改变跨文档 task dependency facts 的open-document/watched-file revision replacement都触发refresh。不声明support的client不接收未知request。
+
+valid open-document revision进入background analysis时，adapter只发布该document的current syntax diagnostics，不提前
+重算其它open documents或发送workspace CodeLens/Folding refresh。安装结果的exported summary变化时才发布所有open
+diagnostics并发送已协商的refresh；summary相等时只发布edited document的current diagnostics。invalid revision与
+invalid/valid transition继续走workspace-changed路径，不能借用last-valid summary抑制恢复通知。
 
 persistent workspace query 必须按需读取命中的 semantic rows，不得为了重建 process-local workspace model 而在启动时反序列化全部 document outputs。open-buffer precedence 的合并边界是 source document：persistent query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由 protocol-neutral workspace query layer 统一实现，adapter 不自行 merge 或 deduplicate records。
 
