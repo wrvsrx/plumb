@@ -117,6 +117,10 @@ impl LspTestSession {
         if let Some(message) = self.output.iter().find(|message| predicate(message)) {
             return message.clone();
         }
+        self.wait_for_next(predicate)
+    }
+
+    pub fn wait_for_next(&mut self, predicate: impl Fn(&Value) -> bool) -> Value {
         loop {
             let message = match self.receiver.recv_timeout(Duration::from_secs(10)) {
                 Ok(message) => message,

@@ -2,7 +2,7 @@ use serde_json::json;
 
 use crate::support::{
     response, run_server, run_server_after_initial_index, run_server_after_response,
-    unique_temp_dir,
+    unique_temp_dir, LspTestSession,
 };
 
 #[test]
@@ -402,6 +402,101 @@ fn refreshes_folding_after_index_only_for_declared_clients() {
     assert!(!unsupported
         .iter()
         .any(|message| message["method"] == "workspace/foldingRange/refresh"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn refreshes_a_semantic_equal_fold_snapshot_observed_while_analysis_is_pending() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("2026-09-05.plumb");
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let document_uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let source = "`= created 2026-09-05T16:25:28+08:00\n`= date 2026-09-05\n`= timezone +08:00\n\n`- 14:30--15:15 Event\n `+ event\n";
+    let changed = source.replace("16:25:28", "16:25:29");
+    let mut session = LspTestSession::new();
+
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {
+            "processId": null,
+            "rootUri": root_uri,
+            "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+            "capabilities": {
+                "experimental": { "plumb": { "foldingRangeRefreshSupport": true } },
+                "textDocument": { "foldingRange": {
+                    "foldingRange": { "collapsedText": true }
+                }}
+            }
+        }
+    }));
+    session.wait_for_response(&json!(1));
+    session.send(&json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }));
+    let initial_refresh =
+        session.wait_for_next(|message| message["method"] == "workspace/foldingRange/refresh");
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": initial_refresh["id"], "result": null
+    }));
+
+    session.send(&json!({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": { "textDocument": {
+            "uri": document_uri, "languageId": "plumb", "version": 1, "text": source
+        }}
+    }));
+    let open_refresh =
+        session.wait_for_next(|message| message["method"] == "workspace/foldingRange/refresh");
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": open_refresh["id"], "result": null
+    }));
+
+    session.send(&json!({
+        "jsonrpc": "2.0", "method": "textDocument/didChange",
+        "params": {
+            "textDocument": { "uri": document_uri, "version": 2 },
+            "contentChanges": [{ "text": changed }]
+        }
+    }));
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": 2, "method": "textDocument/foldingRange",
+        "params": { "textDocument": { "uri": document_uri } }
+    }));
+    let pending = session.wait_for_response(&json!(2));
+    let pending_event = pending["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|range| range["startLine"] == 4)
+        .expect("event structural fold remains available while semantics are pending");
+    assert!(pending_event.get("collapsedText").is_none());
+
+    let recovery_refresh =
+        session.wait_for_next(|message| message["method"] == "workspace/foldingRange/refresh");
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": recovery_refresh["id"], "result": null
+    }));
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": 3, "method": "textDocument/foldingRange",
+        "params": { "textDocument": { "uri": document_uri } }
+    }));
+    let restored = session.wait_for_response(&json!(3));
+    assert!(restored["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|range| { range["collapsedText"] == "`- 2026-09-05T14:30--15:15 Event" }));
+
+    session.send(&json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }));
+    session.wait_for_response(&json!(4));
+    session.send(&json!({ "jsonrpc": "2.0", "method": "exit", "params": null }));
+    let output = session.finish();
+    assert_eq!(
+        output
+            .iter()
+            .filter(|message| message["method"] == "workspace/foldingRange/refresh")
+            .count(),
+        3
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 

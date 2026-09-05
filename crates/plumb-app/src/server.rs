@@ -100,6 +100,7 @@ pub(crate) struct ServerState {
     index_generation: u64,
     pending_path_renames: Vec<PendingPathRename>,
     document_analysis_tokens: DocumentAnalysisTokens,
+    pending_semantic_folding_paths: HashSet<PathBuf>,
     diagnostic_context: Option<Arc<WorkspaceDiagnosticContext>>,
 }
 
@@ -183,6 +184,7 @@ impl ServerState {
             index_generation: 0,
             pending_path_renames: Vec::new(),
             document_analysis_tokens: DocumentAnalysisTokens::default(),
+            pending_semantic_folding_paths: HashSet::new(),
             diagnostic_context: None,
         }
     }
@@ -263,6 +265,7 @@ impl ServerState {
         else {
             return ControlFlow::Continue(());
         };
+        let restore_folding = self.pending_semantic_folding_paths.remove(&result.path);
         match change {
             ExportedSemanticChange::Changed => {
                 self.publish_all_open_diagnostics();
@@ -271,6 +274,9 @@ impl ServerState {
             }
             ExportedSemanticChange::Unchanged => {
                 self.publish_open_document_diagnostics(&result.path);
+                if restore_folding && self.document_has_fold_labels(&result.path) {
+                    self.refresh_folding_ranges();
+                }
             }
         }
         ControlFlow::Continue(())
@@ -584,6 +590,12 @@ impl ServerState {
         });
     }
 
+    fn document_has_fold_labels(&self, path: &Path) -> bool {
+        self.workspace.get(path).is_some_and(|entry| {
+            !fold_labels(&self.workspace, path, entry, self.index_complete).is_empty()
+        })
+    }
+
     fn begin_path_rename(&mut self, old_path: PathBuf, new_path: PathBuf) {
         let snapshot = self
             .workspace
@@ -736,7 +748,10 @@ impl ServerState {
                 continue;
             }
             self.document_analysis_tokens.cancel(&path);
-            completed |= self.workspace.complete_pending_document_analysis(&path);
+            if self.workspace.complete_pending_document_analysis(&path) {
+                self.pending_semantic_folding_paths.remove(&path);
+                completed = true;
+            }
         }
         if completed {
             self.publish_all_open_diagnostics();
@@ -1151,6 +1166,7 @@ impl LanguageServer for ServerState {
         if let Some(path) = self.open_documents.remove(&uri) {
             self.open_document_line_indexes.remove(&path);
             self.document_analysis_tokens.cancel(&path);
+            self.pending_semantic_folding_paths.remove(&path);
             let (files, complete) = self.scanned_files();
             self.index_complete &= complete;
             if files.binary_search(&path).is_ok() {
@@ -1344,6 +1360,11 @@ impl LanguageServer for ServerState {
             let Some(entry) = self.workspace.get(path) else {
                 return Ok(None);
             };
+            let pending_semantic_labels = self.supports_folding_range_refresh
+                && self.supports_folding_collapsed_text
+                && entry.parsed.is_valid()
+                && entry.current.is_none();
+            let entry_path = entry.path.clone();
             let labels = if self.supports_folding_collapsed_text {
                 Some(fold_labels(
                     &self.workspace,
@@ -1354,13 +1375,17 @@ impl LanguageServer for ServerState {
             } else {
                 None
             };
-            Ok(Some(green_folding_ranges(
+            let ranges = green_folding_ranges(
                 entry.parsed.source(),
                 entry.parsed.green(),
                 self.folding_range_limit,
                 labels.as_ref(),
                 self.line_folding_only,
-            )))
+            );
+            if pending_semantic_labels {
+                self.pending_semantic_folding_paths.insert(entry_path);
+            }
+            Ok(Some(ranges))
         })();
         Box::pin(async move { result })
     }
