@@ -18,7 +18,15 @@ impl TextEdit {
         range: Range<usize>,
         new_text: impl Into<String>,
     ) -> Result<Self, EditError> {
-        validate_range(&parsed.source, &range)?;
+        Self::replace_source(&parsed.source, range, new_text)
+    }
+
+    pub fn replace_source(
+        source: &str,
+        range: Range<usize>,
+        new_text: impl Into<String>,
+    ) -> Result<Self, EditError> {
+        validate_range(source, &range)?;
         Ok(Self {
             range,
             new_text: new_text.into(),
@@ -158,6 +166,112 @@ pub fn align_block_arguments(
     Ok(edits)
 }
 
+pub fn align_green_block_arguments(
+    document: &GreenDocument,
+    offset: usize,
+) -> Result<Vec<TextEdit>, EditError> {
+    if !document.is_valid() || offset > document.source().len() {
+        return Ok(Vec::new());
+    }
+    let Some(shard) = document.shard_at(offset) else {
+        return Ok(Vec::new());
+    };
+    let parsed = shard.shard().parsed();
+    let local_offset = offset - shard.offset();
+    let Some((siblings, local_index)) = deepest_sibling_at(&parsed.syntax.blocks, local_offset)
+    else {
+        return Ok(Vec::new());
+    };
+    if !std::ptr::eq(siblings, parsed.syntax.blocks.as_slice()) {
+        return align_block_arguments(parsed, local_offset).and_then(|edits| {
+            edits
+                .into_iter()
+                .map(|edit| rebase_edit(edit, shard.offset()))
+                .collect()
+        });
+    }
+
+    let Some((marker, argument_count)) = alignment_shape(&parsed.source, &siblings[local_index])
+    else {
+        return Ok(Vec::new());
+    };
+    let marker = marker.to_string();
+    let target = siblings[local_index].range();
+    let target = target.start + shard.offset()..target.end + shard.offset();
+
+    struct Candidate<'a> {
+        parsed: &'a ParsedDocument,
+        block: &'a Block,
+        offset: usize,
+    }
+    let mut candidates = Vec::new();
+    for view in document.shards() {
+        let parsed = view.shard().parsed();
+        candidates.extend(parsed.syntax.blocks.iter().map(|block| Candidate {
+            parsed,
+            block,
+            offset: view.offset(),
+        }));
+    }
+    let Some(index) = candidates.iter().position(|candidate| {
+        let range = candidate.block.range();
+        range.start + candidate.offset == target.start && range.end + candidate.offset == target.end
+    }) else {
+        return Ok(Vec::new());
+    };
+    let same_shape = |candidate: &Candidate<'_>| {
+        alignment_shape(&candidate.parsed.source, candidate.block)
+            .is_some_and(|shape| shape.0 == marker && shape.1 == argument_count)
+    };
+    let start = (0..index)
+        .rev()
+        .take_while(|candidate| same_shape(&candidates[*candidate]))
+        .last()
+        .unwrap_or(index);
+    let end = (index + 1..candidates.len())
+        .take_while(|candidate| same_shape(&candidates[*candidate]))
+        .last()
+        .map_or(index + 1, |candidate| candidate + 1);
+    if end - start < 2 {
+        return Ok(Vec::new());
+    }
+
+    let mut widths = vec![0; argument_count - 1];
+    for candidate in &candidates[start..end] {
+        let Block::Parsed(block) = candidate.block else {
+            unreachable!("alignment shape accepts only parsed blocks")
+        };
+        for (column, maximum) in widths.iter_mut().enumerate() {
+            *maximum = (*maximum).max(argument_alignment_width(
+                &candidate.parsed.source,
+                block,
+                column,
+            ));
+        }
+    }
+
+    let mut edits = Vec::new();
+    for candidate in &candidates[start..end] {
+        let Block::Parsed(block) = candidate.block else {
+            unreachable!("alignment shape accepts only parsed blocks")
+        };
+        let elements = block.content.positional_elements().collect::<Vec<_>>();
+        let mut local = Vec::new();
+        for (column, width) in widths.iter().enumerate() {
+            let separator =
+                inline_range(elements[column]).end..inline_range(elements[column + 1]).start;
+            let spaces =
+                *width - argument_alignment_width(&candidate.parsed.source, block, column) + 1;
+            push_changed_padding_edit(candidate.parsed, &mut local, separator, spaces)?;
+        }
+        for edit in local {
+            edits.push(rebase_edit(edit, candidate.offset)?);
+        }
+    }
+    edits.sort_by_key(|edit| edit.range.start);
+    Ok(edits)
+}
+
 pub fn aligned_associations(entries: &[(&str, &str)]) -> Vec<OwnedBlock> {
     let mut blocks = entries
         .iter()
@@ -212,6 +326,19 @@ pub struct MarkedOwnerRewrite {
     pub owner_range: Range<usize>,
     pub marker: String,
     pub first_attribute: Option<OwnedAttribute>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GreenBlockAttributeTarget {
+    pub range: Range<usize>,
+    pub seed: String,
+    pub has_id: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GreenOwnedBlockTarget {
+    pub range: Range<usize>,
+    pub block: OwnedBlock,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -678,6 +805,66 @@ pub fn own_green_block(
     Ok(OwnedBlock::from_syntax(&parsed.source, block))
 }
 
+pub fn own_deepest_green_marked_block(
+    document: &GreenDocument,
+    offset: usize,
+    markers: &[&str],
+) -> Option<GreenOwnedBlockTarget> {
+    if offset > document.source().len() || !document.source().is_char_boundary(offset) {
+        return None;
+    }
+    let current = document.shard_at(offset)?;
+    if let Some(target) = own_deepest_marked_in_shard(current, offset, markers) {
+        return Some(target);
+    }
+    let previous = document.source()[..offset]
+        .char_indices()
+        .next_back()
+        .and_then(|(previous, _)| document.shard_at(previous))?;
+    (previous.offset() != current.offset())
+        .then(|| own_deepest_marked_in_shard(previous, offset, markers))
+        .flatten()
+}
+
+fn own_deepest_marked_in_shard(
+    shard: plumb_syntax::GreenShardView<'_>,
+    offset: usize,
+    markers: &[&str],
+) -> Option<GreenOwnedBlockTarget> {
+    let parsed = shard.shard().parsed();
+    let local_offset = offset.checked_sub(shard.offset())?;
+    let mut pending = parsed
+        .syntax
+        .blocks
+        .iter()
+        .map(|block| (block, 0usize))
+        .collect::<Vec<_>>();
+    let mut result = None;
+    let mut result_position = (0usize, 0usize);
+    while let Some((block, depth)) = pending.pop() {
+        let range = block.range();
+        if !(range.start <= local_offset && local_offset <= range.end) {
+            continue;
+        }
+        if let Block::Parsed(block) = block {
+            if block
+                .mark
+                .as_ref()
+                .is_some_and(|mark| markers.iter().any(|marker| *marker == mark.marker.as_str()))
+                && (result.is_none() || (depth, block.range.start) > result_position)
+            {
+                result = Some(GreenOwnedBlockTarget {
+                    range: block.range.start + shard.offset()..block.range.end + shard.offset(),
+                    block: OwnedBlock::from_parsed(&parsed.source, block),
+                });
+                result_position = (depth, block.range.start);
+            }
+            pending.extend(block.children.iter().map(|child| (child, depth + 1)));
+        }
+    }
+    result
+}
+
 pub fn replace_green_block(
     document: &GreenDocument,
     range: Range<usize>,
@@ -692,10 +879,150 @@ pub fn replace_green_blocks(
     blocks: &[OwnedBlock],
 ) -> Result<TextEdit, EditError> {
     let (parsed, local, offset) = green_block_target(document, &range)?;
-    let mut edit = replace_owned_blocks(parsed, local, blocks)?;
-    edit.range.start += offset;
-    edit.range.end += offset;
-    Ok(edit)
+    rebase_edit(replace_owned_blocks(parsed, local, blocks)?, offset)
+}
+
+pub fn prepend_green_blocks(
+    document: &GreenDocument,
+    blocks: &[OwnedBlock],
+) -> Result<TextEdit, EditError> {
+    let Some(shard) = document.shards().next() else {
+        return Ok(TextEdit {
+            range: 0..0,
+            new_text: format_owned_blocks(blocks, line_ending(document.source()))?,
+        });
+    };
+    let parsed = shard.shard().parsed();
+    let mut edit = EditSession::new(parsed, 0..0)?;
+    edit.insert_blocks(0, blocks)?;
+    rebase_edit(edit.finish()?, shard.offset())
+}
+
+pub fn append_green_blocks(
+    document: &GreenDocument,
+    blocks: &[OwnedBlock],
+) -> Result<TextEdit, EditError> {
+    let mut last = None;
+    for shard in document.shards() {
+        if let Some(block) = shard.shard().parsed().syntax.blocks.last() {
+            last = Some((shard, block.range().clone()));
+        }
+    }
+    let Some((shard, local)) = last else {
+        return prepend_green_blocks(document, blocks);
+    };
+    let parsed = shard.shard().parsed();
+    let mut edit = EditSession::new(parsed, local.clone())?;
+    edit.insert_sibling_blocks(&local, blocks)?;
+    rebase_edit(edit.finish()?, shard.offset())
+}
+
+pub fn insert_green_top_level_blocks_after(
+    document: &GreenDocument,
+    after: Range<usize>,
+    blocks: &[OwnedBlock],
+) -> Result<TextEdit, EditError> {
+    let (parsed, local, offset) = green_block_target(document, &after)?;
+    if !parsed
+        .syntax
+        .blocks
+        .iter()
+        .any(|block| block.range() == &local)
+    {
+        return Err(EditError::InvalidRange);
+    }
+    let mut edit = EditSession::new(parsed, local.clone())?;
+    edit.insert_sibling_blocks(&local, blocks)?;
+    rebase_edit(edit.finish()?, offset)
+}
+
+pub fn insert_green_child_blocks(
+    document: &GreenDocument,
+    parent: Range<usize>,
+    after: Option<&Range<usize>>,
+    blocks: &[OwnedBlock],
+) -> Result<TextEdit, EditError> {
+    let (parsed, local_parent, offset) = green_block_target(document, &parent)?;
+    let parent = parsed_block_with_range(&parsed.syntax.blocks, &local_parent)
+        .ok_or(EditError::InvalidRange)?;
+    let index = if let Some(after) = after {
+        if after.start < offset || after.end < offset {
+            return Err(EditError::InvalidRange);
+        }
+        let local_after = after.start - offset..after.end - offset;
+        parent
+            .children
+            .iter()
+            .position(|child| child.range() == &local_after)
+            .map(|index| index + 1)
+            .ok_or(EditError::InvalidRange)?
+    } else {
+        0
+    };
+    let mut owned = OwnedBlock::from_parsed(&parsed.source, parent);
+    owned
+        .children_mut()
+        .ok_or(EditError::InvalidRange)?
+        .splice(index..index, blocks.iter().cloned());
+    rebase_edit(replace_owned_block(parsed, local_parent, &owned)?, offset)
+}
+
+pub fn green_block_attribute_target(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<GreenBlockAttributeTarget> {
+    let shard = document.shard_at(offset)?;
+    let local_offset = offset.checked_sub(shard.offset())?;
+    let mut pending = shard
+        .shard()
+        .parsed()
+        .syntax
+        .blocks
+        .iter()
+        .map(|block| (block, 0usize))
+        .collect::<Vec<_>>();
+    let mut result = None;
+    let mut result_position = (0usize, 0usize);
+    while let Some((block, depth)) = pending.pop() {
+        let range = block.range();
+        if !(range.start <= local_offset && local_offset < range.end) {
+            continue;
+        }
+        if let Block::Parsed(block) = block {
+            if let Some(mark) = &block.mark {
+                if result.is_none() || (depth, block.range.start) > result_position {
+                    let title = block.content.plain_text();
+                    result = Some(GreenBlockAttributeTarget {
+                        range: block.range.start + shard.offset()..block.range.end + shard.offset(),
+                        seed: if title.trim().is_empty() {
+                            mark.marker.clone()
+                        } else {
+                            title.trim().to_string()
+                        },
+                        has_id: mark.attrs.id().is_some(),
+                    });
+                    result_position = (depth, block.range.start);
+                }
+            }
+            pending.extend(block.children.iter().map(|child| (child, depth + 1)));
+        }
+    }
+    result
+}
+
+pub fn insert_green_block_attribute(
+    document: &GreenDocument,
+    owner: Range<usize>,
+    position: AttributePosition,
+    item: OwnedAttribute,
+) -> Result<TextEdit, EditError> {
+    let (parsed, local, offset) = green_block_target(document, &owner)?;
+    let owner =
+        parsed_block_with_range(&parsed.syntax.blocks, &local).ok_or(EditError::InvalidRange)?;
+    let mark = owner.mark.as_ref().ok_or(EditError::InvalidRange)?;
+    let mut edit = EditSession::new(parsed, local)?;
+    edit.insert_attribute(&mark.attrs, mark.marker_range.end, position, item)?;
+    rebase_edit(edit.finish()?, offset)
 }
 
 fn green_block_target<'a>(
@@ -711,6 +1038,20 @@ fn green_block_target<'a>(
     }
     let local = range.start - shard.offset()..range.end - shard.offset();
     Ok((shard.shard().parsed(), local, shard.offset()))
+}
+
+fn rebase_edit(mut edit: TextEdit, offset: usize) -> Result<TextEdit, EditError> {
+    edit.range.start = edit
+        .range
+        .start
+        .checked_add(offset)
+        .ok_or(EditError::InvalidRange)?;
+    edit.range.end = edit
+        .range
+        .end
+        .checked_add(offset)
+        .ok_or(EditError::InvalidRange)?;
+    Ok(edit)
 }
 
 pub fn replace_owned_blocks(
@@ -880,10 +1221,7 @@ pub fn remove_green_block(
     range: Range<usize>,
 ) -> Result<TextEdit, EditError> {
     let (parsed, local, offset) = green_block_target(document, &range)?;
-    let mut edit = remove_block(parsed, local)?;
-    edit.range.start += offset;
-    edit.range.end += offset;
-    Ok(edit)
+    rebase_edit(remove_block(parsed, local)?, offset)
 }
 
 impl OwnedInline {
@@ -2150,6 +2488,126 @@ mod tests {
             remove_green_block(&green, task.range.clone()).unwrap(),
             remove_block(&parsed, task.range.clone()).unwrap()
         );
+    }
+
+    #[test]
+    fn green_block_insertions_match_materialized_edits() {
+        let source = "Prelude\n\n`parent\n `a One\n `b Two\n\nTail\n";
+        let parsed = parse(source);
+        let green = GreenDocument::parse(source);
+        let inserted = OwnedBlock::marked("note", "Inserted");
+        let assert_same_source = |actual: TextEdit, expected: TextEdit| {
+            assert_eq!(
+                apply_text_edits(source.to_string(), vec![actual]).unwrap(),
+                apply_text_edits(source.to_string(), vec![expected]).unwrap()
+            );
+        };
+
+        let mut expected = EditSession::new(&parsed, 0..0).unwrap();
+        expected.insert_blocks(0, &[inserted.clone()]).unwrap();
+        assert_same_source(
+            prepend_green_blocks(&green, &[inserted.clone()]).unwrap(),
+            expected.finish().unwrap(),
+        );
+
+        let last = parsed.syntax.blocks.last().unwrap().range().clone();
+        let mut expected = EditSession::new(&parsed, last.clone()).unwrap();
+        expected
+            .insert_sibling_blocks(&last, &[inserted.clone()])
+            .unwrap();
+        assert_same_source(
+            append_green_blocks(&green, &[inserted.clone()]).unwrap(),
+            expected.finish().unwrap(),
+        );
+
+        let first = parsed.syntax.blocks[0].range().clone();
+        let mut expected = EditSession::new(&parsed, first.clone()).unwrap();
+        expected
+            .insert_sibling_blocks(&first, &[inserted.clone()])
+            .unwrap();
+        assert_same_source(
+            insert_green_top_level_blocks_after(&green, first, &[inserted.clone()]).unwrap(),
+            expected.finish().unwrap(),
+        );
+
+        let Block::Parsed(parent) = &parsed.syntax.blocks[1] else {
+            panic!("parent is parsed")
+        };
+        let after = parent.children[0].range().clone();
+        let mut expected_parent = OwnedBlock::from_parsed(source, parent);
+        expected_parent
+            .children_mut()
+            .unwrap()
+            .insert(1, inserted.clone());
+        assert_same_source(
+            insert_green_child_blocks(&green, parent.range.clone(), Some(&after), &[inserted])
+                .unwrap(),
+            replace_owned_block(&parsed, parent.range.clone(), &expected_parent).unwrap(),
+        );
+
+        let Block::Parsed(child) = &parent.children[0] else {
+            panic!("child is parsed")
+        };
+        assert_eq!(
+            own_deepest_green_marked_block(&green, child.range.end, &["a", "b"]).unwrap(),
+            GreenOwnedBlockTarget {
+                range: child.range.clone(),
+                block: OwnedBlock::from_parsed(source, child),
+            }
+        );
+        assert_eq!(
+            green_block_attribute_target(&green, source.find("One").unwrap()).unwrap(),
+            GreenBlockAttributeTarget {
+                range: child.range.clone(),
+                seed: "One".to_string(),
+                has_id: false,
+            }
+        );
+        let mark = child.mark.as_ref().unwrap();
+        let mut expected = EditSession::new(&parsed, child.range.clone()).unwrap();
+        expected
+            .insert_attribute(
+                &mark.attrs,
+                mark.marker_range.end,
+                AttributePosition::First,
+                OwnedAttribute::id("one"),
+            )
+            .unwrap();
+        assert_same_source(
+            insert_green_block_attribute(
+                &green,
+                child.range.clone(),
+                AttributePosition::First,
+                OwnedAttribute::id("one"),
+            )
+            .unwrap(),
+            expected.finish().unwrap(),
+        );
+    }
+
+    #[test]
+    fn green_document_insertions_support_empty_source() {
+        let inserted = OwnedBlock::marked("note", "Inserted");
+        assert_eq!(
+            prepend_green_blocks(&GreenDocument::parse(""), &[inserted]).unwrap(),
+            TextEdit {
+                range: 0..0,
+                new_text: "`note Inserted\n".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn green_alignment_matches_materialized_nested_and_top_level_runs() {
+        let source = "`= a one\n`= longer two\n\n`parent\n `= x one\n `= wider two\n";
+        let parsed = parse(source);
+        let green = GreenDocument::parse(source);
+        for offset in [source.find("a one").unwrap(), source.find("x one").unwrap()] {
+            assert_eq!(
+                align_green_block_arguments(&green, offset).unwrap(),
+                align_block_arguments(&parsed, offset).unwrap()
+            );
+        }
     }
 
     #[test]

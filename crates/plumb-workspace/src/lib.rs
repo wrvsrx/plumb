@@ -4,12 +4,14 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Timelike};
-pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_edit::{
-    own_green_block, remove_block as remove_syntax_block, remove_green_block, replace_green_block,
-    replace_owned_block, replace_owned_blocks, AttributePosition, EditSession, OwnedAttribute,
-    OwnedBlock, OwnedInline,
+    align_green_block_arguments, append_green_blocks, green_block_attribute_target,
+    insert_green_block_attribute, insert_green_child_blocks, insert_green_top_level_blocks_after,
+    own_green_block, prepend_green_blocks, remove_block as remove_syntax_block, remove_green_block,
+    replace_green_block, replace_owned_block, replace_owned_blocks, AttributePosition, EditSession,
+    OwnedAttribute, OwnedBlock, OwnedInline,
 };
+pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_semantics::{
     analyze_document, analyze_document_incremental, analyze_green_document,
     analyze_green_document_incremental, DocumentChange,
@@ -24,7 +26,7 @@ use plumb_semantics::{
     EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext, TaskStatus,
 };
 use plumb_syntax::{
-    Attributes, Block, Diagnostic, DiagnosticSeverity, GreenDocument, ParsedBlock, ParsedDocument,
+    Block, Diagnostic, DiagnosticSeverity, GreenDocument, ParsedBlock, ParsedDocument,
 };
 
 #[cfg(test)]
@@ -1877,9 +1879,9 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.current.is_some())
             .ok_or(ExplicitIdError::StaleOrInvalidDocument)?;
-        let target = deepest_block_id_target(&entry.parsed.syntax.blocks, offset)
+        let target = green_block_attribute_target(entry.parsed.green(), offset)
             .ok_or(ExplicitIdError::BlockNotFound)?;
-        if target.attrs.id().is_some() {
+        if target.has_id {
             return Err(ExplicitIdError::IdAlreadyExists);
         }
 
@@ -1893,18 +1895,13 @@ impl Workspace {
             .map(|anchor| anchor.id.value.clone())
             .collect::<HashSet<_>>();
         let id = unique_anchor_id(&target.seed, &reserved);
-        let mut edit = EditSession::new(&entry.parsed, target.block_range)
-            .map_err(|_| ExplicitIdError::GeneratedInvalid)?;
-        edit.insert_attribute(
-            target.attrs,
-            target.attribute_insert,
+        let edit = insert_green_block_attribute(
+            entry.parsed.green(),
+            target.range,
             AttributePosition::First,
             OwnedAttribute::id(id),
         )
         .map_err(|_| ExplicitIdError::GeneratedInvalid)?;
-        let edit = edit
-            .finish()
-            .map_err(|_| ExplicitIdError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
 
@@ -2569,17 +2566,7 @@ impl Workspace {
         }
 
         let metadata = plumb_edit::aligned_associations(&[("title", title), ("created", created)]);
-        let affected = 0..if entry.parsed.syntax.blocks.is_empty() {
-            entry.parsed.source().len()
-        } else {
-            0
-        };
-        let mut edit = EditSession::new(&entry.parsed, affected)
-            .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
-        edit.insert_blocks(0, &metadata)
-            .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
-        let edit = edit
-            .finish()
+        let edit = prepend_green_blocks(entry.parsed.green(), &metadata)
             .map_err(|_| MetadataInsertError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
@@ -2595,7 +2582,7 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.current.is_some())
             .ok_or(ArgumentAlignmentError::StaleOrInvalidDocument)?;
-        let edits = plumb_edit::align_block_arguments(&entry.parsed, offset)
+        let edits = align_green_block_arguments(entry.parsed.green(), offset)
             .map_err(|_| ArgumentAlignmentError::StaleOrInvalidDocument)?;
         if edits.is_empty() {
             return Err(ArgumentAlignmentError::Unavailable);
@@ -2617,24 +2604,7 @@ impl Workspace {
             .ok_or(EventEditError::StaleOrInvalidDocument)?;
         let current = entry.current.as_ref().expect("current output checked");
         let event = owned_event(input, &current.output.metadata());
-        let (affected, after) = entry
-            .parsed
-            .syntax
-            .blocks
-            .last()
-            .map(|block| (block.range().clone(), Some(block.range().clone())))
-            .unwrap_or_else(|| (0..entry.parsed.source().len(), None));
-        let mut edit = EditSession::new(&entry.parsed, affected)
-            .map_err(|_| EventEditError::GeneratedInvalid)?;
-        if let Some(after) = after {
-            edit.insert_sibling_blocks(&after, &[event])
-                .map_err(|_| EventEditError::GeneratedInvalid)?;
-        } else {
-            edit.insert_blocks(0, &[event])
-                .map_err(|_| EventEditError::GeneratedInvalid)?;
-        }
-        let edit = edit
-            .finish()
+        let edit = append_green_blocks(entry.parsed.green(), &[event])
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
@@ -2762,8 +2732,6 @@ impl Workspace {
         self.validate_authored_task_references(&path, Some(&id), input)?;
         let task = owned_authored_task(input, &id, timestamp);
         let edit = if let Some(parent_range) = &placement.parent {
-            let parent = parsed_block_with_range(&entry.parsed.syntax.blocks, parent_range)
-                .ok_or(TaskAuthoringError::InvalidPlacement)?;
             let parent_task = entry
                 .current
                 .as_ref()
@@ -2776,44 +2744,20 @@ impl Workspace {
             if !parent_task {
                 return Err(TaskAuthoringError::InvalidPlacement.into());
             }
-            let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), parent);
-            let children = owned.children_mut().expect("parsed block has children");
-            let index = child_insertion_index(&parent.children, placement.after.as_ref())?;
-            children.insert(index, task);
-            let mut edit = EditSession::new(&entry.parsed, parent_range.clone())
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-            edit.replace_block(parent_range.clone(), &owned)
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-            edit
+            insert_green_child_blocks(
+                entry.parsed.green(),
+                parent_range.clone(),
+                placement.after.as_ref(),
+                &[task],
+            )
+            .map_err(|_| TaskAuthoringError::InvalidPlacement)?
+        } else if let Some(after) = &placement.after {
+            insert_green_top_level_blocks_after(entry.parsed.green(), after.clone(), &[task])
+                .map_err(|_| TaskAuthoringError::InvalidPlacement)?
         } else {
-            let after = placement
-                .after
-                .as_ref()
-                .or_else(|| entry.parsed.syntax.blocks.last().map(Block::range));
-            let affected = after.cloned().unwrap_or(0..entry.parsed.source().len());
-            let mut edit = EditSession::new(&entry.parsed, affected.clone())
-                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-            if let Some(after) = after {
-                if !entry
-                    .parsed
-                    .syntax
-                    .blocks
-                    .iter()
-                    .any(|block| block.range() == after)
-                {
-                    return Err(TaskAuthoringError::InvalidPlacement.into());
-                }
-                edit.insert_sibling_blocks(after, &[task])
-                    .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-            } else {
-                edit.insert_blocks(0, &[task])
-                    .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
-            }
-            edit
+            append_green_blocks(entry.parsed.green(), &[task])
+                .map_err(|_| TaskAuthoringError::GeneratedInvalid)?
         };
-        let edit = edit
-            .finish()
-            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }
 
@@ -3880,50 +3824,6 @@ fn direct_parent_range(
     None
 }
 
-struct BlockIdTarget<'a> {
-    block_range: std::ops::Range<usize>,
-    attrs: &'a Attributes,
-    attribute_insert: usize,
-    seed: String,
-}
-
-fn deepest_block_id_target(blocks: &[Block], offset: usize) -> Option<BlockIdTarget<'_>> {
-    let mut pending = blocks
-        .iter()
-        .map(|block| (block, 0usize))
-        .collect::<Vec<_>>();
-    let mut result = None;
-    let mut result_position = (0usize, 0usize);
-    while let Some((block, depth)) = pending.pop() {
-        if !contains_component(block.range(), offset) {
-            continue;
-        }
-        match block {
-            Block::Parsed(block) => {
-                if let Some(mark) = &block.mark {
-                    if result.is_none() || (depth, block.range.start) > result_position {
-                        let title = block.content.plain_text();
-                        result = Some(BlockIdTarget {
-                            block_range: block.range.clone(),
-                            attrs: &mark.attrs,
-                            attribute_insert: mark.marker_range.end,
-                            seed: if title.trim().is_empty() {
-                                mark.marker.clone()
-                            } else {
-                                title.trim().to_string()
-                            },
-                        });
-                        result_position = (depth, block.range.start);
-                    }
-                }
-                pending.extend(block.children.iter().map(|child| (child, depth + 1)));
-            }
-            Block::Verbatim(_) => {}
-        }
-    }
-    result
-}
-
 fn single_document_edit(entry: &DocumentEntry, path: PathBuf, edit: TextEdit) -> WorkspaceEdit {
     single_document_edits(entry, path, vec![edit])
 }
@@ -4402,7 +4302,7 @@ fn validated_token_edit(
     range: std::ops::Range<usize>,
     replacement: impl Into<String>,
 ) -> Result<TextEdit, RenameError> {
-    TextEdit::replace(&entry.parsed, range, replacement)
+    TextEdit::replace_source(entry.parsed.source(), range, replacement)
         .map_err(|_| RenameError::StaleOrInvalidDocument)
 }
 

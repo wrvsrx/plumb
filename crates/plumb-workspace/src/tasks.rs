@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset};
 use plumb_edit::{
-    own_green_block, replace_green_block, replace_owned_block, EditSession, OwnedAttribute,
-    OwnedBlock,
+    own_deepest_green_marked_block, own_green_block, replace_green_block, EditSession,
+    OwnedAttribute, OwnedBlock,
 };
 use plumb_semantics::{
     analyze_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
@@ -12,11 +12,10 @@ use plumb_semantics::{
 };
 
 use super::{
-    deepest_list_item, derive_task_workflow_state, normalize, parsed_block_with_range,
-    prepare_recurring_task_clone, resolve_relative, single_document_edit, unique_task_instance_id,
-    DocumentEntry, QueryResult, RecurringTaskCloneContext, TaskAuthoringError, TaskAuthoringInput,
-    TaskWaitReason, TaskWorkflowState, Workspace, WorkspaceEdit, WorkspaceOperationError,
-    WorkspaceQueryError,
+    derive_task_workflow_state, normalize, parsed_block_with_range, prepare_recurring_task_clone,
+    resolve_relative, single_document_edit, unique_task_instance_id, DocumentEntry, QueryResult,
+    RecurringTaskCloneContext, TaskAuthoringError, TaskAuthoringInput, TaskWaitReason,
+    TaskWorkflowState, Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
 };
 use crate::store::StoredTaskKey;
 use plumb_syntax::{Block, ParsedBlock};
@@ -302,19 +301,23 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.parsed.is_valid())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
-        let item = deepest_list_item(&entry.parsed.syntax.blocks, offset)
+        let item = own_deepest_green_marked_block(entry.parsed.green(), offset, &["-", "."])
             .ok_or(TaskEditError::ListItemNotFound)?;
-        let mark = item.mark.as_ref().expect("list item has a mark");
-        if mark.attrs.has_class("task") {
+        if item
+            .block
+            .attributes()
+            .iter()
+            .any(|attribute| matches!(attribute, OwnedAttribute::Class(value) if value == "task"))
+        {
             return Err(TaskEditError::TaskAlreadyExists);
         }
-        let mut owned = OwnedBlock::from_parsed(entry.parsed.source(), item);
+        let mut owned = item.block;
         owned.retain_attributes(
             |attribute| !matches!(attribute, OwnedAttribute::Class(value) if value == "task"),
         );
         owned.prepend_attribute(OwnedAttribute::class("task"));
         owned.push_attribute(OwnedAttribute::quoted("created", timestamp));
-        let edit = replace_owned_block(&entry.parsed, item.range.clone(), &owned)
+        let edit = replace_green_block(entry.parsed.green(), item.range, &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
     }

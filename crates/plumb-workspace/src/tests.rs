@@ -692,13 +692,12 @@ fn invalid_green_revision_exposes_diagnostics_without_materializing() {
 
 #[test]
 fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
-    let old =
-        "`= timezone +08:00\n\n`- Old task\n `+ task\n `@ task\n\n`- 09:00 Event\n `+ event\n";
+    let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`- Old task\n `+ task\n `@ task\n\n`- 09:00 Event\n `+ event\n\n`- Ordinary\n";
     let source = old.replace("Old task", "Task");
     let mut workspace = Workspace::new();
     workspace.insert("work.plumb", 1, old);
     let pending = workspace
-        .begin_document_revision("work.plumb", 2, source)
+        .begin_document_revision("work.plumb", 2, source.clone())
         .unwrap();
     assert!(
         !pending.parsed.is_materialized(),
@@ -743,7 +742,7 @@ fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
     workspace
         .update_task_patch(
             "work.plumb",
-            task.range,
+            task.range.clone(),
             &TaskAuthoringPatch {
                 title: Some("Updated task".to_string()),
                 ..TaskAuthoringPatch::default()
@@ -765,9 +764,73 @@ fn single_block_structural_edits_do_not_materialize_absolute_syntax() {
         )
         .unwrap();
     workspace.delete_event("work.plumb", event.range).unwrap();
+    workspace
+        .create_event(
+            "work.plumb",
+            &EventInput {
+                title: "Created event".to_string(),
+                at: Some("2026-09-05T11:00:00+08:00".to_string()),
+                start: None,
+                end: None,
+                tasks: Vec::new(),
+            },
+        )
+        .unwrap();
+    workspace
+        .create_task(
+            "work.plumb",
+            &TaskAuthoringInput {
+                title: "Created task".to_string(),
+                ..TaskAuthoringInput::default()
+            },
+            &TaskPlacement::default(),
+            "2026-09-05T11:00:00+08:00",
+        )
+        .unwrap();
+    workspace
+        .align_block_arguments("work.plumb", source.find("date").unwrap())
+        .unwrap();
+    workspace
+        .add_explicit_id("work.plumb", source.find("Event").unwrap())
+        .unwrap();
+    workspace
+        .convert_list_item_to_task(
+            "work.plumb",
+            source.find("Ordinary").unwrap(),
+            "2026-09-05T11:00:00+08:00",
+        )
+        .unwrap();
+    workspace
+        .create_task(
+            "work.plumb",
+            &TaskAuthoringInput {
+                title: "Nested task".to_string(),
+                ..TaskAuthoringInput::default()
+            },
+            &TaskPlacement {
+                parent: Some(task.range.clone()),
+                after: None,
+            },
+            "2026-09-05T11:00:00+08:00",
+        )
+        .unwrap();
 
     assert!(!workspace
         .get("work.plumb")
+        .unwrap()
+        .parsed
+        .is_materialized());
+
+    workspace.insert("metadata.plumb", 1, "Old body\n");
+    let pending = workspace
+        .begin_document_revision("metadata.plumb", 2, "Body\n")
+        .unwrap();
+    assert!(workspace.install_document_analysis(pending.analyze()));
+    workspace
+        .insert_metadata("metadata.plumb", 0, "Document", "2026-09-05T11:00:00+08:00")
+        .unwrap();
+    assert!(!workspace
+        .get("metadata.plumb")
         .unwrap()
         .parsed
         .is_materialized());
