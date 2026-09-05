@@ -72,6 +72,11 @@ intent，不能自行拼接 shard output。
 replace/insert/remove/move 只接受完整 syntax node ranges。replace/move 从 current syntax 构造 OwnedBlock，修改
 owned tree，再由 edit renderer决定 braces/spaces/indentation。不能截取 source fragment后自行 dedent/reindent。
 
+green structural mutation以 absolute complete block range定位唯一 owning shard。plumb-edit负责验证 target完整包含于
+该 shard、转换为 local range/OwnedBlock、执行 canonical replacement并把 TextEdit rebase回 document range；workspace
+不得读取 shard offset或自行平移 edit。单 target replace和 one-to-many replacement必须走该入口。跨 top-level shards
+的 move在有 transaction-level green session以前仍可使用 revision lazy compatibility view。
+
 direct declaration insert position使用 First/Last/Before/After typed item。anonymous/marked parsed owner 均可拥有
 declaration children；verbatim leaf 需要先使用 wrapper structure。
 
