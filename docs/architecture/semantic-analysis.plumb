@@ -106,6 +106,10 @@ anchor-id与list topology delta在node construction loop中同时累计，不得
 anchors。event-link containment不保存 eager document vector；typed EventRecord query先用 first-link bound，再在 event
 所属 shard内解析 contained links，显式 legacy range projection才按需 materialize完整 index。
 
+每个SemanticNode保存local heading facts。root heading reducer维护source-ordered heading-node index；changed nodes的
+heading count/level topology不变且node indexes稳定时复用同一Arc index，hierarchy与section ends只遍历该index指向的
+local headings。nonempty outline revision不得在node analysis前再次扫描全部syntax shards。
+
 跨 shard 规则由 typed document reducers 拥有，不能伪装成 local cache。reducers 至少维护 heading hierarchy 与
 section ends、list/definition adjacency、document metadata first-value/duplicate diagnostics、duplicate anchor ids、
 source order、event-link containment 和 table/task/event nesting summaries。reducer state 使用 persistent/chunked
