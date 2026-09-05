@@ -686,6 +686,28 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             BatchSize::LargeInput,
         )
     });
+    let mut heading_source = String::new();
+    for index in 0..10_000 {
+        heading_source.push_str(&format!("`# Heading {index}\n\nBody {index}\n\n"));
+    }
+    let mut heading_workspace = Workspace::new();
+    heading_workspace.insert("headings.plumb", 1, heading_source.clone());
+    let heading_start = heading_source.find("Body 5000").unwrap();
+    let heading_changed = heading_source.replacen("Body 5000", "Changed body 5000", 1);
+    let heading_pending = heading_workspace
+        .begin_document_revision_with_change(
+            "headings.plumb",
+            2,
+            heading_changed,
+            Some(SourceChange {
+                old_range: heading_start..heading_start + "Body 5000".len(),
+                new_range: heading_start..heading_start + "Changed body 5000".len(),
+            }),
+        )
+        .unwrap();
+    group.bench_function("heading_incremental_semantic_tree", |b| {
+        b.iter(|| black_box(heading_pending.clone().analyze()))
+    });
     let completion_cursor = source.find("Event 16756").unwrap() + "Event 16756".len();
     let completion_green = previous_workspace
         .get("events.plumb")

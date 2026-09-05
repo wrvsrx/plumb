@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock, ValidDocument, ValidGreenDocument};
+use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock, ValidDocument};
 
 use crate::text::plain_text;
 
@@ -30,20 +30,6 @@ pub fn analyze_headings(valid: ValidDocument<'_>) -> HeadingOutput {
     analyze_recovered_headings(valid.syntax())
 }
 
-pub fn analyze_green_headings(valid: ValidGreenDocument<'_>) -> HeadingOutput {
-    let mut flat = Vec::new();
-    for shard in valid.syntax().shards() {
-        let mut local = Vec::new();
-        collect_headings(&shard.shard().parsed().syntax.blocks, &mut local);
-        flat.extend(
-            local
-                .into_iter()
-                .map(|block| heading_seed(block, shard.offset())),
-        );
-    }
-    build_headings(flat, valid.source().len())
-}
-
 pub fn analyze_recovered_headings(document: &Document) -> HeadingOutput {
     let mut flat = Vec::new();
     for block in document
@@ -66,6 +52,44 @@ struct HeadingSeed {
     selection_range: Range<usize>,
     level: u8,
     title: String,
+}
+
+pub(crate) fn reduce_heading_outputs<'a>(
+    outputs: impl IntoIterator<Item = (usize, &'a HeadingOutput)>,
+    document_end: usize,
+) -> HeadingOutput {
+    let mut flat = Vec::new();
+    for (offset, output) in outputs {
+        append_heading_seeds(&output.headings, offset, &mut flat);
+    }
+    build_headings(flat, document_end)
+}
+
+fn append_heading_seeds(headings: &[Heading], offset: usize, output: &mut Vec<HeadingSeed>) {
+    for heading in headings {
+        output.push(HeadingSeed {
+            node_range: heading.node_range.start + offset..heading.node_range.end + offset,
+            selection_range: heading.selection_range.start + offset
+                ..heading.selection_range.end + offset,
+            level: heading.level,
+            title: heading.title.clone(),
+        });
+        append_heading_seeds(&heading.children, offset, output);
+    }
+}
+
+pub(crate) fn heading_topology_eq(previous: &HeadingOutput, current: &HeadingOutput) -> bool {
+    fn levels(headings: &[Heading], output: &mut Vec<u8>) {
+        for heading in headings {
+            output.push(heading.level);
+            levels(&heading.children, output);
+        }
+    }
+    let mut previous_levels = Vec::new();
+    let mut current_levels = Vec::new();
+    levels(&previous.headings, &mut previous_levels);
+    levels(&current.headings, &mut current_levels);
+    previous_levels == current_levels
 }
 
 fn heading_seed(block: &ParsedBlock, offset: usize) -> HeadingSeed {
@@ -201,8 +225,20 @@ mod tests {
         assert_eq!(output.headings.len(), 2);
         assert_eq!(output.headings[0].children[0].title, "Two");
         let green = plumb_syntax::GreenDocument::parse(source);
+        let outputs = green
+            .shards()
+            .map(|shard| {
+                (
+                    shard.offset(),
+                    analyze_headings(shard.shard().parsed().valid_syntax().unwrap()),
+                )
+            })
+            .collect::<Vec<_>>();
         assert_eq!(
-            analyze_green_headings(green.valid_syntax().unwrap()),
+            reduce_heading_outputs(
+                outputs.iter().map(|(offset, output)| (*offset, output)),
+                source.len(),
+            ),
             output
         );
     }

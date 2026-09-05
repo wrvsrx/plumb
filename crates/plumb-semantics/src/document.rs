@@ -18,7 +18,10 @@ use crate::{
     HeadingOutput, InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput, MetadataOutput,
     QuoteOutput, RelativeSemanticRecord, SemanticRecords, TableOutput, TaskOutput,
 };
-use crate::{headings::analyze_green_headings, metadata::analyze_green_metadata};
+use crate::{
+    headings::{heading_topology_eq, reduce_heading_outputs},
+    metadata::analyze_green_metadata,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceBacked<T> {
@@ -180,6 +183,7 @@ pub struct DocumentOutput {
 pub struct SemanticRoot {
     tree: Arc<SemanticTree>,
     document_declaration_end: usize,
+    heading_nodes: Arc<[usize]>,
     pub(crate) headings: HeadingOutput,
     pub(crate) metadata: MetadataOutput,
     pub(crate) citations: CitationOutput,
@@ -237,6 +241,7 @@ struct SemanticNode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticNodeOutput {
+    headings: HeadingOutput,
     citations: CitationOutput,
     inline_styles: InlineStyleOutput,
     math: MathOutput,
@@ -282,6 +287,7 @@ impl Default for SemanticRoot {
         Self {
             tree: Arc::new(SemanticTree::empty()),
             document_declaration_end: 0,
+            heading_nodes: Arc::from([]),
             headings: HeadingOutput::default(),
             metadata: MetadataOutput::default(),
             citations: CitationOutput::default(),
@@ -578,13 +584,6 @@ fn analyze_semantic_tree(
         || document_declaration_end(&syntax),
         |previous| previous.root.document_declaration_end,
     );
-    let headings = previous
-        .filter(|previous| {
-            previous.headings().headings.is_empty()
-                && !changed_green_blocks(&syntax, change).any(block_contains_heading)
-        })
-        .map(|previous| previous.headings().clone())
-        .unwrap_or_else(|| analyze_green_headings(valid));
     let reusable = previous.filter(|previous| previous.metadata() == &metadata);
     let reusable_nodes = reusable_node_indices(reusable, &syntax, change);
     let previous_nodes = previous.map(|previous| previous.root.tree.nodes.as_slice());
@@ -606,6 +605,7 @@ fn analyze_semantic_tree(
                 .any(|diagnostic| diagnostic.code == "anchor.duplicate-id")
         });
     let mut lists_rebindable = same_node_count;
+    let mut heading_topology_rebindable = same_node_count;
     let mut cache_hits = 0;
     let nodes = syntax
         .shards()
@@ -634,6 +634,7 @@ fn analyze_semantic_tree(
                         .expect("valid green document has valid shards");
                     let local_headings = analyze_headings(local);
                     Arc::new(SemanticNodeOutput {
+                        headings: local_headings.clone(),
                         citations: analyze_citations(local),
                         inline_styles: analyze_inline_styles(local),
                         math: analyze_math(local),
@@ -666,10 +667,13 @@ fn analyze_semantic_tree(
                 lists_rebindable &= exact_reuse
                     || (list_topology_eq(&previous_node.output.lists, &output.lists)
                         && root_list_role(&previous_node.syntax) == root_list_role(&node_syntax));
+                heading_topology_rebindable &= exact_reuse
+                    || heading_topology_eq(&previous_node.output.headings, &output.headings);
             } else {
                 projections_rebindable = false;
                 anchor_ids_rebindable = false;
                 lists_rebindable = false;
+                heading_topology_rebindable = false;
             }
             SemanticNode {
                 syntax: node_syntax,
@@ -678,6 +682,25 @@ fn analyze_semantic_tree(
             }
         })
         .collect::<Vec<_>>();
+    let heading_nodes = previous
+        .filter(|_| heading_topology_rebindable)
+        .map(|previous| Arc::clone(&previous.root.heading_nodes))
+        .unwrap_or_else(|| {
+            nodes
+                .iter()
+                .enumerate()
+                .filter_map(|(index, node)| {
+                    (!node.output.headings.headings.is_empty()).then_some(index)
+                })
+                .collect::<Vec<_>>()
+                .into()
+        });
+    let headings = reduce_heading_outputs(
+        heading_nodes
+            .iter()
+            .map(|index| (nodes[*index].offset, &nodes[*index].output.headings)),
+        syntax.source().len(),
+    );
     let projection_source = previous.filter(|_| projections_rebindable);
     let mut projections = projection_source
         .map(|_| RootProjectionIndex::default())
@@ -807,6 +830,7 @@ fn analyze_semantic_tree(
         root: Arc::new(SemanticRoot {
             tree,
             document_declaration_end,
+            heading_nodes,
             headings,
             metadata,
             citations,
@@ -916,23 +940,6 @@ fn changed_green_blocks<'a>(
         .shards()
         .filter(move |view| view.range().start < range.end && range.start < view.range().end)
         .filter_map(|view| view.shard().parsed().syntax.blocks.first())
-}
-
-fn block_contains_heading(block: &Block) -> bool {
-    let mut pending = vec![block];
-    while let Some(block) = pending.pop() {
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if block.mark.as_ref().is_some_and(|mark| {
-            let count = mark.marker.bytes().take_while(|byte| *byte == b'#').count();
-            count == mark.marker.len() && (1..=6).contains(&count)
-        }) {
-            return true;
-        }
-        pending.extend(crate::body_children(block));
-    }
-    false
 }
 
 impl RecordProjectionIndex {
@@ -2397,6 +2404,35 @@ mod tests {
             Some("Added")
         );
         assert_eq!(incremental.headings().headings.len(), 1);
+    }
+
+    #[test]
+    fn semantic_tree_reuses_nonempty_heading_topology() {
+        let old = "`# Heading\n\nBody\n\nTail\n";
+        let new = old.replace("Body", "Changed body");
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        let current = parse(&new);
+        let start = old.find("Body").unwrap();
+        let incremental = analyze_document_incremental(
+            current.valid_syntax().unwrap(),
+            &previous_output,
+            &DocumentChange {
+                old_range: start..start + "Body".len(),
+                new_range: start..start + "Changed body".len(),
+            },
+        );
+        let fresh = analyze_document(current.valid_syntax().unwrap());
+
+        assert_eq!(incremental, fresh);
+        assert!(Arc::ptr_eq(
+            &incremental.root.heading_nodes,
+            &previous_output.root.heading_nodes
+        ));
+        assert_eq!(
+            incremental.headings().headings[0].section_range.end,
+            new.len()
+        );
     }
 
     #[test]
