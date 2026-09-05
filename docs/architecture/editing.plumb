@@ -85,11 +85,15 @@ direct declaration insert position使用 First/Last/Before/After typed item。an
 declaration children；verbatim leaf 需要先使用 wrapper structure。cursor-targeted declaration insert由green入口在
 owning shard中选择deepest marked owner并返回absolute owner identity，不得要求workspace遍历materialized blocks。
 按 marker集合进行的cursor-targeted conversion同样由plumb-edit返回deepest complete owner range与OwnedBlock；marker
-只有 syntax筛选作用，facet或kind含义仍由semantics/workspace判断。
+只有 syntax筛选作用，facet或kind含义仍由semantics/workspace判断。需要相邻上下文的conversion通过green query取得
+同一parent下一个direct sibling的absolute range与OwnedBlock；top-level sibling允许跨shard查找。
 
 当一次 domain mutation需要在同一 root subtree中对应多个semantic records时，plumb-edit接受root与有序absolute
 complete target ranges，一次 ownership后返回与输入同序的 owned-tree index paths。所有 target必须位于root owning
 shard并对应完整 descendant（root自身 path为空）；workspace只按 path修改OwnedBlock，不得用range重建syntax topology。
+selection conversion由plumb-edit逐green top-level root返回一次ownership、匹配marker的candidate paths/content ranges
+及next-sibling snapshots。workspace从deepest path向root应用domain conversion，每个changed root只生成一个replacement，
+从而避免nested candidate edits重叠，也不materialize全文syntax。
 
 Task/Event/metadata operations 先在 semantics/workspace 解析 intent，再调用 generic owned mutations。status field
 update 要 retain opaque declarations/body，property remove/add后重新 align 受影响的 direct property run，并格式化
