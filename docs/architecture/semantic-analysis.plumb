@@ -89,14 +89,18 @@ reducers。旧 absolute-range splice、`"GreenSemanticRevision"、eager
 document semantics 直接消费 syntax red views，并以 green node allocation identity、semantic analyzer version 与
 explicit inherited-context key 缓存 shard-local facts。pointer-identical green subtree 只有在 context key 相同
 时才能复用；date/timezone、task/event depth、table structural role 与其它 ancestor-derived input 必须进入 key。
-changed syntax 不必产生 changed semantics。重新计算的 local summary 与旧 summary 相等时停止 reducer传播仍未实现；
-document exported-summary equality与workspace notification stop已实现，属于 `"green-semantic-reducers" task的已完成
-子范围。
+changed syntax 不必产生 changed semantics。Local semantic summary精确比较一个shard的全部analyzer outputs，并把
+cross-shard reducer读取的root list role作为额外input。changed shard重算后summary相等时共享旧output Arc；当metadata
+context、node correspondence、所有local summaries与root roles均相等，且每个shard offset/source length及document end
+未变时，document reducer直接共享或重新绑定旧root outputs，不重建heading hierarchy、list topology、record/
+diagnostic topology或global duplicate overlay。任一条件不成立时回退各reducer现有的独立delta规则。Document
+exported-summary equality与workspace notification stop同样已实现。
 
 incremental tree revision使用 green parser返回的 old/new shard-aligned replacement range，以 prefix/replacement/suffix
 线性 splice复用 nodes，不为每个 revision重建 identity hash table。metadata只有在 edit位于上一版最后一个 document
-declaration之后且 replacement不含新的 direct `"="/`"+"/`"@" block时共享；empty heading output只有在 replacement
-不引入 nested heading时共享，其他情况回退完整 reducer。
+declaration之后、上一版没有definition lists，且replacement递归不含definition或新的direct `"="/`"+"/`"@"
+block时共享；已有definition的body revision重新运行metadata/definition reducer，覆盖definition删除、修改与adjacency
+变化。empty heading output只有在replacement不引入nested heading时共享，其他情况回退完整reducer。
 
 typed record projection保存 record-count topology；node index稳定、changed nodes各类 count不变且前后均无 semantic
 diagnostics时，projection spans直接重新绑定 current SemanticTree。稀疏或 query-hot collection使用 direct node
@@ -141,7 +145,9 @@ tree replacement的验收 differential compare fresh/incremental semantic revisi
 duplicate id、nested task/event/table、link containment 与 file-start range shift，并证明 unchanged green identity
 命中与 adapter observable output parity。后续 reducer delta验收还必须覆盖 valid/invalid transitions、UTF-8/CRLF、
 metadata context change、heading/list boundary、duplicate id、nested task/event/table、link containment 与 file-start
-range shift、semantic equality停止传播。benchmark 分别报告 syntax revision、
+range shift、semantic equality停止传播。Local-summary short-circuit tests必须证明metadata context改变不会误复用Event、
+heading/list boundary或duplicate id改变不会跳过global reducer，nested Task/Event/Table改变仍与fresh analysis等价，且
+file-start range shift即使relative local summary相等也重投影absolute ranges。benchmark分别报告syntax revision、
 local analysis、document reduction、absolute projection、workspace publication 与 destruction，不以省略后续阶段的
 microbenchmark 代替 end-to-end result。
 
