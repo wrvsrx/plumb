@@ -113,8 +113,10 @@ local headings。nonempty outline revision不得在node analysis前再次扫描�
 Citation/math/task/event/table的analyzer-specific diagnostics使用与records相同的tree-bound node-index segments；
 stable per-node diagnostic counts时共享Arc segment topology并只替换current tree，absolute ranges在消费时投影。
 record-count与diagnostic-count rebind条件相互独立。包含duplicate-anchor、association与table合并结果的root aggregate
-diagnostics在拥有独立persistent reducer以前，非空revision必须明确重建，不能因local topology稳定而返回empty或stale
-diagnostics。
+diagnostics先在每个node合并local record/association/table facts，再使用同一segmented projection。跨node
+duplicate-anchor是global overlay；没有duplicate ids且anchor sequence稳定时root diagnostics共享segment topology，
+anchor identity变化只触发全局duplicate检查；只有duplicate overlay实际存在时才materialize、合并与排序fallback，
+不能返回empty或stale diagnostics。
 
 跨 shard 规则由 typed document reducers 拥有，不能伪装成 local cache。reducers 至少维护 heading hierarchy 与
 section ends、list/definition adjacency、document metadata first-value/duplicate diagnostics、duplicate anchor ids、
