@@ -21,16 +21,15 @@ enum RecordStorage<T> {
 
 #[derive(Debug, Clone)]
 struct SegmentedRecordStorage<T> {
-    segments: Arc<[RecordSegment<T>]>,
+    tree: Arc<SemanticTree>,
+    segments: Arc<[RecordSegment]>,
     records: fn(&SemanticNodeOutput) -> &SemanticRecords<T>,
     len: usize,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct RecordSegment<T> {
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordSegment {
     pub(crate) node_index: usize,
-    pub(crate) offset: isize,
-    pub(crate) records: Arc<Vec<T>>,
 }
 
 #[derive(Debug)]
@@ -127,13 +126,12 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
             ),
             RecordStorage::Segmented(storage) => {
                 Box::new(storage.segments.iter().flat_map(|segment| {
-                    segment
-                        .records
+                    let (offset, output) = storage.tree.record_node(segment.node_index);
+                    (storage.records)(output)
+                        .owned_records()
+                        .expect("a projection segment references owned local records")
                         .iter()
-                        .map(move |record| SemanticRecordView {
-                            record,
-                            offset: segment.offset,
-                        })
+                        .map(move |record| SemanticRecordView { record, offset })
                 }))
             }
         }
@@ -151,7 +149,8 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
     }
 
     pub(crate) fn from_segments(
-        segments: Vec<RecordSegment<T>>,
+        tree: Arc<SemanticTree>,
+        segments: Vec<RecordSegment>,
         records: fn(&SemanticNodeOutput) -> &SemanticRecords<T>,
         len: usize,
     ) -> Self {
@@ -160,6 +159,7 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
         }
         Self {
             storage: RecordStorage::Segmented(SegmentedRecordStorage {
+                tree,
                 segments: segments.into(),
                 records,
                 len,
@@ -170,23 +170,27 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
     pub(crate) fn rebind_tree(&self, tree: Arc<SemanticTree>) -> Option<Self> {
         match &self.storage {
             RecordStorage::Empty => Some(Self::default()),
-            RecordStorage::Segmented(storage) => {
-                let segments = storage
-                    .segments
-                    .iter()
-                    .map(|segment| {
-                        let (offset, output) = tree.record_node(segment.node_index);
-                        let records = (storage.records)(output).owned_arc()?;
-                        Some(RecordSegment {
-                            node_index: segment.node_index,
-                            offset,
-                            records,
-                        })
-                    })
-                    .collect::<Option<Vec<_>>>()?;
-                Some(Self::from_segments(segments, storage.records, storage.len))
-            }
+            RecordStorage::Segmented(storage) => Some(Self {
+                storage: RecordStorage::Segmented(SegmentedRecordStorage {
+                    tree,
+                    segments: Arc::clone(&storage.segments),
+                    records: storage.records,
+                    len: storage.len,
+                }),
+            }),
             RecordStorage::Owned(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_segment_topology(&self, other: &Self) -> bool {
+        match (&self.storage, &other.storage) {
+            (RecordStorage::Empty, RecordStorage::Empty) => true,
+            (RecordStorage::Segmented(left), RecordStorage::Segmented(right)) => {
+                Arc::ptr_eq(&left.segments, &right.segments)
+            }
+            (RecordStorage::Empty | RecordStorage::Owned(_), _)
+            | (_, RecordStorage::Empty | RecordStorage::Owned(_)) => false,
         }
     }
 
@@ -195,6 +199,13 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
             RecordStorage::Empty => None,
             RecordStorage::Owned(records) => Some(Arc::clone(records)),
             RecordStorage::Segmented(_) => None,
+        }
+    }
+
+    fn owned_records(&self) -> Option<&[T]> {
+        match &self.storage {
+            RecordStorage::Owned(records) => Some(records),
+            RecordStorage::Empty | RecordStorage::Segmented(_) => None,
         }
     }
 

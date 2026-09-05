@@ -587,6 +587,25 @@ fn analyze_semantic_tree(
         .unwrap_or_else(|| analyze_green_headings(valid));
     let reusable = previous.filter(|previous| previous.metadata() == &metadata);
     let reusable_nodes = reusable_node_indices(reusable, &syntax, change);
+    let previous_nodes = previous.map(|previous| previous.root.tree.nodes.as_slice());
+    let same_node_count = previous_nodes.is_some_and(|nodes| nodes.len() == reusable_nodes.len());
+    let mut projections_rebindable = same_node_count
+        && previous.is_some_and(|previous| {
+            previous.root.citations.diagnostics.is_empty()
+                && previous.root.math.diagnostics.is_empty()
+                && previous.root.tasks.diagnostics.is_empty()
+                && previous.root.events.diagnostics.is_empty()
+                && previous.root.tables.diagnostics.is_empty()
+                && previous.root.diagnostics.is_empty()
+        });
+    let mut anchor_ids_rebindable = same_node_count
+        && previous.is_some_and(|previous| {
+            !previous
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.code == "anchor.duplicate-id")
+        });
+    let mut lists_rebindable = same_node_count;
     let mut cache_hits = 0;
     let nodes = syntax
         .shards()
@@ -631,6 +650,27 @@ fn analyze_semantic_tree(
                         association_diagnostics: association_arity_diagnostics(local.syntax()),
                     })
                 });
+            if let Some(previous_node) = previous_nodes.and_then(|nodes| nodes.get(node_index)) {
+                let exact_reuse = reusable_nodes[node_index] == Some(node_index);
+                projections_rebindable &= exact_reuse
+                    || (same_record_counts(&previous_node.output, &output)
+                        && node_output_diagnostics_empty(&output));
+                anchor_ids_rebindable &= exact_reuse
+                    || previous_node
+                        .output
+                        .records
+                        .anchors
+                        .iter()
+                        .map(|anchor| anchor.id.value)
+                        .eq(output.records.anchors.iter().map(|anchor| anchor.id.value));
+                lists_rebindable &= exact_reuse
+                    || (list_topology_eq(&previous_node.output.lists, &output.lists)
+                        && root_list_role(&previous_node.syntax) == root_list_role(&node_syntax));
+            } else {
+                projections_rebindable = false;
+                anchor_ids_rebindable = false;
+                lists_rebindable = false;
+            }
             SemanticNode {
                 syntax: node_syntax,
                 offset: view.offset(),
@@ -638,8 +678,7 @@ fn analyze_semantic_tree(
             }
         })
         .collect::<Vec<_>>();
-    let projection_source =
-        previous.filter(|previous| can_rebind_projections(previous, &nodes, &reusable_nodes));
+    let projection_source = previous.filter(|_| projections_rebindable);
     let mut projections = projection_source
         .map(|_| RootProjectionIndex::default())
         .unwrap_or_else(|| RootProjectionIndex::build(&nodes));
@@ -737,13 +776,7 @@ fn analyze_semantic_tree(
     let first_link_start = links.first().map(|link| link.range.start);
     let mut record_diagnostics = std::mem::take(&mut projections.record_diagnostics);
     record_diagnostics.retain(|diagnostic| diagnostic.code != "anchor.duplicate-id");
-    let duplicate_ids_still_absent = previous.is_some_and(|previous| {
-        !previous
-            .diagnostics()
-            .iter()
-            .any(|diagnostic| diagnostic.code == "anchor.duplicate-id")
-            && anchor_ids_unchanged(&previous.root.tree, &tree)
-    });
+    let duplicate_ids_still_absent = anchor_ids_rebindable;
     if !duplicate_ids_still_absent {
         let absolute_anchors = anchors.iter().collect::<Vec<_>>();
         append_duplicate_anchor_diagnostics(&absolute_anchors, &mut record_diagnostics);
@@ -756,7 +789,7 @@ fn analyze_semantic_tree(
         )
     });
     let lists = previous
-        .filter(|previous| can_rebind_lists(&previous.root.tree, &tree))
+        .filter(|_| lists_rebindable)
         .and_then(|previous| rebind_lists(previous.lists(), &tree))
         .unwrap_or_else(|| reduce_lists(&tree));
     let mut diagnostics = std::mem::take(&mut projections.association_diagnostics);
@@ -915,26 +948,6 @@ impl RecordProjectionIndex {
     }
 }
 
-fn can_rebind_projections(
-    previous: &DocumentOutput,
-    current: &[SemanticNode],
-    reusable: &[Option<usize>],
-) -> bool {
-    let previous_nodes = &previous.root.tree.nodes;
-    previous_nodes.len() == current.len()
-        && previous.root.citations.diagnostics.is_empty()
-        && previous.root.math.diagnostics.is_empty()
-        && previous.root.tasks.diagnostics.is_empty()
-        && previous.root.events.diagnostics.is_empty()
-        && previous.root.tables.diagnostics.is_empty()
-        && previous.root.diagnostics.is_empty()
-        && current.iter().enumerate().all(|(index, node)| {
-            reusable[index].is_some_and(|previous_index| previous_index == index)
-                || (same_record_counts(&previous_nodes[index].output, &node.output)
-                    && node_output_diagnostics_empty(&node.output))
-        })
-}
-
 fn same_record_counts(previous: &SemanticNodeOutput, current: &SemanticNodeOutput) -> bool {
     previous.citations.citations.len() == current.citations.citations.len()
         && previous.inline_styles.styles.len() == current.inline_styles.styles.len()
@@ -1055,17 +1068,13 @@ fn projected_records<T: RelativeSemanticRecord>(
         .iter()
         .flat_map(|span| span.clone())
         .map(|node_index| {
-            let (offset, output) = tree.record_node(node_index);
-            RecordSegment {
-                node_index,
-                offset,
-                records: records(output)
-                    .owned_arc()
-                    .expect("a projection span references nonempty local records"),
-            }
+            debug_assert!(records(&tree.nodes[node_index].output)
+                .owned_arc()
+                .is_some());
+            RecordSegment { node_index }
         })
         .collect();
-    SemanticRecords::from_segments(segments, records, index.len)
+    SemanticRecords::from_segments(Arc::clone(tree), segments, records, index.len)
 }
 
 fn reduce_lists(tree: &Arc<SemanticTree>) -> ListOutput {
@@ -1146,42 +1155,6 @@ fn reduce_lists(tree: &Arc<SemanticTree>) -> ListOutput {
     ListOutput {
         groups: ListGroups::from_reduced(groups),
     }
-}
-
-fn can_rebind_lists(previous: &SemanticTree, current: &SemanticTree) -> bool {
-    previous.nodes.len() == current.nodes.len()
-        && previous
-            .nodes
-            .iter()
-            .zip(&current.nodes)
-            .all(|(previous, current)| {
-                Arc::ptr_eq(&previous.output, &current.output)
-                    || (list_topology_eq(&previous.output.lists, &current.output.lists)
-                        && root_list_role(&previous.syntax) == root_list_role(&current.syntax))
-            })
-}
-
-fn anchor_ids_unchanged(previous: &SemanticTree, current: &SemanticTree) -> bool {
-    previous.nodes.len() == current.nodes.len()
-        && previous
-            .nodes
-            .iter()
-            .zip(&current.nodes)
-            .all(|(previous, current)| {
-                Arc::ptr_eq(&previous.output, &current.output)
-                    || previous
-                        .output
-                        .records
-                        .anchors
-                        .iter()
-                        .map(|anchor| anchor.id.value)
-                        .eq(current
-                            .output
-                            .records
-                            .anchors
-                            .iter()
-                            .map(|anchor| anchor.id.value))
-            })
 }
 
 fn list_topology_eq(previous: &ListOutput, current: &ListOutput) -> bool {
@@ -2279,6 +2252,10 @@ mod tests {
         );
         let fresh = analyze_document(parse(new).valid_syntax().unwrap());
         assert_eq!(incremental, fresh);
+        assert!(incremental
+            .events()
+            .events
+            .shares_segment_topology(&previous_output.events().events));
     }
 
     #[test]
