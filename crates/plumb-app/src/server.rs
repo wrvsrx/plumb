@@ -2756,6 +2756,61 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]
+    fn profile_document_symbol_response() {
+        let count: usize = std::env::var("PLUMB_PROFILE_SYMBOL_COUNT")
+            .map(|value| value.parse().unwrap())
+            .unwrap_or(2_000);
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let path = "/tmp/plumb-symbol-profile.plumb";
+        let mut source = String::new();
+        for index in 0..count {
+            source.push_str(&format!(
+                "`# Section {index}\n\n`- Task {index}\n `+ task\n `@ task-{index}\n\n"
+            ));
+        }
+        state.workspace.open_document(path, 1, source);
+        let params: DocumentSymbolParams = serde_json::from_value(serde_json::json!({
+            "textDocument": {"uri": Url::from_file_path(path).unwrap()}
+        }))
+        .unwrap();
+        let mut run = || {
+            let result = futures::FutureExt::now_or_never(state.document_symbol(params.clone()))
+                .expect("current-valid symbol projection completes immediately")
+                .unwrap()
+                .unwrap();
+            let DocumentSymbolResponse::Nested(symbols) = &result else {
+                panic!("nested symbols expected")
+            };
+            assert_eq!(symbols.len(), count);
+            assert!(symbols
+                .iter()
+                .all(|symbol| symbol.children.as_ref().unwrap().len() == 1));
+            serde_json::to_vec(&result).unwrap()
+        };
+        let expected = run();
+        for _ in 0..5 {
+            std::hint::black_box(run());
+        }
+        let mut samples = Vec::new();
+        for _ in 0..20 {
+            let start = std::time::Instant::now();
+            let bytes = run();
+            samples.push(start.elapsed());
+            assert_eq!(bytes, expected);
+            std::hint::black_box(bytes);
+        }
+        samples.sort();
+        eprintln!(
+            "document_symbol_response: headings={count} tasks={count} bytes={} samples=20 median={:?}",
+            expected.len(),
+            samples[10]
+        );
+    }
+
+    #[test]
     fn decorative_queries_distinguish_incomplete_from_complete_empty_results() {
         assert_eq!(
             optional_decorative_query::<Vec<()>>(Err(WorkspaceQueryError::Incomplete)).unwrap(),
