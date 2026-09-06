@@ -28,56 +28,88 @@ pub(crate) fn physical_line_ranges(
 pub(crate) fn closed_task_token_ranges(
     tasks: &SemanticRecords<TaskRecord>,
 ) -> Vec<(std::ops::Range<usize>, u32)> {
-    let tasks = tasks.iter().collect::<Vec<_>>();
-    let mut children = vec![Vec::new(); tasks.len()];
-    let mut ancestors: Vec<usize> = Vec::new();
-    for (index, task) in tasks.iter().enumerate() {
+    let mut output = Vec::new();
+    let mut ancestors: Vec<(usize, std::ops::Range<usize>, u32)> = Vec::new();
+    for task in tasks.views() {
         while ancestors
             .last()
-            .is_some_and(|ancestor| tasks[*ancestor].depth >= task.depth)
+            .is_some_and(|(depth, _, _)| *depth >= task.depth())
         {
-            ancestors.pop();
+            let (_, remaining, modifiers) = ancestors.pop().unwrap();
+            if modifiers != 0 && !remaining.is_empty() {
+                output.push((remaining, modifiers));
+            }
         }
-        if let Some(parent) = ancestors.last() {
-            children[*parent].push(task.range.clone());
+        let range = task.range();
+        // Direct child subtrees override the parent's state, including open children.
+        if let Some((_, remaining, modifiers)) = ancestors.last_mut() {
+            if *modifiers != 0 && remaining.start < range.start {
+                output.push((remaining.start..range.start, *modifiers));
+            }
+            remaining.start = range.end;
         }
-        ancestors.push(index);
-    }
-
-    let mut output = Vec::new();
-    for (index, task) in tasks.iter().enumerate() {
         let modifiers = match task.state() {
-            TaskState::Open => continue,
+            TaskState::Open => 0,
             TaskState::Done => 1,
             TaskState::Canceled => 2,
             TaskState::Conflicted => 3,
         };
-        let mut owned = vec![task.range.clone()];
-        for child in &children[index] {
-            owned = owned
-                .into_iter()
-                .flat_map(|range| subtract_range(range, child))
-                .collect();
-        }
-        output.extend(owned.into_iter().map(|range| (range, modifiers)));
+        ancestors.push((task.depth(), range, modifiers));
     }
-    output.sort_by_key(|(range, _)| range.start);
+    while let Some((_, remaining, modifiers)) = ancestors.pop() {
+        if modifiers != 0 && !remaining.is_empty() {
+            output.push((remaining, modifiers));
+        }
+    }
     output
 }
 
-fn subtract_range(
-    range: std::ops::Range<usize>,
-    excluded: &std::ops::Range<usize>,
-) -> Vec<std::ops::Range<usize>> {
-    if excluded.end <= range.start || excluded.start >= range.end {
-        return vec![range];
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_ranges_follow_deepest_task_state_for_all_nested_closure_combinations() {
+        for combination in 0..256 {
+            let mut source = String::from("Prelude\n\n");
+            for (index, depth) in [0, 1, 2, 1].into_iter().enumerate() {
+                let indent = " ".repeat(depth);
+                source.push_str(&format!("{indent}`- Task {index}\n{indent} `+ task\n"));
+                let state = (combination >> (2 * index)) & 3;
+                for (bit, name) in [(1, "done"), (2, "canceled")] {
+                    if state & bit != 0 {
+                        source.push_str(&format!("{indent} `= {name} 2026-09-07T09:00:00+08:00\n"));
+                    }
+                }
+                source.push('\n');
+            }
+            source.push_str("Tail\n");
+            let parsed = plumb_syntax::parse(&source);
+            let output = plumb_semantics::analyze_document(parsed.valid_syntax().unwrap());
+            let tasks = &output.tasks().tasks;
+            assert_eq!(tasks.len(), 4);
+            let ranges = closed_task_token_ranges(tasks);
+            assert!(ranges
+                .windows(2)
+                .all(|pair| pair[0].0.end <= pair[1].0.start));
+            let records = tasks.iter().collect::<Vec<_>>();
+            for offset in 0..source.len() {
+                let expected = records
+                    .iter()
+                    .filter(|task| task.range.contains(&offset))
+                    .max_by_key(|task| task.depth)
+                    .map_or(0, |task| match task.state() {
+                        TaskState::Open => 0,
+                        TaskState::Done => 1,
+                        TaskState::Canceled => 2,
+                        TaskState::Conflicted => 3,
+                    });
+                let actual = ranges
+                    .iter()
+                    .find(|(range, _)| range.contains(&offset))
+                    .map_or(0, |(_, modifiers)| *modifiers);
+                assert_eq!(actual, expected, "combination {combination}, byte {offset}");
+            }
+        }
     }
-    let mut output = Vec::with_capacity(2);
-    if range.start < excluded.start {
-        output.push(range.start..excluded.start);
-    }
-    if excluded.end < range.end {
-        output.push(excluded.end..range.end);
-    }
-    output
 }

@@ -89,6 +89,24 @@ impl TaskRecord {
 }
 
 impl crate::SemanticRecordView<'_, TaskRecord> {
+    pub fn range(self) -> Range<usize> {
+        self.record
+            .range
+            .start
+            .checked_add_signed(self.offset)
+            .unwrap()
+            ..self
+                .record
+                .range
+                .end
+                .checked_add_signed(self.offset)
+                .unwrap()
+    }
+
+    pub fn depth(self) -> usize {
+        self.record.depth
+    }
+
     pub fn state(self) -> TaskState {
         self.record.state()
     }
