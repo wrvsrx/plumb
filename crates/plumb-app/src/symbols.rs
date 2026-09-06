@@ -4,7 +4,7 @@ use plumb_semantics::{
     SemanticRecords, TaskRecord, TaskState,
 };
 
-use crate::position::byte_range_to_lsp;
+use crate::position::{byte_range_to_lsp, PositionIndex};
 
 pub(crate) fn heading(source: &str, heading: &Heading) -> DocumentSymbol {
     #[allow(deprecated)]
@@ -95,11 +95,19 @@ fn metadata_entry(source: &str, entry: &MetadataEntry) -> DocumentSymbol {
 }
 
 pub(crate) fn tasks(source: &str, tasks: &SemanticRecords<TaskRecord>) -> Vec<DocumentSymbol> {
+    if tasks.is_empty() {
+        return Vec::new();
+    }
+    let positions = PositionIndex::new(source);
     let tasks = tasks.iter().collect::<Vec<_>>();
-    nested_symbols(&tasks, |task| task.depth, |task| task_symbol(source, task))
+    nested_symbols(
+        &tasks,
+        |task| task.depth,
+        |task| task_symbol(&positions, task),
+    )
 }
 
-fn task_symbol(source: &str, task: &TaskRecord) -> DocumentSymbol {
+fn task_symbol(positions: &PositionIndex<'_>, task: &TaskRecord) -> DocumentSymbol {
     let id = task
         .id
         .as_ref()
@@ -112,22 +120,26 @@ fn task_symbol(source: &str, task: &TaskRecord) -> DocumentSymbol {
         kind: SymbolKind::EVENT,
         tags: None,
         deprecated: None,
-        range: byte_range_to_lsp(source, &task.range),
-        selection_range: byte_range_to_lsp(source, &task.selection_range),
+        range: positions.byte_range_to_lsp(&task.range),
+        selection_range: positions.byte_range_to_lsp(&task.selection_range),
         children: None,
     }
 }
 
 pub(crate) fn events(source: &str, events: &EventRecords) -> Vec<DocumentSymbol> {
+    if events.is_empty() {
+        return Vec::new();
+    }
+    let positions = PositionIndex::new(source);
     let events = events.iter().collect::<Vec<_>>();
     nested_symbols(
         &events,
         |event| event.depth,
-        |event| event_symbol(source, event),
+        |event| event_symbol(&positions, event),
     )
 }
 
-fn event_symbol(source: &str, event: &EventRecord) -> DocumentSymbol {
+fn event_symbol(positions: &PositionIndex<'_>, event: &EventRecord) -> DocumentSymbol {
     let id = event
         .id
         .as_ref()
@@ -145,8 +157,8 @@ fn event_symbol(source: &str, event: &EventRecord) -> DocumentSymbol {
         kind: SymbolKind::EVENT,
         tags: None,
         deprecated: None,
-        range: byte_range_to_lsp(source, &event.range),
-        selection_range: byte_range_to_lsp(source, &event.selection_range),
+        range: positions.byte_range_to_lsp(&event.range),
+        selection_range: positions.byte_range_to_lsp(&event.selection_range),
         children: None,
     }
 }
