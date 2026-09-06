@@ -88,6 +88,12 @@ impl TaskRecord {
     }
 }
 
+impl crate::SemanticRecordView<'_, TaskRecord> {
+    pub fn state(self) -> TaskState {
+        self.record.state()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TaskOutput {
     pub tasks: SemanticRecords<TaskRecord>,

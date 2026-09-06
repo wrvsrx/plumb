@@ -1241,6 +1241,17 @@ fn benchmark_export_record_lookup(c: &mut Criterion) {
     c.bench_function("export_record_lookup_2000", |b| {
         b.iter(|| black_box(plumb_export::export(black_box(&source)).unwrap()))
     });
+    let mut list_source = String::new();
+    for index in 0..2_000 {
+        list_source.push_str(&format!(
+            "`- Task {index}\n `+ task\n `= done 2026-09-07T09:00:00+08:00\n\n`- 2026-09-07T10:00:00+08:00 Event {index}\n `+ event\n\n"
+        ));
+    }
+    let exported = plumb_export::export(&list_source).unwrap();
+    assert_eq!(exported["blocks"][0]["c"].as_array().unwrap().len(), 4_000);
+    c.bench_function("export_task_event_lookup_2000", |b| {
+        b.iter(|| black_box(plumb_export::export(black_box(&list_source)).unwrap()))
+    });
 }
 
 fn benchmark_semantic_equality_publication(c: &mut Criterion) {

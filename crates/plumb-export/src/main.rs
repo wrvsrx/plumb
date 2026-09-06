@@ -251,13 +251,11 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
             let task = analysis
                 .tasks()
                 .tasks
-                .iter()
-                .find(|task| task.range.start == block.range.start);
+                .view_at_start(block.range.start);
             let event = analysis
                 .events()
                 .events
-                .iter()
-                .find(|event| event.range.start == block.range.start);
+                .view_at_start(block.range.start);
             if let Some(ref task) = task {
                 let mut title = vec![json!({ "t": "Str", "c": task_state_marker(task.state()) })];
                 let inlines = lower_inlines(&block.content, analysis);
