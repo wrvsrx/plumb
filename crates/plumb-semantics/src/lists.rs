@@ -92,7 +92,33 @@ impl ListGroups {
     }
 
     pub fn get(&self, index: usize) -> Option<ListGroup> {
-        self.iter().nth(index)
+        match &self.storage {
+            ListGroupStorage::Empty => None,
+            ListGroupStorage::Owned(groups) => groups.get(index).cloned(),
+            ListGroupStorage::Reduced(groups) => {
+                groups.get(index).map(ReducedListGroup::materialize)
+            }
+        }
+    }
+
+    fn at_start(&self, start: usize) -> Option<ListGroup> {
+        match &self.storage {
+            ListGroupStorage::Empty => None,
+            ListGroupStorage::Owned(groups) => {
+                let index = groups.partition_point(|group| group.range.start < start);
+                groups
+                    .get(index)
+                    .filter(|group| group.range.start == start)
+                    .cloned()
+            }
+            ListGroupStorage::Reduced(groups) => {
+                let index = groups.partition_point(|group| group.range.start < start);
+                groups
+                    .get(index)
+                    .filter(|group| group.range.start == start)
+                    .map(ReducedListGroup::materialize)
+            }
+        }
     }
 
     pub fn iter(&self) -> Box<dyn Iterator<Item = ListGroup> + '_> {
@@ -191,7 +217,7 @@ fn shift_range(range: &mut Range<usize>, delta: isize) {
 
 impl ListOutput {
     pub fn group_at_node_start(&self, start: usize) -> Option<ListGroup> {
-        self.groups.iter().find(|group| group.range.start == start)
+        self.groups.at_start(start)
     }
 }
 
@@ -298,6 +324,35 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn indexed_group_queries_match_owned_and_reduced_nested_lists() {
+        let source = "Prelude\n\n`- One\n `- Nested\n\n`- Two\n\nParagraph\n\n`. Three\n";
+        let parsed = parse(source);
+        let valid = parsed.valid_syntax().unwrap();
+        let owned = analyze_lists(valid);
+        let document = crate::analyze_document(valid);
+        let reduced = document.lists();
+        assert_eq!(owned.groups.len(), 3);
+        for (index, expected) in owned.groups.iter().enumerate() {
+            assert_eq!(owned.groups.get(index), Some(expected.clone()));
+            assert_eq!(reduced.groups.get(index), Some(expected.clone()));
+            assert_eq!(
+                owned.group_at_node_start(expected.range.start),
+                Some(expected.clone())
+            );
+            assert_eq!(
+                reduced.group_at_node_start(expected.range.start),
+                Some(expected.clone())
+            );
+            assert!(reduced
+                .group_at_node_start(expected.range.start + 1)
+                .is_none());
+        }
+        assert!(reduced.groups.get(3).is_none());
+        assert!(reduced.group_at_node_start(source.len()).is_none());
+        assert!(ListOutput::default().group_at_node_start(0).is_none());
+    }
 
     #[test]
     fn groups_adjacent_sibling_items_and_nested_items() {

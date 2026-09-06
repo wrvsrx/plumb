@@ -1281,6 +1281,20 @@ fn benchmark_export_record_lookup(c: &mut Criterion) {
     c.bench_function("export_table_lookup_1000", |b| {
         b.iter(|| black_box(plumb_export::export(black_box(&table_source)).unwrap()))
     });
+    let mut groups_source = String::new();
+    for index in 0..2_000 {
+        groups_source.push_str(&format!("`- Item {index}\n\nParagraph {index}\n\n"));
+    }
+    assert_eq!(
+        plumb_export::export(&groups_source).unwrap()["blocks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4_000
+    );
+    c.bench_function("export_list_groups_2000", |b| {
+        b.iter(|| black_box(plumb_export::export(black_box(&groups_source)).unwrap()))
+    });
 }
 
 fn benchmark_semantic_equality_publication(c: &mut Criterion) {
