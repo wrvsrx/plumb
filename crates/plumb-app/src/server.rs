@@ -63,7 +63,7 @@ use crate::hover::{
     event as event_hover, file as file_hover, image as image_hover, link as link_hover,
     metadata as metadata_hover, target as target_hover, task as task_hover,
 };
-use crate::position::{byte_range_to_lsp, position_to_offset, LineIndex};
+use crate::position::{byte_range_to_lsp, position_to_offset, LineIndex, PositionIndex};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
 #[cfg(test)]
 use crate::semantic_tokens::{closed_task_token_ranges, physical_line_ranges};
@@ -1290,12 +1290,13 @@ impl LanguageServer for ServerState {
             .and_then(|path| self.workspace.get(path))
             .and_then(|entry| entry.current.as_ref().map(|current| (entry, current)))
             .map(|(entry, current)| {
+                let positions = PositionIndex::new(entry.parsed.source());
                 let mut symbols = current
                     .output
                     .headings()
                     .headings
                     .iter()
-                    .map(|heading| heading_symbol(entry.parsed.source(), heading))
+                    .map(|heading| heading_symbol(&positions, heading))
                     .collect::<Vec<_>>();
                 let mut additional = current
                     .output
@@ -1307,27 +1308,19 @@ impl LanguageServer for ServerState {
                                 .output
                                 .tasks()
                                 .tasks
-                                .iter()
-                                .any(|task| task.range == anchor.range)
+                                .view_at_start(anchor.range.start)
+                                .is_some_and(|task| task.range() == anchor.range)
                             && !current
                                 .output
                                 .events()
                                 .events
-                                .iter()
-                                .any(|event| event.range == anchor.range)
+                                .view_at_start(anchor.range.start)
+                                .is_some_and(|event| event.range() == anchor.range)
                     })
-                    .map(|anchor| {
-                        (
-                            anchor.range.start,
-                            anchor_symbol(entry.parsed.source(), &anchor),
-                        )
-                    })
+                    .map(|anchor| (anchor.range.start, anchor_symbol(&positions, &anchor)))
                     .collect::<Vec<_>>();
                 if let Some(metadata) = &current.output.metadata().metadata {
-                    additional.push((
-                        metadata.range.start,
-                        metadata_symbol(entry.parsed.source(), metadata),
-                    ));
+                    additional.push((metadata.range.start, metadata_symbol(&positions, metadata)));
                 }
                 additional.extend(
                     current
@@ -1337,10 +1330,7 @@ impl LanguageServer for ServerState {
                         .iter()
                         .filter(|task| task.depth == 0)
                         .map(|task| task.range.start)
-                        .zip(task_symbols(
-                            entry.parsed.source(),
-                            &current.output.tasks().tasks,
-                        )),
+                        .zip(task_symbols(&positions, &current.output.tasks().tasks)),
                 );
                 additional.extend(
                     current
@@ -1350,10 +1340,7 @@ impl LanguageServer for ServerState {
                         .iter()
                         .filter(|event| event.depth == 0)
                         .map(|event| event.range.start)
-                        .zip(event_symbols(
-                            entry.parsed.source(),
-                            &current.output.events().events,
-                        )),
+                        .zip(event_symbols(&positions, &current.output.events().events)),
                 );
                 additional.sort_by_key(|(start, _)| *start);
                 for (_, symbol) in additional {
@@ -3059,7 +3046,7 @@ mod tests {
         let symbols = output
             .headings
             .iter()
-            .map(|heading| heading_symbol(&parsed.source, heading))
+            .map(|heading| heading_symbol(&PositionIndex::new(&parsed.source), heading))
             .collect::<Vec<_>>();
         assert_eq!(symbols[0].name, "One");
         assert_eq!(symbols[0].children.as_ref().unwrap()[0].name, "Two");
@@ -3176,7 +3163,10 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        let symbol = metadata_symbol(&parsed.source, output.metadata.as_ref().unwrap());
+        let symbol = metadata_symbol(
+            &PositionIndex::new(&parsed.source),
+            output.metadata.as_ref().unwrap(),
+        );
         assert_eq!(symbol.name, "metadata");
         let children = symbol.children.unwrap();
         assert_eq!(children[0].name, "title");

@@ -4,9 +4,9 @@ use plumb_semantics::{
     SemanticRecords, TaskRecord, TaskState,
 };
 
-use crate::position::{byte_range_to_lsp, PositionIndex};
+use crate::position::PositionIndex;
 
-pub(crate) fn heading(source: &str, heading: &Heading) -> DocumentSymbol {
+pub(crate) fn heading(positions: &PositionIndex<'_>, heading: &Heading) -> DocumentSymbol {
     #[allow(deprecated)]
     DocumentSymbol {
         name: if heading.title.is_empty() {
@@ -18,19 +18,19 @@ pub(crate) fn heading(source: &str, heading: &Heading) -> DocumentSymbol {
         kind: SymbolKind::STRING,
         tags: None,
         deprecated: None,
-        range: byte_range_to_lsp(source, &heading.section_range),
-        selection_range: byte_range_to_lsp(source, &heading.selection_range),
+        range: positions.byte_range_to_lsp(&heading.section_range),
+        selection_range: positions.byte_range_to_lsp(&heading.selection_range),
         children: (!heading.children.is_empty()).then(|| {
             heading
                 .children
                 .iter()
-                .map(|child| self::heading(source, child))
+                .map(|child| self::heading(positions, child))
                 .collect()
         }),
     }
 }
 
-pub(crate) fn anchor(source: &str, anchor: &AnchorRecord) -> DocumentSymbol {
+pub(crate) fn anchor(positions: &PositionIndex<'_>, anchor: &AnchorRecord) -> DocumentSymbol {
     #[allow(deprecated)]
     DocumentSymbol {
         name: format!("#{}", anchor.id.value),
@@ -38,13 +38,13 @@ pub(crate) fn anchor(source: &str, anchor: &AnchorRecord) -> DocumentSymbol {
         kind: SymbolKind::KEY,
         tags: None,
         deprecated: None,
-        range: byte_range_to_lsp(source, &anchor.range),
-        selection_range: byte_range_to_lsp(source, &anchor.id.range),
+        range: positions.byte_range_to_lsp(&anchor.range),
+        selection_range: positions.byte_range_to_lsp(&anchor.id.range),
         children: None,
     }
 }
 
-pub(crate) fn metadata(source: &str, metadata: &MetadataBlock) -> DocumentSymbol {
+pub(crate) fn metadata(positions: &PositionIndex<'_>, metadata: &MetadataBlock) -> DocumentSymbol {
     #[allow(deprecated)]
     DocumentSymbol {
         name: "metadata".to_string(),
@@ -52,19 +52,19 @@ pub(crate) fn metadata(source: &str, metadata: &MetadataBlock) -> DocumentSymbol
         kind: SymbolKind::OBJECT,
         tags: None,
         deprecated: None,
-        range: byte_range_to_lsp(source, &metadata.range),
-        selection_range: byte_range_to_lsp(source, &metadata.selection_range),
+        range: positions.byte_range_to_lsp(&metadata.range),
+        selection_range: positions.byte_range_to_lsp(&metadata.selection_range),
         children: (!metadata.entries.is_empty()).then(|| {
             metadata
                 .entries
                 .iter()
-                .map(|entry| metadata_entry(source, entry))
+                .map(|entry| metadata_entry(positions, entry))
                 .collect()
         }),
     }
 }
 
-fn metadata_entry(source: &str, entry: &MetadataEntry) -> DocumentSymbol {
+fn metadata_entry(positions: &PositionIndex<'_>, entry: &MetadataEntry) -> DocumentSymbol {
     let (detail, children) = match &entry.value {
         MetadataValue::Null { .. } => ("null".to_string(), None),
         MetadataValue::Scalar { content, .. } => (content.plain_text(), None),
@@ -74,7 +74,7 @@ fn metadata_entry(source: &str, entry: &MetadataEntry) -> DocumentSymbol {
             (!entries.is_empty()).then(|| {
                 entries
                     .iter()
-                    .map(|entry| metadata_entry(source, entry))
+                    .map(|entry| metadata_entry(positions, entry))
                     .collect()
             }),
         ),
@@ -88,22 +88,24 @@ fn metadata_entry(source: &str, entry: &MetadataEntry) -> DocumentSymbol {
         kind: SymbolKind::PROPERTY,
         tags: None,
         deprecated: None,
-        range: byte_range_to_lsp(source, &entry.range),
-        selection_range: byte_range_to_lsp(source, &entry.key_range),
+        range: positions.byte_range_to_lsp(&entry.range),
+        selection_range: positions.byte_range_to_lsp(&entry.key_range),
         children,
     }
 }
 
-pub(crate) fn tasks(source: &str, tasks: &SemanticRecords<TaskRecord>) -> Vec<DocumentSymbol> {
+pub(crate) fn tasks(
+    positions: &PositionIndex<'_>,
+    tasks: &SemanticRecords<TaskRecord>,
+) -> Vec<DocumentSymbol> {
     if tasks.is_empty() {
         return Vec::new();
     }
-    let positions = PositionIndex::new(source);
     let tasks = tasks.iter().collect::<Vec<_>>();
     nested_symbols(
         &tasks,
         |task| task.depth,
-        |task| task_symbol(&positions, task),
+        |task| task_symbol(positions, task),
     )
 }
 
@@ -126,16 +128,15 @@ fn task_symbol(positions: &PositionIndex<'_>, task: &TaskRecord) -> DocumentSymb
     }
 }
 
-pub(crate) fn events(source: &str, events: &EventRecords) -> Vec<DocumentSymbol> {
+pub(crate) fn events(positions: &PositionIndex<'_>, events: &EventRecords) -> Vec<DocumentSymbol> {
     if events.is_empty() {
         return Vec::new();
     }
-    let positions = PositionIndex::new(source);
     let events = events.iter().collect::<Vec<_>>();
     nested_symbols(
         &events,
         |event| event.depth,
-        |event| event_symbol(&positions, event),
+        |event| event_symbol(positions, event),
     )
 }
 
