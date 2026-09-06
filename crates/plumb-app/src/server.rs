@@ -341,12 +341,19 @@ impl ServerState {
         let Some(entry) = self.workspace.get(path) else {
             return;
         };
+        let mut positions = None;
         let diagnostics = entry
             .parsed
             .diagnostics()
             .iter()
             .cloned()
-            .map(|diagnostic| to_lsp_diagnostic(entry.parsed.source(), uri, diagnostic))
+            .map(|diagnostic| {
+                to_lsp_diagnostic(
+                    positions.get_or_insert_with(|| PositionIndex::new(entry.parsed.source())),
+                    uri,
+                    diagnostic,
+                )
+            })
             .collect();
         let version = i32::try_from(entry.revision).ok();
         let _ = self
@@ -377,9 +384,16 @@ impl ServerState {
                 );
             }
         }
+        let mut positions = None;
         let diagnostics = diagnostics
             .into_iter()
-            .map(|diagnostic| to_lsp_diagnostic(entry.parsed.source(), uri, diagnostic))
+            .map(|diagnostic| {
+                to_lsp_diagnostic(
+                    positions.get_or_insert_with(|| PositionIndex::new(entry.parsed.source())),
+                    uri,
+                    diagnostic,
+                )
+            })
             .collect();
         let version = i32::try_from(entry.revision).ok();
         let _ = self
@@ -2719,19 +2733,23 @@ fn is_plumb_file(path: &Path) -> bool {
         .is_some_and(|extension| extension == "plumb")
 }
 
-fn to_lsp_diagnostic(source: &str, uri: &Url, diagnostic: Diagnostic) -> LspDiagnostic {
+fn to_lsp_diagnostic(
+    positions: &PositionIndex<'_>,
+    uri: &Url,
+    diagnostic: Diagnostic,
+) -> LspDiagnostic {
     let related_information = (!diagnostic.related.is_empty()).then(|| {
         diagnostic
             .related
             .iter()
             .map(|range| DiagnosticRelatedInformation {
-                location: Location::new(uri.clone(), byte_range_to_lsp(source, range)),
+                location: Location::new(uri.clone(), positions.byte_range_to_lsp(range)),
                 message: "Related source location".to_string(),
             })
             .collect()
     });
     LspDiagnostic {
-        range: byte_range_to_lsp(source, &diagnostic.range),
+        range: positions.byte_range_to_lsp(&diagnostic.range),
         severity: Some(match diagnostic.severity {
             plumb_syntax::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
             plumb_syntax::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
