@@ -75,6 +75,12 @@ impl RelativeSemanticRecord for AnchorRecord {
     }
 }
 
+impl<'a> crate::SemanticRecordView<'a, AnchorRecord> {
+    pub fn id_value(self) -> &'a str {
+        &self.record.id.value
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinkTarget {
     Anchor {

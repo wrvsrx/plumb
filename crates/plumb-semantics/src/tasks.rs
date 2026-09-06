@@ -89,6 +89,13 @@ impl TaskRecord {
 }
 
 impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
+    pub fn dependency_targets(self) -> impl Iterator<Item = &'a TaskReferenceTarget> {
+        self.record
+            .depends
+            .iter()
+            .map(|dependency| &dependency.target)
+    }
+
     pub fn title(self) -> &'a str {
         &self.record.title
     }
