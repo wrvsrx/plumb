@@ -10,7 +10,7 @@ use tokio::sync::watch;
 
 use super::ServerState;
 use crate::folding::{collapsed_text_labels, FoldLabel};
-use crate::position::byte_range_to_lsp;
+use crate::position::PositionIndex;
 use crate::semantic_tokens::{closed_task_token_ranges, physical_line_ranges};
 
 pub(super) struct SemanticSnapshot {
@@ -97,6 +97,7 @@ pub(super) fn semantic_tokens(entry: &DocumentEntry) -> Option<SemanticTokensRes
     let current = entry.current.as_ref()?;
     let mut previous_line = 0;
     let mut previous_start = 0;
+    let mut positions = None;
     let data = closed_task_token_ranges(&current.output.tasks().tasks)
         .into_iter()
         .flat_map(|(byte_range, modifiers)| {
@@ -105,7 +106,9 @@ pub(super) fn semantic_tokens(entry: &DocumentEntry) -> Option<SemanticTokensRes
                 .map(move |range| (range, modifiers))
         })
         .map(|(byte_range, token_modifiers_bitset)| {
-            let range = byte_range_to_lsp(entry.parsed.source(), &byte_range);
+            let range = positions
+                .get_or_insert_with(|| PositionIndex::new(entry.parsed.source()))
+                .byte_range_to_lsp(&byte_range);
             let delta_line = range.start.line - previous_line;
             let delta_start = if delta_line == 0 {
                 range.start.character - previous_start
@@ -132,6 +135,47 @@ pub(super) fn semantic_tokens(entry: &DocumentEntry) -> Option<SemanticTokensRes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indexed_token_positions_match_utf16_projection_across_crlf_and_nested_tasks() {
+        let source = "Prelude \u{1f600}\r\n\r\n`- Parent \u{4efb}\u{52a1}\r\n `+ task\r\n `= done 2026-09-07T09:00:00+08:00\r\n\r\n `- Open child\r\n  `+ task\r\n\r\n `- Canceled \u{1f600}\r\n  `+ task\r\n  `= canceled 2026-09-07T09:00:00+08:00\r\n";
+        let mut workspace = plumb_workspace::Workspace::new();
+        workspace.insert("tokens.plumb", 1, source);
+        let entry = workspace.get("tokens.plumb").unwrap();
+        let expected =
+            closed_task_token_ranges(&entry.current.as_ref().unwrap().output.tasks().tasks)
+                .into_iter()
+                .flat_map(|(range, modifiers)| {
+                    physical_line_ranges(source, &range)
+                        .into_iter()
+                        .map(move |line| (line, modifiers))
+                })
+                .map(|(range, modifiers)| {
+                    (
+                        crate::position::byte_range_to_lsp(source, &range),
+                        modifiers,
+                    )
+                })
+                .collect::<Vec<_>>();
+        let Some(SemanticTokensResult::Tokens(tokens)) = semantic_tokens(entry) else {
+            panic!("valid document returns tokens");
+        };
+        assert!(!expected.is_empty());
+        assert_eq!(tokens.data.len(), expected.len());
+        let (mut line, mut character) = (0, 0);
+        for (token, (range, modifiers)) in tokens.data.iter().zip(expected) {
+            line += token.delta_line;
+            character = if token.delta_line == 0 {
+                character + token.delta_start
+            } else {
+                token.delta_start
+            };
+            assert_eq!((line, character), (range.start.line, range.start.character));
+            assert_eq!(token.length, range.end.character - range.start.character);
+            assert_eq!(token.token_modifiers_bitset, modifiers);
+        }
+    }
+
     use async_lsp::{router::Router, LanguageServer, MainLoop};
     use futures::FutureExt;
     use lsp_types::{DidCloseTextDocumentParams, FoldingRangeParams, SemanticTokensParams, Url};
