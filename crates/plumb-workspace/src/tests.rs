@@ -2657,6 +2657,36 @@ fn diagnoses_invalid_task_targets_self_dependencies_and_cycles() {
 }
 
 #[test]
+fn analysis_impact_separates_event_and_title_changes_from_task_graph_inputs() {
+    for (old, new, graph_changed) in [
+        ("`= title Old\n", "`= title New\n", false),
+        (
+            "`- 2026-09-07T10:00:00+08:00 Old\n `+ event\n",
+            "`- 2026-09-07T10:00:00+08:00 New\n `+ event\n",
+            false,
+        ),
+        ("`node\n `@ old\n", "`node\n `@ new\n", true),
+        (
+            "`- Task\n `+ task\n",
+            "`- Task\n `+ task\n `= done 2026-09-07T10:00:00+08:00\n",
+            true,
+        ),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("impact.plumb", 1, old);
+        let analysis = workspace
+            .begin_document_revision("impact.plumb", 2, new)
+            .unwrap()
+            .analyze();
+        let impact = workspace
+            .install_document_analysis_with_impact(analysis)
+            .unwrap();
+        assert_eq!(impact.exported, ExportedSemanticChange::Changed);
+        assert_eq!(impact.task_graph_changed, graph_changed, "{new}");
+    }
+}
+
+#[test]
 fn diagnostic_context_builds_persistent_cycles_without_decoding_task_records() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store.clone());

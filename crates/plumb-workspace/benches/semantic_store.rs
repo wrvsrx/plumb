@@ -1342,6 +1342,40 @@ fn benchmark_semantic_equality_publication(c: &mut Criterion) {
         },
     );
 
+    let mut event_workspace = base.clone();
+    let event_source = "`- 2026-09-07T10:00:00+08:00 Old\n `+ event\n";
+    event_workspace.open_document("event.plumb", 1, event_source);
+    let mut event_revision = 2;
+    c.bench_function(
+        "semantic_equal_publication_10000/event_only_graph_guard",
+        |b| {
+            b.iter(|| {
+                let title = if event_revision % 2 == 0 {
+                    "New"
+                } else {
+                    "Old"
+                };
+                let prepared = event_workspace
+                    .begin_document_revision(
+                        "event.plumb",
+                        event_revision,
+                        event_source.replace("Old", title),
+                    )
+                    .unwrap()
+                    .analyze();
+                event_revision += 1;
+                let impact = event_workspace
+                    .install_document_analysis_with_impact(prepared)
+                    .unwrap();
+                assert_eq!(impact.exported, ExportedSemanticChange::Changed);
+                assert!(!impact.task_graph_changed);
+                if impact.task_graph_changed {
+                    black_box(event_workspace.diagnostic_context().unwrap());
+                }
+                black_box(impact)
+            })
+        },
+    );
     let mut guarded = base;
     let mut guarded_revision = 2;
     c.bench_function(

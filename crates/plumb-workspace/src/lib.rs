@@ -391,6 +391,12 @@ pub enum ExportedSemanticChange {
     Unchanged,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentAnalysisImpact {
+    pub exported: ExportedSemanticChange,
+    pub task_graph_changed: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct DocumentEntry {
     pub path: PathBuf,

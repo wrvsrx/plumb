@@ -276,17 +276,21 @@ impl ServerState {
             self.fail_pending_document_reads(&result.path);
             return ControlFlow::Continue(());
         };
-        let Some(change) = self
+        let Some(impact) = self
             .workspace
-            .install_document_analysis_with_change(analysis)
+            .install_document_analysis_with_impact(analysis)
         else {
             self.pending_document_reads.remove(&result.path);
             return ControlFlow::Continue(());
         };
         self.finish_pending_document_reads(&result.path);
-        match change {
+        match impact.exported {
             ExportedSemanticChange::Changed => {
-                self.publish_all_open_diagnostics();
+                if impact.task_graph_changed {
+                    self.publish_all_open_diagnostics();
+                } else {
+                    self.publish_all_open_diagnostics_reusing_context();
+                }
                 self.refresh_code_lenses();
                 self.refresh_folding_ranges();
             }
@@ -303,12 +307,19 @@ impl ServerState {
 
     fn publish_all_open_diagnostics(&mut self) {
         self.diagnostic_context = None;
-        let context = match self.workspace.diagnostic_context() {
-            Ok(context) => Arc::new(context),
-            Err(error) => {
-                tracing::error!(%error, "workspace diagnostic context query failed");
-                return;
-            }
+        self.publish_all_open_diagnostics_reusing_context();
+    }
+
+    fn publish_all_open_diagnostics_reusing_context(&mut self) {
+        let context = match &self.diagnostic_context {
+            Some(context) => Arc::clone(context),
+            None => match self.workspace.diagnostic_context() {
+                Ok(context) => Arc::new(context),
+                Err(error) => {
+                    tracing::error!(%error, "workspace diagnostic context query failed");
+                    return;
+                }
+            },
         };
         if !self
             .workspace
@@ -2789,6 +2800,48 @@ mod tests {
     use plumb_workspace::StoreError;
 
     use super::*;
+
+    #[test]
+    fn event_only_install_reuses_context_but_anchor_change_rebuilds_it() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let path = PathBuf::from("/tmp/impact-event.plumb");
+        let old = "`- 2026-09-07T10:00:00+08:00 Old\n `+ event\n";
+        state.workspace.open_document(&path, 1, old);
+        state.publish_all_open_diagnostics();
+        let original = state.diagnostic_context.clone().unwrap();
+        let (_, generation) = state.document_analysis_tokens.next(&path);
+        let prepared = state
+            .workspace
+            .begin_document_revision(&path, 2, old.replace("Old", "New"))
+            .unwrap()
+            .analyze();
+        let _ = state.finish_document_analysis(DocumentAnalysisResult {
+            path: path.clone(),
+            generation,
+            analysis: Ok(prepared),
+        });
+        assert!(Arc::ptr_eq(
+            &original,
+            state.diagnostic_context.as_ref().unwrap()
+        ));
+        let (_, generation) = state.document_analysis_tokens.next(&path);
+        let prepared = state
+            .workspace
+            .begin_document_revision(&path, 3, format!("{old} `@ event-id\n"))
+            .unwrap()
+            .analyze();
+        let _ = state.finish_document_analysis(DocumentAnalysisResult {
+            path,
+            generation,
+            analysis: Ok(prepared),
+        });
+        assert!(!Arc::ptr_eq(
+            &original,
+            state.diagnostic_context.as_ref().unwrap()
+        ));
+    }
 
     #[test]
     fn pending_publication_does_not_cache_incomplete_dependency_context() {

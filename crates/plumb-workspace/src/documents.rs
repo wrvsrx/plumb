@@ -192,6 +192,14 @@ impl Workspace {
         &mut self,
         analysis: PreparedDocumentAnalysis,
     ) -> Option<ExportedSemanticChange> {
+        self.install_document_analysis_with_impact(analysis)
+            .map(|impact| impact.exported)
+    }
+
+    pub fn install_document_analysis_with_impact(
+        &mut self,
+        analysis: PreparedDocumentAnalysis,
+    ) -> Option<crate::DocumentAnalysisImpact> {
         let Some(entry) = self.documents.get_mut(&analysis.path) else {
             return None;
         };
@@ -208,13 +216,24 @@ impl Workspace {
         } else {
             ExportedSemanticChange::Changed
         };
+        let task_graph_changed = change == ExportedSemanticChange::Changed
+            && !analysis
+                .previous_exported_output
+                .as_ref()
+                .is_some_and(|previous| {
+                    previous.anchors() == analysis.output.anchors()
+                        && previous.tasks().tasks == analysis.output.tasks().tasks
+                });
         let current = Arc::new(VersionedDocumentOutput {
             revision: analysis.revision,
             output: analysis.output,
         });
         entry.current = Some(Arc::clone(&current));
         entry.last_valid = Some(current);
-        Some(change)
+        Some(crate::DocumentAnalysisImpact {
+            exported: change,
+            task_graph_changed,
+        })
     }
 
     pub fn document_analysis_pending(&self, path: impl AsRef<Path>) -> bool {
