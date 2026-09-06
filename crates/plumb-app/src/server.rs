@@ -1327,9 +1327,9 @@ impl LanguageServer for ServerState {
                         .output
                         .tasks()
                         .tasks
-                        .iter()
-                        .filter(|task| task.depth == 0)
-                        .map(|task| task.range.start)
+                        .views()
+                        .filter(|task| task.depth() == 0)
+                        .map(|task| task.range().start)
                         .zip(task_symbols(&positions, &current.output.tasks().tasks)),
                 );
                 additional.extend(
@@ -1337,9 +1337,9 @@ impl LanguageServer for ServerState {
                         .output
                         .events()
                         .events
-                        .iter()
-                        .filter(|event| event.depth == 0)
-                        .map(|event| event.range.start)
+                        .views()
+                        .filter(|event| event.depth() == 0)
+                        .map(|event| event.range().start)
                         .zip(event_symbols(&positions, &current.output.events().events)),
                 );
                 additional.sort_by_key(|(start, _)| *start);

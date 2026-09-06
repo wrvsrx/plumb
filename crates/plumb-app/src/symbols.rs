@@ -1,7 +1,7 @@
 use lsp_types::{DocumentSymbol, SymbolKind};
 use plumb_semantics::{
-    AnchorRecord, EventRecord, EventRecords, Heading, MetadataBlock, MetadataEntry, MetadataValue,
-    SemanticRecords, TaskRecord, TaskState,
+    AnchorRecord, EventRecordView, EventRecords, Heading, MetadataBlock, MetadataEntry,
+    MetadataValue, SemanticRecordView, SemanticRecords, TaskRecord, TaskState,
 };
 
 use crate::position::PositionIndex;
@@ -101,29 +101,30 @@ pub(crate) fn tasks(
     if tasks.is_empty() {
         return Vec::new();
     }
-    let tasks = tasks.iter().collect::<Vec<_>>();
     nested_symbols(
-        &tasks,
-        |task| task.depth,
+        tasks.views(),
+        |task| task.depth(),
         |task| task_symbol(positions, task),
     )
 }
 
-fn task_symbol(positions: &PositionIndex<'_>, task: &TaskRecord) -> DocumentSymbol {
+fn task_symbol(
+    positions: &PositionIndex<'_>,
+    task: &SemanticRecordView<'_, TaskRecord>,
+) -> DocumentSymbol {
     let id = task
-        .id
-        .as_ref()
-        .map(|id| format!(" #{}", id.value))
+        .id_value()
+        .map(|id| format!(" #{id}"))
         .unwrap_or_default();
     #[allow(deprecated)]
     DocumentSymbol {
-        name: nonempty_title(&task.title, "Untitled task"),
+        name: nonempty_title(task.title(), "Untitled task"),
         detail: Some(format!("{}{}", task_state_name(task.state()), id)),
         kind: SymbolKind::EVENT,
         tags: None,
         deprecated: None,
-        range: positions.byte_range_to_lsp(&task.range),
-        selection_range: positions.byte_range_to_lsp(&task.selection_range),
+        range: positions.byte_range_to_lsp(&task.range()),
+        selection_range: positions.byte_range_to_lsp(&task.selection_range()),
         children: None,
     }
 }
@@ -132,51 +133,45 @@ pub(crate) fn events(positions: &PositionIndex<'_>, events: &EventRecords) -> Ve
     if events.is_empty() {
         return Vec::new();
     }
-    let events = events.iter().collect::<Vec<_>>();
     nested_symbols(
-        &events,
-        |event| event.depth,
+        events.views(),
+        |event| event.depth(),
         |event| event_symbol(positions, event),
     )
 }
 
-fn event_symbol(positions: &PositionIndex<'_>, event: &EventRecord) -> DocumentSymbol {
+fn event_symbol(positions: &PositionIndex<'_>, event: &EventRecordView<'_>) -> DocumentSymbol {
     let id = event
-        .id
-        .as_ref()
-        .map(|id| format!(" #{}", id.value))
+        .id_value()
+        .map(|id| format!(" #{id}"))
         .unwrap_or_default();
-    let start = event
-        .start
-        .as_ref()
-        .map(|start| start.value.as_str())
-        .unwrap_or("invalid start");
+    let start = event.start_value().unwrap_or("invalid start");
     #[allow(deprecated)]
     DocumentSymbol {
-        name: nonempty_title(&event.title, "Untitled event"),
+        name: nonempty_title(event.title(), "Untitled event"),
         detail: Some(format!("{start}{id}")),
         kind: SymbolKind::EVENT,
         tags: None,
         deprecated: None,
-        range: positions.byte_range_to_lsp(&event.range),
-        selection_range: positions.byte_range_to_lsp(&event.selection_range),
+        range: positions.byte_range_to_lsp(&event.range()),
+        selection_range: positions.byte_range_to_lsp(&event.selection_range()),
         children: None,
     }
 }
 
 fn nested_symbols<T>(
-    records: &[T],
+    records: impl IntoIterator<Item = T>,
     depth: impl Fn(&T) -> usize,
     symbol: impl Fn(&T) -> DocumentSymbol,
 ) -> Vec<DocumentSymbol> {
     let mut roots = Vec::new();
     let mut path = Vec::new();
     for record in records {
-        while path.len() > depth(record) {
+        while path.len() > depth(&record) {
             path.pop();
         }
         let siblings = children_mut(&mut roots, &path);
-        siblings.push(symbol(record));
+        siblings.push(symbol(&record));
         path.push(siblings.len() - 1);
     }
     roots

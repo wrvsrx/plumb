@@ -99,6 +99,10 @@ pub type EventRecords = SemanticRecords<EventRecord>;
 pub type EventRecordView<'a> = SemanticRecordView<'a, EventRecord>;
 
 impl<'a> EventRecordView<'a> {
+    pub fn start_value(self) -> Option<&'a str> {
+        self.record.start.as_ref().map(|start| start.value.as_str())
+    }
+
     pub fn range(self) -> Range<usize> {
         shifted_range(&self.record.range, self.offset)
     }

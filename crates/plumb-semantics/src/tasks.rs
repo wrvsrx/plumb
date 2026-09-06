@@ -88,7 +88,29 @@ impl TaskRecord {
     }
 }
 
-impl crate::SemanticRecordView<'_, TaskRecord> {
+impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
+    pub fn title(self) -> &'a str {
+        &self.record.title
+    }
+
+    pub fn id_value(self) -> Option<&'a str> {
+        self.record.id.as_ref().map(|id| id.value.as_str())
+    }
+
+    pub fn selection_range(self) -> Range<usize> {
+        self.record
+            .selection_range
+            .start
+            .checked_add_signed(self.offset)
+            .unwrap()
+            ..self
+                .record
+                .selection_range
+                .end
+                .checked_add_signed(self.offset)
+                .unwrap()
+    }
+
     pub fn range(self) -> Range<usize> {
         self.record
             .range
