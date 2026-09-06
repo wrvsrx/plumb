@@ -268,7 +268,7 @@ impl<T: fmt::Debug> fmt::Debug for SemanticRecords<T> {
 
 impl<T: RelativeSemanticRecord> PartialEq for SemanticRecords<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.iter().eq(other.iter())
+        self.absolute_eq(other)
     }
 }
 
@@ -294,7 +294,7 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
                     .unwrap();
                 left_start == right_start
                     && if left.offset == right.offset {
-                        left.record == right.record
+                        std::ptr::eq(left.record, right.record) || left.record == right.record
                     } else {
                         left.to_owned() == right.to_owned()
                     }
@@ -552,6 +552,8 @@ mod tests {
         let right = records(&[10, 20, 30]);
 
         assert!(left.absolute_eq(&right));
+        assert_eq!(left, right);
+        assert_eq!(left, left.clone());
         assert_eq!(clones.load(Ordering::Relaxed), 0);
         assert!(!left.absolute_eq(&records(&[10, 20, 31])));
         assert_eq!(clones.load(Ordering::Relaxed), 0);
