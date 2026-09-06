@@ -40,7 +40,9 @@ pub struct TableOutput {
 
 impl TableOutput {
     pub fn table_at_node_start(&self, start: usize) -> Option<TableRecord> {
-        self.tables.iter().find(|table| table.range.start == start)
+        self.tables
+            .view_at_start(start)
+            .map(|table| table.to_owned())
     }
 }
 
@@ -318,6 +320,30 @@ mod tests {
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         analyze_tables(parsed.valid_syntax().unwrap())
+    }
+
+    #[test]
+    fn exact_table_lookup_preserves_caption_and_cell_ranges_across_shards() {
+        let source = "Prelude\n\n`table First\n `- one two\n\n`note\n `table Second\n  `- three four\n\nTail\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let fresh = analyze_tables(parsed.valid_syntax().unwrap());
+        let document = crate::analyze_document(parsed.valid_syntax().unwrap());
+        assert_eq!(fresh.tables.len(), 2);
+        for expected in fresh.tables.iter() {
+            assert_eq!(
+                document.tables().table_at_node_start(expected.range.start),
+                Some(expected.clone())
+            );
+            assert!(document
+                .tables()
+                .table_at_node_start(expected.range.start + 1)
+                .is_none());
+        }
+        assert!(document
+            .tables()
+            .table_at_node_start(source.len())
+            .is_none());
     }
 
     #[test]

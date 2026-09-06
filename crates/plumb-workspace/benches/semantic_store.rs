@@ -1265,6 +1265,22 @@ fn benchmark_export_record_lookup(c: &mut Criterion) {
     c.bench_function("export_task_event_lookup_2000", |b| {
         b.iter(|| black_box(plumb_export::export(black_box(&list_source)).unwrap()))
     });
+    let mut table_source = String::new();
+    for index in 0..1_000 {
+        table_source.push_str(&format!(
+            "`table Table {index}\n `- name value\n  `+ header\n `- item {index}\n\n"
+        ));
+    }
+    assert_eq!(
+        plumb_export::export(&table_source).unwrap()["blocks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1_000
+    );
+    c.bench_function("export_table_lookup_1000", |b| {
+        b.iter(|| black_box(plumb_export::export(black_box(&table_source)).unwrap()))
+    });
 }
 
 fn benchmark_semantic_equality_publication(c: &mut Criterion) {
