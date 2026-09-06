@@ -291,7 +291,11 @@ impl ServerState {
                 self.refresh_folding_ranges();
             }
             ExportedSemanticChange::Unchanged => {
-                self.publish_open_document_diagnostics(&result.path);
+                if self.diagnostic_context.is_some() {
+                    self.publish_open_document_diagnostics(&result.path);
+                } else {
+                    self.publish_all_open_diagnostics();
+                }
             }
         }
         ControlFlow::Continue(())
@@ -306,7 +310,13 @@ impl ServerState {
                 return;
             }
         };
-        self.diagnostic_context = Some(Arc::clone(&context));
+        if !self
+            .workspace
+            .documents()
+            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+        {
+            self.diagnostic_context = Some(Arc::clone(&context));
+        }
         for (uri, path) in &self.open_documents {
             self.publish(uri, path, context.as_ref());
         }
@@ -318,7 +328,13 @@ impl ServerState {
             None => match self.workspace.diagnostic_context() {
                 Ok(context) => {
                     let context = Arc::new(context);
-                    self.diagnostic_context = Some(Arc::clone(&context));
+                    if !self
+                        .workspace
+                        .documents()
+                        .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+                    {
+                        self.diagnostic_context = Some(Arc::clone(&context));
+                    }
                     context
                 }
                 Err(error) => {
@@ -2773,6 +2789,44 @@ mod tests {
     use plumb_workspace::StoreError;
 
     use super::*;
+
+    #[test]
+    fn pending_publication_does_not_cache_incomplete_dependency_context() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let path = PathBuf::from("/tmp/context-a.plumb");
+        let source = "`- A\n `+ task\n `@ a\n `= depends context-b.plumb#b\n";
+        state.workspace.open_document(&path, 1, source);
+        state.workspace.open_document(
+            "/tmp/context-b.plumb",
+            1,
+            "`- B\n `+ task\n `@ b\n `= depends context-a.plumb#a\n",
+        );
+        state.publish_all_open_diagnostics();
+        assert!(state.diagnostic_context.is_some());
+        let (_, generation) = state.document_analysis_tokens.next(&path);
+        let pending = state
+            .workspace
+            .begin_document_revision(&path, 2, source)
+            .unwrap();
+        state.publish_all_open_diagnostics();
+        assert!(state.diagnostic_context.is_none());
+        let _ = state.finish_document_analysis(DocumentAnalysisResult {
+            path: path.clone(),
+            generation,
+            analysis: Ok(pending.analyze()),
+        });
+        let context = state.diagnostic_context.as_ref().unwrap();
+        let diagnostics = state
+            .workspace
+            .diagnostics_with_context(&path, context)
+            .unwrap();
+        assert!(diagnostics
+            .value
+            .iter()
+            .any(|diagnostic| diagnostic.code == "task.dependency-cycle"));
+    }
 
     #[test]
     #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]

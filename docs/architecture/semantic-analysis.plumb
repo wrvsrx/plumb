@@ -281,6 +281,10 @@ Formatting 使用同一 syntax-only edit contract：consumer 传入当前 `"Pars
 
 `# 10. Diagnostics and failure
 
+当任一有效文档的 semantic analysis 尚在 pending 时，diagnostic publication 可以使用当前可用 facts 构造临时
+context，但不得将该 context 缓存供后续 revision 复用。pending 文档完成后，即使 exported summary 未变化，
+若没有可复用 context，也必须重新发布所有 open documents 的 diagnostics，恢复期间缺失的跨文档依赖事实。
+
 diagnostic 是可定位的 source problem；query failure 是请求无法完成；cancellation 不是 failure； runtime failure 不应伪装成 source diagnostic。
 
 syntax diagnostics 由 `"plumb-syntax" 拥有；semantic profile diagnostics 由 `"plumb-semantics" 拥有； 跨文档 resolution、identity 与 dependency diagnostics 由 `"plumb-workspace" 拥有。adapter 不重新解释 或复制这些 rules。
