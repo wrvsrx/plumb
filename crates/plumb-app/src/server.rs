@@ -69,7 +69,7 @@ use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, Sear
 use crate::semantic_tokens::{closed_task_token_ranges, physical_line_ranges};
 use crate::symbols::{
     anchor as anchor_symbol, events as event_symbols, heading as heading_symbol,
-    insert as insert_document_symbol, metadata as metadata_symbol, tasks as task_symbols,
+    insert_all as insert_document_symbols, metadata as metadata_symbol, tasks as task_symbols,
 };
 
 mod completion;
@@ -1343,9 +1343,10 @@ impl LanguageServer for ServerState {
                         .zip(event_symbols(&positions, &current.output.events().events)),
                 );
                 additional.sort_by_key(|(start, _)| *start);
-                for (_, symbol) in additional {
-                    insert_document_symbol(&mut symbols, symbol);
-                }
+                insert_document_symbols(
+                    &mut symbols,
+                    additional.into_iter().map(|(_, symbol)| symbol).collect(),
+                );
                 symbols
             });
         Box::pin(async move { Ok(symbols.map(DocumentSymbolResponse::Nested)) })

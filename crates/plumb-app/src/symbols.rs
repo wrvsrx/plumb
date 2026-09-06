@@ -188,7 +188,41 @@ fn children_mut<'a>(
     children
 }
 
-pub(crate) fn insert(symbols: &mut Vec<DocumentSymbol>, symbol: DocumentSymbol) {
+pub(crate) fn insert_all(symbols: &mut Vec<DocumentSymbol>, additional: Vec<DocumentSymbol>) {
+    let headings = symbols
+        .iter()
+        .enumerate()
+        .filter(|(_, symbol)| symbol.kind == SymbolKind::STRING)
+        .map(|(index, symbol)| (index, symbol.range))
+        .collect::<Vec<_>>();
+    let mut children = vec![Vec::new(); headings.len()];
+    let mut siblings = Vec::new();
+    for symbol in additional {
+        let candidate = headings
+            .partition_point(|(_, range)| position_key(range.end) < position_key(symbol.range.end));
+        if headings
+            .get(candidate)
+            .is_some_and(|(_, range)| range_contains(range, &symbol.range))
+        {
+            children[candidate].push(symbol);
+        } else {
+            siblings.push(symbol);
+        }
+    }
+    for ((index, _), additions) in headings.into_iter().zip(children) {
+        if !additions.is_empty() {
+            insert_all(
+                symbols[index].children.get_or_insert_with(Vec::new),
+                additions,
+            );
+        }
+    }
+    symbols.extend(siblings);
+    symbols.sort_by_key(|symbol| position_key(symbol.range.start));
+}
+
+#[cfg(test)]
+fn insert(symbols: &mut Vec<DocumentSymbol>, symbol: DocumentSymbol) {
     let containing_heading = symbols.iter().position(|candidate| {
         candidate.kind == SymbolKind::STRING && range_contains(&candidate.range, &symbol.range)
     });
@@ -227,5 +261,69 @@ fn nonempty_title(title: &str, fallback: &str) -> String {
         fallback.to_string()
     } else {
         title.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn batch_insertion_matches_sequential_heading_containment_and_ties() {
+        #[allow(deprecated)]
+        let symbol = |name: &str, start: u32, end: u32, kind| DocumentSymbol {
+            name: name.to_owned(),
+            detail: None,
+            kind,
+            tags: None,
+            deprecated: None,
+            range: lsp_types::Range::new(
+                lsp_types::Position::new(start, 0),
+                lsp_types::Position::new(end, 0),
+            ),
+            selection_range: lsp_types::Range::new(
+                lsp_types::Position::new(start, 0),
+                lsp_types::Position::new(start, 0),
+            ),
+            children: None,
+        };
+        let mut outer = symbol("outer", 10, 30, SymbolKind::STRING);
+        outer.children = Some(vec![symbol("inner", 15, 20, SymbolKind::STRING)]);
+        let original = vec![outer, symbol("next", 30, 50, SymbolKind::STRING)];
+        let mut additions = Vec::new();
+        for (index, (start, end)) in [
+            (0, 0),
+            (10, 11),
+            (15, 19),
+            (19, 21),
+            (30, 30),
+            (30, 31),
+            (40, 45),
+            (49, 55),
+            (60, 61),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            additions.push(symbol(
+                &format!("item-{index}"),
+                start,
+                end,
+                SymbolKind::EVENT,
+            ));
+            additions.push(symbol(
+                &format!("same-start-{index}"),
+                start,
+                end,
+                SymbolKind::KEY,
+            ));
+        }
+        let mut expected = original.clone();
+        for addition in additions.clone() {
+            insert(&mut expected, addition);
+        }
+        let mut actual = original;
+        insert_all(&mut actual, additions);
+        assert_eq!(actual, expected);
     }
 }
