@@ -137,6 +137,44 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]
+    fn profile_semantic_token_response() {
+        let mut source = String::new();
+        for index in 0..2_000 {
+            source.push_str(&format!(
+                "`- Task {index}\n `+ task\n `= done 2026-09-07T09:00:00+08:00\n\n"
+            ));
+        }
+        let mut workspace = plumb_workspace::Workspace::new();
+        workspace.insert("tokens.plumb", 1, source);
+        let entry = workspace.get("tokens.plumb").unwrap();
+        let result = semantic_tokens(entry).unwrap();
+        let SemanticTokensResult::Tokens(tokens) = &result else {
+            panic!("full token result expected");
+        };
+        assert_eq!(tokens.data.len(), 6_000);
+        let expected = serde_json::to_vec(&result).unwrap();
+        for _ in 0..5 {
+            std::hint::black_box(serde_json::to_vec(&semantic_tokens(entry).unwrap()).unwrap());
+        }
+        let mut samples = Vec::new();
+        for _ in 0..20 {
+            let start = std::time::Instant::now();
+            let bytes =
+                serde_json::to_vec(&semantic_tokens(std::hint::black_box(entry)).unwrap()).unwrap();
+            samples.push(start.elapsed());
+            assert_eq!(bytes, expected);
+            std::hint::black_box(bytes);
+        }
+        samples.sort();
+        eprintln!(
+            "semantic_token_response: tasks=2000 tokens=6000 bytes={} samples=20 median={:?}",
+            expected.len(),
+            samples[10]
+        );
+    }
+
+    #[test]
     fn indexed_token_positions_match_utf16_projection_across_crlf_and_nested_tasks() {
         let source = "Prelude \u{1f600}\r\n\r\n`- Parent \u{4efb}\u{52a1}\r\n `+ task\r\n `= done 2026-09-07T09:00:00+08:00\r\n\r\n `- Open child\r\n  `+ task\r\n\r\n `- Canceled \u{1f600}\r\n  `+ task\r\n  `= canceled 2026-09-07T09:00:00+08:00\r\n";
         let mut workspace = plumb_workspace::Workspace::new();
