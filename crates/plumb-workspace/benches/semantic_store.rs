@@ -786,6 +786,19 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
         b.iter(|| black_box(root_diagnostic_pending.clone().analyze()))
     });
     let completion_cursor = source.find("Event 16756").unwrap() + "Event 16756".len();
+    let title_query = plumb_semantics::EventTitleCompletionContext {
+        replace: 0..0,
+        query: "Event 12".to_owned(),
+    };
+    group.bench_function("open_event_title_candidates", |b| {
+        b.iter(|| {
+            black_box(
+                previous_workspace
+                    .complete_event_title(black_box(&title_query))
+                    .unwrap(),
+            )
+        })
+    });
     let completion_green = previous_workspace
         .get("events.plumb")
         .unwrap()

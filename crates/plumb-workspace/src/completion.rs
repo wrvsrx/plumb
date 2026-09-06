@@ -21,9 +21,16 @@ impl Workspace {
             let Some(versioned) = entry.current.as_ref().or(entry.last_valid.as_ref()) else {
                 continue;
             };
-            for event in &versioned.output.events().events {
-                if !event.title.is_empty() {
-                    *counts.entry(event.title.clone()).or_default() += 1;
+            for event in versioned.output.events().events.views() {
+                let title = event.title();
+                if title.is_empty() || !title.starts_with(&context.query) || title == context.query
+                {
+                    continue;
+                }
+                if let Some(count) = counts.get_mut(title) {
+                    *count += 1;
+                } else {
+                    counts.insert(title.to_owned(), 1);
                 }
             }
         }
