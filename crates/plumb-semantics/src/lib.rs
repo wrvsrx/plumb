@@ -1,5 +1,7 @@
 mod citations;
 mod document;
+#[cfg(feature = "profile-semantic-stages")]
+pub use document::profiling;
 mod events;
 mod headings;
 mod inline_styles;

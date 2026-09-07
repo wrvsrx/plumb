@@ -165,6 +165,17 @@ file-start range shift即使relative local summary相等也重投影absolute ran
 local analysis、document reduction、absolute projection、workspace publication 与 destruction，不以省略后续阶段的
 microbenchmark 代替 end-to-end result。
 
+Production stage profiling 已实现，使用opt-in `"profile-semantic-stages" feature。同一生产analyzer以no-op或timed
+observer运行，不复制算法；普通入口不读取时钟。metadata/context preparation包含metadata复用/重建、declaration end及
+context equality；local阶段包含node correspondence、analyzers、reuse/summary与delta/topology bookkeeping；document reduction
+包含tree/root构造、heading/list/duplicate及record/diagnostic topology，覆盖short-circuit rebind。observer只在阶段边界计时。
+workspace沿同一Pending→Prepared→install路径测syntax revision和publication；absolute projection必须列明实际消费的record
+集合，不冒称所有LSP response。完整pipeline包含相同source revision、分析、安装、projection和生命周期，normal/profile
+两入口比较输出及端到端成本，分阶段分位数之和不充当端到端分位数。
+destruction分别测保留旧revision时释放新root/独有nodes，以及无旧revision和外部workspace/cache持有者时最后root/payload释放。
+外层Arc解包不足以证明内部root/tree释放；计时外用ownership计数及Weak探针验证，计时样本不保留Weak以免推迟allocation
+回收。profile feature不增加普通DocumentOutput的常驻状态，也不引入逐node时钟。
+
 workspace analysis 必须声明需要 complete index，还是可以返回标明 provenance/completeness 的 partial result。依赖 output 缺失时，应返回 dependency/completeness failure，不能猜测 negative semantic result。
 
 protocol-neutral workspace query 统一返回 `"Result<QueryResult<T>, WorkspaceQueryError>"。 `"QueryResult" 分别携带 value、`"Complete"/`"Partial" completeness 与 `"Memory"、`"Persistent" 或 `"PersistentWithOverlay" provenance；不得要求 consumer 从空 collection、false 或 missing value 猜测 这些状态。需要完整结果的调用方显式调用 complete requirement，partial result 因而成为 `"WorkspaceQueryError::Incomplete"。persistent store、decode 或 lock failure 由 `"WorkspaceQueryError::Store" 保留 source error；不得 `"unwrap_or_default"、`"if let Ok" 或转换成完整 negative result。adapter 拥有的 scan/index completeness 与 query-local completeness 作逻辑与，并把 failure 映射为 protocol error，而不是 source diagnostic。

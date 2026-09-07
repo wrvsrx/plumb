@@ -815,6 +815,25 @@ fn analyze_semantic_tree(
     previous: Option<&DocumentOutput>,
     change: Option<&DocumentChange>,
 ) -> Option<DocumentOutput> {
+    analyze_semantic_tree_observed(syntax, previous, change, &mut ())
+}
+
+#[cfg(feature = "profile-semantic-stages")]
+pub mod profiling;
+
+trait SemanticStageObserver {
+    fn metadata_complete(&mut self) {}
+    fn local_complete(&mut self) {}
+}
+
+impl SemanticStageObserver for () {}
+
+fn analyze_semantic_tree_observed(
+    syntax: Arc<plumb_syntax::GreenDocument>,
+    previous: Option<&DocumentOutput>,
+    change: Option<&DocumentChange>,
+    observer: &mut impl SemanticStageObserver,
+) -> Option<DocumentOutput> {
     let valid = syntax.valid_syntax()?;
     let reusable_metadata =
         previous.filter(|previous| can_reuse_metadata(previous, &syntax, change));
@@ -826,6 +845,7 @@ fn analyze_semantic_tree(
         |previous| previous.root.document_declaration_end,
     );
     let reusable = previous.filter(|previous| previous.metadata() == &metadata);
+    observer.metadata_complete();
     let reusable_nodes = reusable_node_indices(reusable, &syntax, change);
     let previous_nodes = previous.map(|previous| previous.root.tree.nodes.as_slice());
     let same_node_count = previous_nodes.is_some_and(|nodes| nodes.len() == reusable_nodes.len());
@@ -951,6 +971,7 @@ fn analyze_semantic_tree(
             }
         })
         .collect::<Vec<_>>();
+    observer.local_complete();
     let tree = Arc::new(SemanticTree {
         syntax,
         nodes,

@@ -39,6 +39,16 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
   reference counts及确定性response bytes。不包含document analysis、stdio transport或editor渲染。
 `- `"profile_references_response"：manual release-profile LSP test，以2,000 references测量带声明的anchor
   references query、position projection与JSON构建；3次warmup、10个samples，不包含analysis/transport/rendering。
+`- `"profile_production_semantic_stages"：opt-in `"profile-semantic-stages" feature的生产路径测量。
+  `"cargo test -p plumb-workspace --release --features profile-semantic-stages --test semantic_stage_profile profile_production_semantic_stages -- --ignored --nocapture"
+  固定mixed-2000 fixture包含2,000 Task/Event/Link、2,100 anchors、50 tables与definition lists；输出source SHA-256。
+  metadata/context、local nodes/reuse/delta bookkeeping、document reduction来自同一生产analyzer的阶段observer；
+  normal入口不计内部阶段，不把未计时显示为零成本。外层syntax包含begin revision及validity/state切换，publication
+  仅install_with_impact，不包含LSP通知、dependency queries或SQLite落盘；owned absolute projection只消费
+  Anchor/Link/Task/Event及root diagnostics，不等于所有LSP投影。另测owned projection销毁、workspace detach及真正
+  current semantic root最终释放。保留旧revision和不保留旧revision分组；前者测drop new retain old，不是drop old retain new。
+  每组5次warmup、30个samples，normal/profile交替成对执行；完整pipeline包含相同阶段和生命周期，旧revision初次
+  build及next source clone在计时外。Weak生命周期探针只用于独立correctness tests，不进入timed samples。
 
 `# Measurement contract
 

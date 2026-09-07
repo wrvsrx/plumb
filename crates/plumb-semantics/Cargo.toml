@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+profile-semantic-stages = []
+
 [dependencies]
 plumb-edit = { path = "../plumb-edit" }
 plumb-syntax = { path = "../plumb-syntax" }

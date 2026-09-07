@@ -469,29 +469,60 @@ impl PreparedDocumentAnalysis {
 
 impl PendingDocumentAnalysis {
     pub fn analyze(self) -> PreparedDocumentAnalysis {
+        self.analyze_with(|valid, syntax, previous| {
+            let output = match previous {
+                Some((previous, change)) => {
+                    analyze_green_document_incremental(valid, syntax, previous, change)
+                }
+                None => analyze_green_document(valid, syntax),
+            }
+            .expect("valid green revisions produce semantics");
+            (output, ())
+        })
+        .0
+    }
+
+    #[cfg(feature = "profile-semantic-stages")]
+    pub fn analyze_profiled(
+        self,
+    ) -> (
+        PreparedDocumentAnalysis,
+        plumb_semantics::profiling::SemanticStages,
+    ) {
+        self.analyze_with(|valid, syntax, previous| {
+            plumb_semantics::profiling::analyze(valid, syntax, previous)
+                .expect("valid green revisions produce profiled semantics")
+        })
+    }
+
+    fn analyze_with<T>(
+        self,
+        analyze: impl FnOnce(
+            plumb_syntax::ValidGreenDocument<'_>,
+            Arc<GreenDocument>,
+            Option<(&DocumentOutput, &DocumentChange)>,
+        ) -> (DocumentOutput, T),
+    ) -> (PreparedDocumentAnalysis, T) {
         let valid = self
             .parsed
             .green()
             .valid_syntax()
             .expect("pending semantic analysis requires valid syntax");
-        let output = match (&self.previous_output, &self.change) {
-            (Some(previous), Some(change)) => analyze_green_document_incremental(
-                valid,
-                Arc::clone(self.parsed.green()),
-                previous,
-                change,
-            )
-            .expect("valid green revisions produce incremental semantics"),
-            _ => analyze_green_document(valid, Arc::clone(self.parsed.green()))
-                .expect("valid green revisions produce semantics"),
-        };
-        PreparedDocumentAnalysis {
-            path: self.path,
-            revision: self.revision,
-            parsed: self.parsed,
-            previous_exported_output: self.previous_exported_output,
-            output: Arc::new(output),
-        }
+        let (output, stages) = analyze(
+            valid,
+            Arc::clone(self.parsed.green()),
+            self.previous_output.as_deref().zip(self.change.as_ref()),
+        );
+        (
+            PreparedDocumentAnalysis {
+                path: self.path,
+                revision: self.revision,
+                parsed: self.parsed,
+                previous_exported_output: self.previous_exported_output,
+                output: Arc::new(output),
+            },
+            stages,
+        )
     }
 }
 

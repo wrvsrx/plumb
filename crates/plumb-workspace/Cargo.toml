@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+profile-semantic-stages = ["plumb-semantics/profile-semantic-stages"]
+
 [dependencies]
 bincode.workspace = true
 cel.workspace = true
