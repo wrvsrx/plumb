@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use plumb_syntax::{
     AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
@@ -275,6 +275,7 @@ impl Eq for ExportedSemanticSummary<'_> {}
 
 #[derive(Debug, Clone)]
 pub struct SemanticRoot {
+    anchor_index: OnceLock<HashMap<String, Vec<(usize, usize)>>>,
     tree: Arc<SemanticTree>,
     document_declaration_end: usize,
     heading_nodes: Arc<[usize]>,
@@ -390,6 +391,7 @@ struct RootProjectionIndex {
 impl Default for SemanticRoot {
     fn default() -> Self {
         Self {
+            anchor_index: OnceLock::new(),
             tree: Arc::new(SemanticTree::empty()),
             document_declaration_end: 0,
             heading_nodes: Arc::from([]),
@@ -525,6 +527,36 @@ impl DocumentOutput {
 
     pub fn anchors(&self) -> &SemanticRecords<AnchorRecord> {
         &self.root.anchors
+    }
+
+    pub fn anchors_named(&self, id: &str) -> Vec<AnchorRecord> {
+        let index = self.root.anchor_index.get_or_init(|| {
+            let mut index = HashMap::<String, Vec<(usize, usize)>>::new();
+            for (node_index, node) in self.root.tree.nodes.iter().enumerate() {
+                for (local_index, anchor) in node.output.records.anchors.views().enumerate() {
+                    index
+                        .entry(anchor.id_value().to_owned())
+                        .or_default()
+                        .push((node_index, local_index));
+                }
+            }
+            index
+        });
+        index
+            .get(id)
+            .into_iter()
+            .flatten()
+            .map(|&(node_index, local_index)| {
+                let (offset, node) = self.root.tree.record_node(node_index);
+                let mut anchor = node
+                    .records
+                    .anchors
+                    .get(local_index)
+                    .expect("indexed local anchor exists");
+                anchor.shift(offset);
+                anchor
+            })
+            .collect()
     }
 
     pub fn links(&self) -> &SemanticRecords<LinkRecord> {
@@ -1038,6 +1070,7 @@ fn analyze_semantic_tree(
 
     Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
+            anchor_index: OnceLock::new(),
             tree,
             document_declaration_end,
             heading_nodes,
@@ -1134,6 +1167,7 @@ fn rebind_unchanged_document(
 
     Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
+            anchor_index: OnceLock::new(),
             tree,
             document_declaration_end,
             heading_nodes: Arc::clone(&previous.root.heading_nodes),
@@ -3462,6 +3496,26 @@ mod tests {
                 "link.invalid-target",
             ]
         );
+    }
+
+    #[test]
+    fn anchor_id_index_preserves_duplicate_order_and_revision_ranges() {
+        let body = "`node First\n `@ same\n\n`node Second\n `@ same\n\n`node Third\n `@ unique\n";
+        for source in [body.to_owned(), format!("Prelude\n\n{body}")] {
+            let parsed = parse(&source);
+            let output = analyze_document(parsed.valid_syntax().unwrap());
+            assert!(output.root.anchor_index.get().is_none());
+            for id in ["same", "unique", "missing", "same"] {
+                let expected = output
+                    .anchors()
+                    .iter()
+                    .filter(|anchor| anchor.id.value == id)
+                    .collect::<Vec<_>>();
+                assert_eq!(output.anchors_named(id), expected);
+            }
+            assert_eq!(output.anchors_named("same").len(), 2);
+            assert!(output.root.anchor_index.get().is_some());
+        }
     }
 
     #[test]
