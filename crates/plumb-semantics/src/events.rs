@@ -623,21 +623,17 @@ fn parse_full_rfc3339(value: &str) -> Result<DateTime<FixedOffset>, EventWhenErr
 }
 
 fn parse_time(value: &str) -> Result<NaiveTime, EventWhenError> {
-    let parts = value.split(':').collect::<Vec<_>>();
-    if !(1..=3).contains(&parts.len())
-        || parts
-            .iter()
-            .any(|part| part.len() != 2 || !part.bytes().all(|byte| byte.is_ascii_digit()))
-    {
-        return Err(EventWhenError::InvalidWhen);
+    let mut components = [0; 3];
+    for (index, part) in value.split(':').enumerate() {
+        let component = components
+            .get_mut(index)
+            .ok_or(EventWhenError::InvalidWhen)?;
+        if part.len() != 2 || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(EventWhenError::InvalidWhen);
+        }
+        *component = part.parse().map_err(|_| EventWhenError::InvalidWhen)?;
     }
-    let component = |index: usize| {
-        parts
-            .get(index)
-            .map_or(Ok(0), |part| part.parse::<u32>())
-            .map_err(|_| EventWhenError::InvalidWhen)
-    };
-    NaiveTime::from_hms_opt(component(0)?, component(1)?, component(2)?)
+    NaiveTime::from_hms_opt(components[0], components[1], components[2])
         .ok_or(EventWhenError::InvalidWhen)
 }
 
@@ -674,6 +670,62 @@ mod tests {
             .expect("semantic analysis requires valid syntax");
         let metadata = crate::analyze_metadata(valid);
         analyze_events(valid, &metadata)
+    }
+
+    #[test]
+    fn time_components_accept_exactly_one_to_three_two_digit_fields() {
+        for hour in 0..100 {
+            assert_eq!(
+                parse_time(&format!("{hour:02}")).ok(),
+                NaiveTime::from_hms_opt(hour, 0, 0)
+            );
+            for minute in 0..100 {
+                assert_eq!(
+                    parse_time(&format!("{hour:02}:{minute:02}")).ok(),
+                    NaiveTime::from_hms_opt(hour, minute, 0)
+                );
+                for second in 0..100 {
+                    assert_eq!(
+                        parse_time(&format!("{hour:02}:{minute:02}:{second:02}")).ok(),
+                        NaiveTime::from_hms_opt(hour, minute, second)
+                    );
+                }
+            }
+        }
+        for invalid in [
+            "",
+            ":",
+            "::",
+            "1",
+            "001",
+            "1:02",
+            "01:2",
+            "01:002",
+            "01:02:3",
+            "01:02:003",
+            "01:02:03:04",
+            "01:",
+            ":02",
+            "01::03",
+            "01:02:",
+            "+1",
+            "-1",
+            " 01",
+            "01 ",
+            "01: 02",
+            "01\n",
+            "a1",
+            "01:ab",
+            "01:02:a3",
+            "\u{ff10}\u{ff11}",
+            "01:\u{ff10}\u{ff12}",
+            "01\0",
+        ] {
+            assert!(
+                matches!(parse_time(invalid), Err(EventWhenError::InvalidWhen)),
+                "{invalid:?}"
+            );
+        }
     }
 
     #[test]
