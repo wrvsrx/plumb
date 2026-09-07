@@ -290,6 +290,9 @@ disk source 每次 request 最多读取一次，读取失败也只在本 request
 文件或从 document start 重扫 UTF-16 positions。缓存不跨 request 保留，下次查询必须看到新的 workspace
 revision 或 disk bytes；query completeness、source ordering、reference counts 与失败时跳过 location 的行为不变。
 
+References position projection 复用相同 request-local cache，覆盖 anchor 与 document targets；
+includeDeclaration 为 true 时声明仍在首项，其余 references 保持 workspace query 的原始顺序。
+
 官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3。request 的可选 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative `"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item 还可包含 `"id"、resolved `"start"/`"end" 与 associated `"tasks"。增加 record kind 或改变 typed fields 必须提升 schema version；client 必须按 initialize capability 中声明的 version 接受或明确拒绝。
 
 `# 9. Operations and editing

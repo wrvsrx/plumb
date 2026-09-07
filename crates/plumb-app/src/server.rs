@@ -1652,17 +1652,18 @@ impl LanguageServer for ServerState {
                     id,
                     anchor,
                 }) => {
+                    let mut location_cache = ReferenceLocationCache::new(&self.workspace);
                     let mut locations = self
                         .complete_query(self.workspace.references_to(&target_path, &id))
                         .map_err(workspace_query_response_error)?
                         .into_iter()
                         .filter_map(|(source_path, reference)| {
-                            location_for(&self.workspace, &source_path, &reference.source_range)
+                            location_cache.location(&source_path, &reference.source_range)
                         })
                         .collect::<Vec<_>>();
                     if params.context.include_declaration {
                         if let Some(declaration) =
-                            location_for(&self.workspace, &target_path, &anchor.selection_range)
+                            location_cache.location(&target_path, &anchor.selection_range)
                         {
                             locations.insert(0, declaration);
                         }
@@ -1670,17 +1671,18 @@ impl LanguageServer for ServerState {
                     Ok(Some(locations))
                 }
                 Some(ResolvedTarget::Document { path: target_path }) => {
+                    let mut location_cache = ReferenceLocationCache::new(&self.workspace);
                     let mut locations = self
                         .complete_query(self.workspace.references_to_document(&target_path))
                         .map_err(workspace_query_response_error)?
                         .into_iter()
                         .filter_map(|(source_path, reference)| {
-                            location_for(&self.workspace, &source_path, &reference.source_range)
+                            location_cache.location(&source_path, &reference.source_range)
                         })
                         .collect::<Vec<_>>();
                     let declaration = (params.context.include_declaration
                         && self.workspace.get(&target_path).is_some())
-                    .then(|| location_for(&self.workspace, &target_path, &(0..0)))
+                    .then(|| location_cache.location(&target_path, &(0..0)))
                     .flatten();
                     if let Some(declaration) = declaration {
                         locations.insert(0, declaration);
@@ -2833,6 +2835,80 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cached_references_match_unindexed_positions_and_declaration_order() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let path = Path::new("/tmp/plumb-ref-target.plumb");
+        state.workspace.open_document(
+            path,
+            1,
+            "`= title Target\r\n\r\n`# Heading\r\n `@ target\r\n",
+        );
+        state.workspace.open_document("/tmp/plumb-ref-source.plumb", 1, "\u{1f600} See `->{label plumb-ref-target.plumb#target}\r\nSee `->{plumb-ref-target.plumb}\r\nSee `->{second plumb-ref-target.plumb#target}\r\n");
+        state.index_complete = true;
+        for anchor in [false, true] {
+            let references = if anchor {
+                state
+                    .workspace
+                    .references_to(path, "target")
+                    .unwrap()
+                    .value
+                    .into_iter()
+                    .map(|(path, reference)| (path, reference.source_range))
+                    .collect::<Vec<_>>()
+            } else {
+                state
+                    .workspace
+                    .references_to_document(path)
+                    .unwrap()
+                    .value
+                    .into_iter()
+                    .map(|(path, reference)| (path, reference.source_range))
+                    .collect::<Vec<_>>()
+            };
+            let expected = references
+                .iter()
+                .map(|(path, range)| location_for(&state.workspace, path, range).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(expected.len(), if anchor { 2 } else { 3 });
+            for include_declaration in [false, true] {
+                let mut expected = expected.clone();
+                if include_declaration {
+                    let range = if anchor {
+                        state
+                            .workspace
+                            .get(path)
+                            .unwrap()
+                            .current
+                            .as_ref()
+                            .unwrap()
+                            .output
+                            .anchors()
+                            .first()
+                            .unwrap()
+                            .selection_range
+                    } else {
+                        0..0
+                    };
+                    expected.insert(0, location_for(&state.workspace, path, &range).unwrap());
+                }
+                let position = if anchor {
+                    lsp_types::Position::new(3, 4)
+                } else {
+                    lsp_types::Position::new(0, 0)
+                };
+                let params = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(path).unwrap()},"position":position,"context":{"includeDeclaration":include_declaration}})).unwrap();
+                let actual = futures::FutureExt::now_or_never(state.references(params))
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[test]
     fn reference_location_cache_preserves_positions_and_request_local_source_precedence() {
         let root = std::env::temp_dir().join(format!(
             "plumb-lens-cache-{}-{}",
@@ -3045,6 +3121,51 @@ mod tests {
             publications, 3,
             "initial, pending, and restored context each publish the other document"
         );
+    }
+
+    #[test]
+    #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]
+    fn profile_references_response() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let path = "/tmp/plumb-reference-target.plumb";
+        state
+            .workspace
+            .open_document(path, 1, "`# Target\n `@ target\n");
+        state.workspace.open_document(
+            "/tmp/plumb-reference-source.plumb",
+            1,
+            "See `->{label plumb-reference-target.plumb#target}\n".repeat(2_000),
+        );
+        state.index_complete = true;
+        let params: ReferenceParams = serde_json::from_value(serde_json::json!({
+            "textDocument":{"uri":Url::from_file_path(path).unwrap()},
+            "position":{"line":1,"character":4},"context":{"includeDeclaration":true}
+        }))
+        .unwrap();
+        let mut run = || {
+            let locations = futures::FutureExt::now_or_never(state.references(params.clone()))
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(locations.len(), 2_001);
+            assert_eq!(locations[0].uri, Url::from_file_path(path).unwrap());
+            serde_json::to_vec(&locations).unwrap()
+        };
+        let expected = run();
+        for _ in 0..3 {
+            std::hint::black_box(run());
+        }
+        let mut samples = Vec::new();
+        for _ in 0..10 {
+            let start = std::time::Instant::now();
+            let bytes = run();
+            samples.push(start.elapsed());
+            assert_eq!(bytes, expected);
+        }
+        samples.sort();
+        eprintln!("references_response: references=2000 bytes={} warmup=3 samples=10 median={:?}; includes query/projection/json, excludes analysis/transport/rendering", expected.len(), samples[5]);
     }
 
     #[test]

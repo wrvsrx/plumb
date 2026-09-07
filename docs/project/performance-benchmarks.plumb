@@ -34,6 +34,8 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
 `- `"profile_code_lens_response"：manual release-profile LSP test，以两个open documents中的2,000 anchors与
   2,000 references测量CodeLens query、position projection与JSON构建；3次warmup、10个samples，校验lens/
   reference counts及确定性response bytes。不包含document analysis、stdio transport或editor渲染。
+`- `"profile_references_response"：manual release-profile LSP test，以2,000 references测量带声明的anchor
+  references query、position projection与JSON构建；3次warmup、10个samples，不包含analysis/transport/rendering。
 
 `# Measurement contract
 
