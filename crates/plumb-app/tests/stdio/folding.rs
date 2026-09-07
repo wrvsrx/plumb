@@ -68,10 +68,7 @@ fn labels_individual_metadata_entry_folds() {
     session.wait_for_response(&json!(5));
     session.send_all(&messages[9..]);
     let output = session.finish();
-    let ranges = response(&output, 2)["result"]
-        .as_array()
-        .unwrap()
-        .to_vec();
+    let ranges = response(&output, 2)["result"].as_array().unwrap().to_vec();
     assert!(ranges
         .iter()
         .any(|range| range["collapsedText"] == "title  项目 Overview"));
