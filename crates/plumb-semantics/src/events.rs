@@ -264,8 +264,8 @@ fn collect_blocks(
             && crate::list_item_facet(block) == crate::ListItemFacet::Event;
 
         if is_event {
-            let event = event_record(source, block, event_depth, &scoped_context);
-            if crate::owner_semantic_view(&block.content).positional.len() < 2 {
+            let (event, argument_count) = event_record(source, block, event_depth, &scoped_context);
+            if argument_count < 2 {
                 output.diagnostics.push(Diagnostic {
                     code: "event.invalid-head-arity",
                     severity: DiagnosticSeverity::Warning,
@@ -296,12 +296,12 @@ fn event_record(
     block: &ParsedBlock,
     depth: usize,
     context: &EventContext,
-) -> EventRecord {
+) -> (EventRecord, usize) {
     let mark = block.mark.as_ref().expect("event is a marked block");
     let date = text_field(&mark.attrs.items, "date");
     let timezone = text_field(&mark.attrs.items, "timezone");
     let uid = text_field(&mark.attrs.items, "uid");
-    let (when, title, selection_range) = event_head(block);
+    let (when, title, selection_range, argument_count) = event_head(block);
     let resolved = resolve_when(
         when.as_ref(),
         date.as_ref()
@@ -328,31 +328,34 @@ fn event_record(
         }),
         _ => None,
     });
-    EventRecord {
-        range: block.range.clone(),
-        marker_range: mark.range.clone(),
-        selection_range,
-        title,
-        details: event_details(block),
-        depth,
-        id,
-        uid,
-        date,
-        timezone,
-        when,
-        at,
-        start,
-        end,
-        tasks: task_reference_fields(source, &mark.attrs.items, "tasks"),
-        tasks_override: mark
-            .attrs
-            .items
-            .iter()
-            .any(|item| matches!(item, AttrItem::Pair { key, .. } if key == "tasks")),
-    }
+    (
+        EventRecord {
+            range: block.range.clone(),
+            marker_range: mark.range.clone(),
+            selection_range,
+            title,
+            details: event_details(block),
+            depth,
+            id,
+            uid,
+            date,
+            timezone,
+            when,
+            at,
+            start,
+            end,
+            tasks: task_reference_fields(source, &mark.attrs.items, "tasks"),
+            tasks_override: mark
+                .attrs
+                .items
+                .iter()
+                .any(|item| matches!(item, AttrItem::Pair { key, .. } if key == "tasks")),
+        },
+        argument_count,
+    )
 }
 
-fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>) {
+fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>, usize) {
     let view = crate::owner_semantic_view(&block.content);
     let arguments = view.split_first();
     let when = arguments.as_ref().and_then(|arguments| {
@@ -372,7 +375,7 @@ fn event_head(block: &ParsedBlock) -> (Option<EventField>, String, Range<usize>)
         .as_ref()
         .map(|arguments| arguments.rest_plain_text().trim().to_string())
         .unwrap_or_default();
-    (when, title, title_range)
+    (when, title, title_range, view.positional.len())
 }
 
 fn event_details(owner: &ParsedBlock) -> String {
