@@ -94,7 +94,7 @@ fn task_state_publication_uses_proven_identity_and_conservative_full_replacement
 }
 
 #[test]
-fn exported_record_delta_limits_diagnostic_publication_without_suppressing_refresh() {
+fn exported_record_delta_refreshes_only_affected_consumers() {
     fn settle_refreshes(session: &mut LspTestSession, initial: bool) {
         for method in [
             "workspace/codeLens/refresh",
@@ -109,10 +109,11 @@ fn exported_record_delta_limits_diagnostic_publication_without_suppressing_refre
         }
     }
     let initial = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
-    for (changed, dependent_publications) in [
-        (initial.replace("Old", "New"), 0),
-        (format!("{initial} `@ target\n"), 1),
-        ("`- Task\n `+ task\n".to_owned(), 0),
+    for (changed, dependent_publications, code_lens_refreshes) in [
+        (initial.replace("Old", "New"), 0, 0),
+        (initial.replace("10:00", "11:00"), 0, 0),
+        (format!("{initial} `@ target\n"), 1, 1),
+        ("`- Task\n `+ task\n".to_owned(), 0, 1),
     ] {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
@@ -176,7 +177,11 @@ fn exported_record_delta_limits_diagnostic_publication_without_suppressing_refre
                     .iter()
                     .filter(|message| message["method"] == method)
                     .count(),
-                1
+                if method == "workspace/codeLens/refresh" {
+                    code_lens_refreshes
+                } else {
+                    1
+                }
             );
         }
         std::fs::remove_dir_all(root).unwrap();

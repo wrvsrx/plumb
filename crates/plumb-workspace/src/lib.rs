@@ -394,6 +394,8 @@ pub enum ExportedSemanticChange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentAnalysisImpact {
     pub exported: ExportedSemanticChange,
+    /// Conservative reference/resolution inputs; excludes LSP source-position geometry.
+    pub reference_inputs_changed: bool,
     pub task_graph_changed: bool,
     pub dependent_diagnostics_changed: bool,
     /// None means no target-level refinement; consult the change flags.

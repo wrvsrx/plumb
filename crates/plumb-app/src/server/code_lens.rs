@@ -135,6 +135,32 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "manual event reference-input comparison profile"]
+    fn profile_event_reference_input_comparison() {
+        let source = format!(
+            "`= date 2026-09-07\n`= timezone +08:00\n\n{}",
+            "`- 10:00 Event\n `+ event\n `= tasks target.plumb#task\n\n".repeat(2000)
+        );
+        let previous = output(&source);
+        let current = output(&source.replace("09-07", "09-08"));
+        let started = std::time::Instant::now();
+        for _ in 0..1000 {
+            assert!(std::hint::black_box(
+                previous
+                    .events()
+                    .events
+                    .views()
+                    .zip(current.events().events.views())
+                    .all(|(old, new)| old.reference_inputs_equal(new))
+            ));
+        }
+        eprintln!(
+            "event reference input comparison: {:?}/call, 2000 explicit-reference events",
+            started.elapsed() / 1000
+        );
+    }
+
+    #[test]
     #[ignore = "manual CodeLens geometry invalidation profile"]
     fn profile_reference_geometry_invalidation() {
         let source = format!(

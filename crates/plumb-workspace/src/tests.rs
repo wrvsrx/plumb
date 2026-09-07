@@ -2794,6 +2794,84 @@ fn record_delta_limits_dependent_diagnostics_but_preserves_recovery_and_revision
 }
 
 #[test]
+fn reference_impact_preserves_implicit_event_link_containment_and_override() {
+    let old = "`- 2026-09-07T10:00:00Z Old\n `+ event\n `= other target.plumb#else\n\n See `->{label target.plumb#task}\n";
+    for (new, expected) in [
+        (old.replace("Old", "New"), false),
+        (old.replace("other", "tasks"), true),
+        (old.replace("\n See", "\nSee "), true),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("target.plumb", 1, "`- Task\n `+ task\n `@ task\n");
+        workspace.open_document("event.plumb", 1, old);
+        let ids = HashSet::from(["task".to_owned()]);
+        let before = workspace
+            .reverse_references_for_document("target.plumb", &ids)
+            .unwrap()
+            .value;
+        let analysis = workspace
+            .begin_document_revision("event.plumb", 2, new.clone())
+            .unwrap()
+            .analyze();
+        let impact = workspace
+            .install_document_analysis_with_impact(analysis)
+            .unwrap();
+        assert_eq!(impact.reference_inputs_changed, expected, "{new}");
+        if !expected {
+            assert_eq!(
+                before,
+                workspace
+                    .reverse_references_for_document("target.plumb", &ids)
+                    .unwrap()
+                    .value
+            );
+        }
+    }
+}
+
+#[test]
+fn reference_impact_ignores_event_presentation_but_preserves_association_inputs() {
+    let old = "`= title Notes\n`= date 2026-09-07\n`= timezone +08:00\n\n`- 10:00 Old\n `+ event\n `= tasks target.plumb#task\n";
+    for (new, expected) in [
+        (old.replace("Notes", "Other"), false),
+        (old.replace("09-07", "09-08"), false),
+        (old.replace("+08:00", "+09:00"), false),
+        (old.replace("10:00", "11:00"), false),
+        (old.replace("Old", "New"), false),
+        (old.replace("#task", "#else"), true),
+        (old.replace("tasks", "other"), true),
+        (old.replace("Old", "Longer"), true),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("target.plumb", 1, "`- Task\n `+ task\n `@ task\n");
+        workspace.open_document("event.plumb", 1, old);
+        let ids = HashSet::from(["task".to_owned()]);
+        let before = workspace
+            .reverse_references_for_document("target.plumb", &ids)
+            .unwrap()
+            .value;
+        let analysis = workspace
+            .begin_document_revision("event.plumb", 2, new.clone())
+            .unwrap()
+            .analyze();
+        let impact = workspace
+            .install_document_analysis_with_impact(analysis)
+            .unwrap();
+        assert_eq!(impact.exported, ExportedSemanticChange::Changed);
+        assert_eq!(impact.reference_inputs_changed, expected, "{new}");
+        if !expected {
+            assert_eq!(
+                before,
+                workspace
+                    .reverse_references_for_document("target.plumb", &ids)
+                    .unwrap()
+                    .value
+            );
+        }
+    }
+}
+
+#[test]
 fn analysis_impact_separates_event_and_title_changes_from_task_graph_inputs() {
     for (old, new, graph_changed) in [
         ("`= title Old\n", "`= title New\n", false),

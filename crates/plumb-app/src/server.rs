@@ -298,7 +298,7 @@ impl ServerState {
             self.pending_document_reads.remove(&result.path);
             return ControlFlow::Continue(());
         };
-        if impact.exported == ExportedSemanticChange::Unchanged
+        if !impact.reference_inputs_changed
             && previous.as_ref().is_some_and(|previous| {
                 self.workspace.get(&result.path).is_some_and(|entry| {
                     code_lens::positions_changed(previous, entry.parsed.green())
@@ -321,7 +321,9 @@ impl ServerState {
                 } else {
                     self.publish_open_document_diagnostics(&result.path);
                 }
-                self.refresh_code_lenses();
+                if impact.reference_inputs_changed || self.code_lens_refresh_pending {
+                    self.refresh_code_lenses();
+                }
                 self.refresh_folding_ranges();
             }
             ExportedSemanticChange::Unchanged => {
@@ -3552,6 +3554,71 @@ mod tests {
                     usize::from(supported && expected)
                 );
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn reference_equal_event_changes_preserve_geometry_and_pending_refreshes() {
+        for (prefix, pending, expected) in [
+            ("AA\nBB\n\n", false, false),
+            ("ABCDEF\n", false, true),
+            ("AA\nBB\n\n", true, true),
+        ] {
+            struct Stop;
+            let (server, client) = async_lsp::MainLoop::new_server(|_| {
+                let mut router = async_lsp::router::Router::new(());
+                router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+                router
+            });
+            let mut state = ServerState::new(client.clone());
+            state.index_complete = true;
+            state.supports_code_lens_refresh = true;
+            let path = PathBuf::from("/tmp/plumb-event-reference-refresh.plumb");
+            let event = "`- 2026-09-07T10:00:00Z Old\n `+ event\n `= tasks target.plumb#task\n";
+            state
+                .workspace
+                .open_document(&path, 1, format!("AA\nBB\n\n{event}"));
+            let (_, generation) = state.document_analysis_tokens.next(&path);
+            let analysis = state
+                .workspace
+                .begin_document_revision(
+                    &path,
+                    2,
+                    format!("{prefix}{}", event.replace("Old", "New")),
+                )
+                .unwrap()
+                .analyze();
+            if pending {
+                let params: CodeLensParams = serde_json::from_value(
+                    serde_json::json!({"textDocument":{"uri":Url::from_file_path(&path).unwrap()}}),
+                )
+                .unwrap();
+                assert!(futures::FutureExt::now_or_never(state.code_lens(params))
+                    .unwrap()
+                    .unwrap()
+                    .is_none());
+                assert!(state.code_lens_refresh_pending);
+            }
+            let _ = state.finish_document_analysis(DocumentAnalysisResult {
+                path,
+                generation,
+                analysis: Ok(analysis),
+            });
+            assert!(!state.code_lens_refresh_pending);
+            tokio::task::yield_now().await;
+            client.emit(Stop).unwrap();
+            let mut output = Vec::new();
+            server
+                .run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output)
+                .await
+                .unwrap();
+            assert_eq!(
+                String::from_utf8(output)
+                    .unwrap()
+                    .matches("workspace/codeLens/refresh")
+                    .count(),
+                usize::from(expected)
+            );
         }
     }
 

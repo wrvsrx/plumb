@@ -99,6 +99,24 @@ pub type EventRecords = SemanticRecords<EventRecord>;
 pub type EventRecordView<'a> = SemanticRecordView<'a, EventRecord>;
 
 impl<'a> EventRecordView<'a> {
+    /// Inputs used by explicit task references and implicit contained-Link associations.
+    pub fn reference_inputs_equal(self, other: EventRecordView<'_>) -> bool {
+        self.range() == other.range()
+            && self.record.tasks_override == other.record.tasks_override
+            && self.record.tasks.len() == other.record.tasks.len()
+            && self
+                .record
+                .tasks
+                .iter()
+                .zip(&other.record.tasks)
+                .all(|(left, right)| {
+                    left.source == right.source
+                        && left.target == right.target
+                        && shifted_range(&left.range, self.offset)
+                            == shifted_range(&right.range, other.offset)
+                })
+    }
+
     pub fn task_reference_ranges(self) -> impl Iterator<Item = Range<usize>> + 'a {
         let offset = self.offset;
         self.record

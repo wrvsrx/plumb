@@ -206,17 +206,33 @@ impl Workspace {
         if entry.revision != analysis.revision || !Arc::ptr_eq(&entry.parsed, &analysis.parsed) {
             return None;
         }
-        let (change, dependent_diagnostics_changed) = analysis
+        let (change, dependent_diagnostics_changed, reference_inputs_changed) = analysis
             .previous_exported_output
             .as_ref()
-            .map_or((ExportedSemanticChange::Changed, true), |previous| {
+            .map_or((ExportedSemanticChange::Changed, true, true), |previous| {
                 let kinds = analysis.output.exported_semantic_change_kinds(previous);
                 let change = if kinds.is_empty() {
                     ExportedSemanticChange::Unchanged
                 } else {
                     ExportedSemanticChange::Changed
                 };
-                (change, kinds.anchors || kinds.tasks)
+                let reference_inputs_changed = kinds.anchors
+                    || kinds.links
+                    || kinds.tasks
+                    || (kinds.events
+                        && (previous.events().events.len()
+                            != analysis.output.events().events.len()
+                            || !previous
+                                .events()
+                                .events
+                                .views()
+                                .zip(analysis.output.events().events.views())
+                                .all(|(old, new)| old.reference_inputs_equal(new))));
+                (
+                    change,
+                    kinds.anchors || kinds.tasks,
+                    reference_inputs_changed,
+                )
             });
         let task_graph_changed = change == ExportedSemanticChange::Changed
             && dependent_diagnostics_changed
@@ -255,6 +271,7 @@ impl Workspace {
         entry.last_valid = Some(current);
         Some(crate::DocumentAnalysisImpact {
             exported: change,
+            reference_inputs_changed,
             task_graph_changed,
             dependent_diagnostics_changed,
             diagnostic_targets,
