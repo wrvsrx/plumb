@@ -229,6 +229,12 @@ LSP initial workspace indexing 不得阻塞 current open-document lifecycle 或�
 
 `"textDocument/foldingRange" 是上述 open-document exception：structural ranges 与 current-document labels 不得因 task workspace facts incomplete 而整体失败。adapter 对 task state 使用保守的 local determination， 无法证明唯一状态时只省略该 task 的 `"collapsedText"。不支持 `"workspace/foldingRange/refresh" 的 client 保留这份 response，直到 document lifecycle 或 client 自身触发下一次 folding request；不得为了等待完整 workspace index 补齐跨文件 label 而延迟 response。
 
+CodeLens pending recovery 已实现：请求因本文件或其它文件的有效 semantic analysis pending 而返回
+`"null" 时，为支持 CodeLens refresh 的 client 记录一次恢复需求。pending 期间的多个需求及正常 refresh
+合并，不发送已知仍只能得到 partial result 的重查请求。initial index complete 且所有有效 pending analyses
+完成后发送一次 refresh，即使 exported summary 相等；正常完成、同步 navigation 完成或关闭最后一个 pending
+document 都必须让恢复继续。unsupported clients 不接收请求，store errors 不作为 pending 处理。
+
 current-valid semantic output pending 时，`"textDocument/semanticTokens/full" 异步等待同一 document revision 已在运行的
 analysis 安装，再返回该 revision 的 tokens；不能把暂时 pending 投影为 `"null" 或空 tokens。客户端需要
 `"collapsedText" 时，`"textDocument/foldingRange" 使用同一等待边界，再一次返回 structural ranges 与可确定的
@@ -255,8 +261,8 @@ revision 的后续请求也立即失败，直到新的 revision 或显式 naviga
 LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的 `"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能改变跨文档 task dependency facts 的open-document/watched-file revision replacement都触发refresh。不声明support的client不接收未知request。
 
 valid open-document revision进入background analysis时，adapter只发布该document的current syntax diagnostics，不提前
-重算其它open documents或发送workspace CodeLens/Folding refresh。安装结果的exported summary变化时才发送已协商的
-refresh；diagnostics publication scope 按下文的 record delta 规则决定。summary相等时只发布edited document的current diagnostics，并完成该 revision 的等待
+重算其它open documents或发送workspace CodeLens/Folding refresh。常规refresh由安装结果的exported summary变化触发，
+CodeLens暂时不可用的恢复请求不受summary相等限制；diagnostics publication scope 按下文的 record delta 规则决定。summary相等时只发布edited document的current diagnostics，并完成该 revision 的等待
 请求。invalid revision与
 invalid/valid transition继续走workspace-changed路径，不能借用last-valid summary抑制恢复通知。
 
@@ -330,7 +336,7 @@ Anchor/Task collections 完全相等也足以证明 graph inputs 相等，不再
 Anchor/Task entry 变化的 publication scope 由下面的 target rule 决定；graph inputs 未变时复用
 context。没有 previous valid output（包括 invalid/valid transition）或没有完整 context 时继续全量 publication，
 不得省略 pending 期间可能缺失事实的恢复。stale revision 不安装、不发布；多个 pending revisions 仍遵守
-原 generation/provenance gate。CodeLens/Folding refresh 继续由完整 exported-summary change 决定，不能用
+原 generation/provenance gate。常规CodeLens/Folding refresh 继续由完整 exported-summary change 决定，不能用
 diagnostic scope 替代其依赖边界。
 
 Targeted diagnostic publication 已实现：有 previous valid output、graph inputs 不变且存在完整 context 时，

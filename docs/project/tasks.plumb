@@ -30,4 +30,6 @@
  graph输入稳定时现进一步消费逐记录delta的old/new explicit ids，按Link、Task depends/prev与Event tasks
  的声明式targets筛选open documents，不依赖已成功解析的reverse references。range shift与全文替换可保守扩大
  目标集合；graph变化、invalid/valid、pending与context缺失仍全量恢复。剩余工作是分别细化CodeLens/Folding
- refresh的依赖边界，并验证decorative query在跨文档pending期间暂时不可用后的恢复行为。
+ refresh的依赖边界，以及Folding在跨文档pending期间的保守label与恢复行为。CodeLens现记录暂时不可用的
+ 恢复需求并合并pending期间的refresh，全部有效analysis完成后即使summary相等也发送一次已协商的refresh；
+ worker完成、同步navigation和close最后一个pending文档的路径均已验证，unsupported clients不接收请求。

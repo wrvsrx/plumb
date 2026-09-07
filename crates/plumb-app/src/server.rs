@@ -97,6 +97,7 @@ pub(crate) struct ServerState {
     supports_completion_snippets: bool,
     completion_indentation: CompletionIndentation,
     supports_code_lens_refresh: bool,
+    code_lens_refresh_pending: bool,
     supports_folding_range_refresh: bool,
     folding_range_limit: Option<usize>,
     supports_folding_collapsed_text: bool,
@@ -184,6 +185,7 @@ impl ServerState {
             supports_completion_snippets: false,
             completion_indentation: CompletionIndentation::default(),
             supports_code_lens_refresh: false,
+            code_lens_refresh_pending: false,
             supports_folding_range_refresh: false,
             folding_range_limit: None,
             supports_folding_collapsed_text: false,
@@ -306,6 +308,9 @@ impl ServerState {
                     self.publish_open_document_diagnostics(&result.path);
                 } else {
                     self.publish_all_open_diagnostics();
+                }
+                if self.code_lens_refresh_pending {
+                    self.refresh_code_lenses();
                 }
             }
         }
@@ -644,10 +649,23 @@ impl ServerState {
         });
     }
 
-    fn refresh_code_lenses(&self) {
-        if !self.supports_code_lens_refresh || !self.index_complete {
+    fn refresh_code_lenses(&mut self) {
+        if !self.supports_code_lens_refresh {
+            self.code_lens_refresh_pending = false;
             return;
         }
+        if !self.index_complete {
+            return;
+        }
+        if self
+            .workspace
+            .documents()
+            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+        {
+            self.code_lens_refresh_pending = true;
+            return;
+        }
+        self.code_lens_refresh_pending = false;
         let mut client = self.client.clone();
         tokio::spawn(async move {
             let _ = client.code_lens_refresh(()).await;
@@ -1702,6 +1720,7 @@ impl LanguageServer for ServerState {
         if let Ok(path) = params.text_document.uri.to_file_path() {
             self.ensure_request_document(&path);
         }
+        let mut pending_semantics = false;
         let result = (|| {
             let Some(path) = params.text_document.uri.to_file_path().ok() else {
                 return Ok(None);
@@ -1710,6 +1729,7 @@ impl LanguageServer for ServerState {
                 return Ok(None);
             };
             let Some(output) = entry.current.as_ref() else {
+                pending_semantics = entry.parsed.is_valid();
                 return Ok(None);
             };
             let Ok(uri) = Url::from_file_path(&entry.path) else {
@@ -1735,6 +1755,7 @@ impl LanguageServer for ServerState {
             )
             .map_err(workspace_query_response_error)?
             else {
+                pending_semantics = true;
                 return Ok(None);
             };
             let mut lenses = Vec::new();
@@ -1784,6 +1805,9 @@ impl LanguageServer for ServerState {
             }));
             Ok(Some(lenses))
         })();
+        if pending_semantics && self.supports_code_lens_refresh {
+            self.code_lens_refresh_pending = true;
+        }
         Box::pin(async move { result })
     }
 
@@ -3127,6 +3151,151 @@ mod tests {
             &original,
             state.diagnostic_context.as_ref().unwrap()
         ));
+    }
+
+    #[tokio::test]
+    async fn code_lenses_recover_once_after_semantic_equal_pending_revisions() {
+        use std::io::{BufRead, Read};
+        for supported in [true, false] {
+            for (own, finish) in [
+                (false, "worker"),
+                (true, "worker"),
+                (false, "navigation"),
+                (true, "navigation"),
+                (false, "close"),
+                (true, "close"),
+            ] {
+                for trigger in ["query", "refresh", "both"] {
+                    struct Stop;
+                    let (server, client) = async_lsp::MainLoop::new_server(|_| {
+                        let mut router = async_lsp::router::Router::new(());
+                        router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+                        router
+                    });
+                    let mut state = ServerState::new(client.clone());
+                    state.index_complete = true;
+                    state.supports_code_lens_refresh = supported;
+                    let root = Path::new("/tmp/plumb-lens-recovery");
+                    let target = root.join("target.plumb");
+                    state
+                        .workspace
+                        .open_document(&target, 1, "`# Target\n `@ target\n");
+                    let source = "Old text\n\nSee `->{target target.plumb#target}\n";
+                    let paths = [root.join("a.plumb"), root.join("b.plumb")];
+                    for path in &paths {
+                        state.workspace.open_document(path, 1, source);
+                        state
+                            .open_documents
+                            .insert(Url::from_file_path(path).unwrap(), path.clone());
+                    }
+                    let mut pending = Vec::new();
+                    for path in &paths {
+                        let (_, generation) = state.document_analysis_tokens.next(path);
+                        let analysis = state
+                            .workspace
+                            .begin_document_revision(path, 2, source.replace("Old", "New"))
+                            .unwrap()
+                            .analyze();
+                        pending.push(DocumentAnalysisResult {
+                            path: path.clone(),
+                            generation,
+                            analysis: Ok(analysis),
+                        });
+                    }
+                    let query_path = if own { &paths[0] } else { &target };
+                    let params: CodeLensParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(query_path).unwrap()}})).unwrap();
+                    if trigger != "refresh" {
+                        for _ in 0..2 {
+                            assert!(futures::FutureExt::now_or_never(
+                                state.code_lens(params.clone())
+                            )
+                            .unwrap()
+                            .unwrap()
+                            .is_none());
+                        }
+                    }
+                    if trigger != "query" {
+                        state.refresh_code_lenses();
+                        state.refresh_code_lenses();
+                    }
+                    let _ = state.finish_document_analysis(pending.remove(0));
+                    if trigger != "refresh" {
+                        assert!(
+                            futures::FutureExt::now_or_never(state.code_lens(params.clone()))
+                                .unwrap()
+                                .unwrap()
+                                .is_none()
+                        );
+                    }
+                    assert_eq!(state.code_lens_refresh_pending, supported);
+                    match finish {
+                        "worker" => {
+                            let _ = state.finish_document_analysis(pending.remove(0));
+                        }
+                        "navigation" => {
+                            assert!(state.complete_pending_navigation_documents([paths[1].clone()]));
+                            let _ = state.finish_document_analysis(pending.remove(0));
+                        }
+                        "close" => {
+                            let _ = state.did_close(DidCloseTextDocumentParams {
+                                text_document: lsp_types::TextDocumentIdentifier {
+                                    uri: Url::from_file_path(&paths[1]).unwrap(),
+                                },
+                            });
+                            let _ = state.finish_document_analysis(pending.remove(0));
+                        }
+                        _ => unreachable!(),
+                    }
+                    assert!(!state.code_lens_refresh_pending);
+                    let complete = futures::FutureExt::now_or_never(state.code_lens(params))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(
+                        complete[0].command.as_ref().unwrap().title,
+                        if own {
+                            "0 file references"
+                        } else if finish == "close" {
+                            "1 file reference"
+                        } else {
+                            "2 file references"
+                        }
+                    );
+                    tokio::task::yield_now().await;
+                    client.emit(Stop).unwrap();
+                    let mut output = Vec::new();
+                    server
+                        .run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output)
+                        .await
+                        .unwrap();
+                    let mut input = std::io::Cursor::new(output);
+                    let mut refreshes = 0;
+                    while input.position() < input.get_ref().len() as u64 {
+                        let mut header = String::new();
+                        input.read_line(&mut header).unwrap();
+                        let length: usize = header
+                            .trim()
+                            .strip_prefix("Content-Length: ")
+                            .unwrap()
+                            .parse()
+                            .unwrap();
+                        let mut separator = [0; 2];
+                        input.read_exact(&mut separator).unwrap();
+                        let mut body = vec![0; length];
+                        input.read_exact(&mut body).unwrap();
+                        let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                        if message["method"] == "workspace/codeLens/refresh" {
+                            refreshes += 1;
+                        }
+                    }
+                    assert_eq!(
+                        refreshes,
+                        usize::from(supported),
+                        "own={own} supported={supported} finish={finish} trigger={trigger}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
