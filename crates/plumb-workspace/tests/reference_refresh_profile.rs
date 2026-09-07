@@ -9,7 +9,17 @@ fn profile_anchor_link_reference_installation() {
     }
     anchors.push_str(" Tail\n");
     let links = "See `->{target.plumb#task}\n".repeat(2000);
+    let mut metadata = String::new();
+    for index in 0..2000 {
+        metadata.push_str(&format!("`= field-{index} metadata scalar value\n"));
+    }
+    metadata.push_str("\nSee `->{foo.plumb}\n");
     for (name, old, new) in [
+        (
+            "large_metadata",
+            metadata.clone(),
+            metadata.replace("foo.plumb", "bar.plumb"),
+        ),
         (
             "anchors",
             anchors.clone(),

@@ -396,6 +396,8 @@ pub struct DocumentAnalysisImpact {
     pub exported: ExportedSemanticChange,
     /// Conservative reference/resolution inputs; excludes LSP source-position geometry.
     pub reference_inputs_changed: bool,
+    /// Anchor/Task/Event records affecting labels or cross-document task workflow; not metadata.
+    pub folding_record_inputs_changed: bool,
     pub task_graph_changed: bool,
     pub dependent_diagnostics_changed: bool,
     /// None means no target-level refinement; consult the change flags.
@@ -457,6 +459,12 @@ pub struct PreparedDocumentAnalysis {
     parsed: Arc<DocumentRevision>,
     previous_exported_output: Option<Arc<DocumentOutput>>,
     output: Arc<DocumentOutput>,
+}
+
+impl PreparedDocumentAnalysis {
+    pub fn previous_valid_output(&self) -> Option<&Arc<DocumentOutput>> {
+        self.previous_exported_output.as_ref()
+    }
 }
 
 impl PendingDocumentAnalysis {

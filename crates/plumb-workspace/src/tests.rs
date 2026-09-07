@@ -2794,6 +2794,36 @@ fn record_delta_limits_dependent_diagnostics_but_preserves_recovery_and_revision
 }
 
 #[test]
+fn folding_record_impact_tracks_workflow_without_eager_metadata_comparison() {
+    for (old, new, changed) in [
+        ("`= author Old\n", "`= author New\n", false),
+        (
+            "`note See `->{foo.plumb}\n",
+            "`note See `->{bar.plumb}\n",
+            false,
+        ),
+        ("`node\n `@ old\n", "`node\n `@ new\n", true),
+        (
+            "`- Task\n `+ task\n `= wait 2099-01-01T00:00:00Z\n",
+            "`- Task\n `+ task\n `= done 2099-01-01T00:00:00Z\n",
+            true,
+        ),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("source.plumb", 1, old);
+        let analysis = workspace
+            .begin_document_revision("source.plumb", 2, new)
+            .unwrap()
+            .analyze();
+        assert!(analysis.previous_valid_output().is_some());
+        let impact = workspace
+            .install_document_analysis_with_impact(analysis)
+            .unwrap();
+        assert_eq!(impact.folding_record_inputs_changed, changed, "{new}");
+    }
+}
+
+#[test]
 fn anchor_and_link_reference_impact_ignores_navigation_extent_and_editing_spelling() {
     for (old, new, expected) in [
         (
