@@ -4090,23 +4090,22 @@ fn resolve_relative(from: &Path, target: &str) -> PathBuf {
 }
 
 fn dependency_cycle_contains(graph: &HashMap<TaskRef, Vec<TaskRef>>, start: &TaskRef) -> bool {
-    fn visit(
-        graph: &HashMap<TaskRef, Vec<TaskRef>>,
-        current: &TaskRef,
-        start: &TaskRef,
-        visited: &mut HashSet<TaskRef>,
-    ) -> bool {
-        if !visited.insert(current.clone()) {
-            return false;
+    let mut visited = HashSet::new();
+    let mut pending = vec![start];
+    while let Some(current) = pending.pop() {
+        if !visited.insert(current) {
+            continue;
         }
-        graph.get(current).is_some_and(|dependencies| {
-            dependencies
-                .iter()
-                .any(|dependency| dependency == start || visit(graph, dependency, start, visited))
-        })
+        if let Some(dependencies) = graph.get(current) {
+            for dependency in dependencies {
+                if dependency == start {
+                    return true;
+                }
+                pending.push(dependency);
+            }
+        }
     }
-
-    visit(graph, start, start, &mut HashSet::new())
+    false
 }
 
 struct RecurringTaskCloneContext<'a> {

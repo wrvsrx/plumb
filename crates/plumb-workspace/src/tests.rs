@@ -2761,6 +2761,23 @@ fn idless_dependencies_do_not_enter_cycle_graph_but_still_report_resolution_erro
 }
 
 #[test]
+fn cycle_query_handles_long_chains_and_excludes_nodes_only_leading_to_cycles() {
+    let node = |index| TaskRef {
+        path: PathBuf::from("chain.plumb"),
+        id: format!("task-{index}"),
+    };
+    let mut graph = (0..20_000)
+        .map(|index| (node(index), vec![node(index + 1)]))
+        .collect::<HashMap<_, _>>();
+    assert!(!dependency_cycle_contains(&graph, &node(0)));
+    graph.insert(node(20_000), vec![node(19_999)]);
+    assert!(!dependency_cycle_contains(&graph, &node(0)));
+    assert!(dependency_cycle_contains(&graph, &node(19_999)));
+    graph.insert(node(20_000), vec![node(0)]);
+    assert!(dependency_cycle_contains(&graph, &node(0)));
+}
+
+#[test]
 fn diagnostic_context_builds_persistent_cycles_without_decoding_task_records() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store.clone());
