@@ -238,6 +238,18 @@ semantic waiting后，若其它有效document仍pending，记录一次恢复需�
 initial index与有效analyses完成后发送一次refresh，不受exported summary相等限制。查询本身不等待其它documents；
 syntax-only client的查询与常规refresh不因此延迟。unsupported client不接收未知请求，继续保留保守结果直到自身重查。
 
+Folding independent invalidation 已实现：valid analysis安装后，无论exported summary是否相等，都独立检查
+本文件structure/position输入。旧新green shards数量、offset、block variant/range/marker/children及字符位置形状
+一致时可证明structural folding不变；相同shard直接跳过。形状保留UTF-8边界、UTF-16宽度、CR、LF及其它whitespace
+类别，保护trim_end、CRLF/LF separator与跨shard following marker。无法证明则保守refresh，不重建FoldingRange响应。
+label clients另消费metadata完整输出及Anchor/Task/Event完整records变化，保护本文件labels与跨文件task目标解析/状态；
+workspace只复用Anchor/Task/Event变化flags；metadata比较延迟到已协商refresh且需要labels的LSP路径，不向workspace传capability。
+这不是task graph equality，也不依赖client自动didChange重查。syntax-only clients忽略语义label输入。
+prepared analysis没有previous valid基线时保守刷新，包括invalid→valid；已有pending恢复不能被不变判定吞掉。
+syntax-only在本文件valid semantics pending时立即返回syntax ranges并记录已展示中间revision的恢复需求，不等待worker。
+lifecycle/index/close恢复规则不变。判定按固定query instant的输入比较，不新增时间驱动的wait到期刷新；完整Task/Event
+或metadata比较允许同最终label的更新仍刷新，不执行workspace-wide workflow查询来追求精确抑制。
+
 CodeLens pending recovery 已实现：请求因本文件或其它文件的有效 semantic analysis pending 而返回
 `"null" 时，为支持 CodeLens refresh 的 client 记录一次恢复需求。pending 期间的多个需求及正常 refresh
 合并，不发送已知仍只能得到 partial result 的重查请求。initial index complete 且所有有效 pending analyses

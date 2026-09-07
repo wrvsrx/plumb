@@ -131,6 +131,7 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
         (link, "See `->\"other.plumb#target\"\n".to_owned(), 0, 0),
         (link, link.replace("target", "elsexx"), 0, 1),
     ] {
+        let folding_refreshes = usize::from(initial != link);
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         let uri = lsp_types::Url::from_file_path(root.join("event.plumb")).unwrap();
@@ -141,6 +142,7 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
             &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
                 "processId":null,"rootUri":root_uri,"capabilities":{
                     "workspace":{"codeLens":{"refreshSupport":true}},
+                    "textDocument":{"foldingRange":{"foldingRange":{"collapsedText":true}}},
                     "experimental":{"plumb":{"foldingRangeRefreshSupport":true}}
                 }
             }}),
@@ -163,7 +165,7 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
         // Refresh requests are spawned independently of the semantic read response.
         for (method, expected) in [
             ("workspace/codeLens/refresh", code_lens_refreshes),
-            ("workspace/foldingRange/refresh", 1),
+            ("workspace/foldingRange/refresh", folding_refreshes),
         ] {
             if expected != 0 {
                 let request = session.wait_for(|message| {
@@ -209,7 +211,7 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
                 if method == "workspace/codeLens/refresh" {
                     code_lens_refreshes
                 } else {
-                    1
+                    folding_refreshes
                 },
                 "method={method} source={changed}"
             );
@@ -219,7 +221,7 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
 }
 
 #[test]
-fn semantic_equal_edits_do_not_refresh_workspace_consumers() {
+fn semantic_equal_edits_preserve_references_but_refresh_changed_folding_inputs() {
     fn refresh_counts(exported_change: bool) -> (usize, usize, usize) {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
@@ -272,10 +274,12 @@ fn semantic_equal_edits_do_not_refresh_workspace_consumers() {
                 && message["params"]["version"] == 1
         });
 
+        session.send(&json!({"jsonrpc":"2.0","id":10,"method":"textDocument/foldingRange","params":{"textDocument":{"uri":uri}}}));
+        let old_folds = session.wait_for_response(&json!(10))["result"].clone();
         let changed = if exported_change {
             "`# Bravo\n `@ target\n\nBad `cite{two words}.\n"
         } else {
-            "`# Bravo\n\nChanged bad `cite{two words}.\n"
+            "`# Bravo\n\nChanged bad `cite{two words}.\nAdditional body.\n"
         };
         session.send(&json!({
             "jsonrpc": "2.0", "method": "textDocument/didChange",
@@ -295,6 +299,9 @@ fn semantic_equal_edits_do_not_refresh_workspace_consumers() {
                             .any(|diagnostic| diagnostic["code"] == "citation.invalid")
                     })
         });
+        session.send(&json!({"jsonrpc":"2.0","id":11,"method":"textDocument/foldingRange","params":{"textDocument":{"uri":uri}}}));
+        assert_ne!(old_folds, session.wait_for_response(&json!(11))["result"]);
+        session.observe_for(std::time::Duration::from_millis(50));
         session.send(&json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": null }));
         session.wait_for_response(&json!(2));
         session.send(&json!({ "jsonrpc": "2.0", "method": "exit", "params": null }));
@@ -322,7 +329,7 @@ fn semantic_equal_edits_do_not_refresh_workspace_consumers() {
     let local_only = refresh_counts(false);
     let exported = refresh_counts(true);
     assert_eq!(exported.0, local_only.0 + 1);
-    assert_eq!(exported.1, local_only.1 + 1);
+    assert_eq!(exported.1, local_only.1);
     assert_eq!(exported.2, local_only.2 + 1);
 }
 

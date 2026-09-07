@@ -282,14 +282,8 @@ impl ServerState {
             self.fail_pending_document_reads(&result.path);
             return ControlFlow::Continue(());
         };
-        let previous = self
-            .supports_code_lens_refresh
-            .then(|| {
-                self.workspace
-                    .get(&result.path)
-                    .and_then(|entry| entry.last_valid.as_ref())
-                    .map(|previous| Arc::clone(&previous.output))
-            })
+        let previous = (self.supports_code_lens_refresh || self.supports_folding_range_refresh)
+            .then(|| analysis.previous_valid_output().cloned())
             .flatten();
         let Some(impact) = self
             .workspace
@@ -298,7 +292,8 @@ impl ServerState {
             self.pending_document_reads.remove(&result.path);
             return ControlFlow::Continue(());
         };
-        if !impact.reference_inputs_changed
+        if self.supports_code_lens_refresh
+            && !impact.reference_inputs_changed
             && previous.as_ref().is_some_and(|previous| {
                 self.workspace.get(&result.path).is_some_and(|entry| {
                     code_lens::positions_changed(previous, entry.parsed.green())
@@ -306,6 +301,23 @@ impl ServerState {
             })
         {
             self.code_lens_refresh_pending = true;
+        }
+        if self.supports_folding_range_refresh
+            && previous.as_ref().is_none_or(|previous| {
+                self.workspace.get(&result.path).is_none_or(|entry| {
+                    (self.supports_folding_collapsed_text
+                        && (impact.folding_record_inputs_changed
+                            || entry.current.as_ref().is_none_or(|current| {
+                                previous.metadata() != current.output.metadata()
+                            })))
+                        || crate::folding::structural_inputs_changed(
+                            previous.syntax(),
+                            entry.parsed.green(),
+                        )
+                })
+            })
+        {
+            self.folding_refresh_pending = true;
         }
         self.finish_pending_document_reads(&result.path);
         match impact.exported {
@@ -324,7 +336,9 @@ impl ServerState {
                 if impact.reference_inputs_changed || self.code_lens_refresh_pending {
                     self.refresh_code_lenses();
                 }
-                self.refresh_folding_ranges();
+                if self.folding_refresh_pending {
+                    self.refresh_folding_ranges();
+                }
             }
             ExportedSemanticChange::Unchanged => {
                 if self.diagnostic_context.is_some() {
@@ -1473,7 +1487,7 @@ impl LanguageServer for ServerState {
         &mut self,
         params: FoldingRangeParams,
     ) -> BoxFuture<'static, Result<Option<Vec<FoldingRange>>, Self::Error>> {
-        let mut partial_labels = false;
+        let mut refresh_after_analysis = false;
         if let Ok(path) = params.text_document.uri.to_file_path() {
             if self.supports_folding_collapsed_text {
                 if let Some(pending) = self.await_document_semantics(&path, true) {
@@ -1500,7 +1514,7 @@ impl LanguageServer for ServerState {
                 return Ok(None);
             };
             let labels = if self.supports_folding_collapsed_text {
-                partial_labels = self.supports_folding_range_refresh
+                refresh_after_analysis = self.supports_folding_range_refresh
                     && entry.current.is_some()
                     && self
                         .workspace
@@ -1513,6 +1527,9 @@ impl LanguageServer for ServerState {
                     self.index_complete,
                 ))
             } else {
+                refresh_after_analysis = self.supports_folding_range_refresh
+                    && entry.parsed.is_valid()
+                    && entry.current.is_none();
                 None
             };
             let ranges = green_folding_ranges(
@@ -1524,7 +1541,7 @@ impl LanguageServer for ServerState {
             );
             Ok(Some(ranges))
         })();
-        if partial_labels {
+        if refresh_after_analysis {
             self.folding_refresh_pending = true;
         }
         Box::pin(async move { result })
@@ -3342,6 +3359,188 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn folding_refresh_tracks_structure_and_label_inputs_independently() {
+        for supported in [true, false] {
+            for labels in [true, false] {
+                for (old, new, structure_changed, label_changed) in [
+                    (
+                        "`note Old\n `child Body\n",
+                        "`note New\n `child Body\n",
+                        false,
+                        false,
+                    ),
+                    (
+                        "`note Head\n `child Body\n",
+                        "`note Head\n`child Body \n",
+                        true,
+                        false,
+                    ),
+                    (
+                        "`note First\r\n\r\n`note Second\r\n",
+                        "`note First \n\r\n`note Second\r\n",
+                        true,
+                        false,
+                    ),
+                    (
+                        "`note See `->{foo.plumb}\n `child Body\n",
+                        "`note See `->{bar.plumb}\n `child Body\n",
+                        false,
+                        false,
+                    ),
+                    ("`= author Old\n", "`= author New\n", false, true),
+                    (
+                        "`- 2026-09-07T10:00:00Z Old\n `+ event\n",
+                        "`- 2026-09-07T11:00:00Z Old\n `+ event\n",
+                        false,
+                        true,
+                    ),
+                    (
+                        "`- Task\n `+ task\n `@ target\n `= wait 2099-01-01T00:00:00Z\n",
+                        "`- Task\n `+ task\n `@ target\n `= done 2099-01-01T00:00:00Z\n",
+                        false,
+                        true,
+                    ),
+                ] {
+                    struct Stop;
+                    let (server, client) = async_lsp::MainLoop::new_server(|_| {
+                        let mut router = async_lsp::router::Router::new(());
+                        router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+                        router
+                    });
+                    let mut state = ServerState::new(client.clone());
+                    state.index_complete = true;
+                    state.supports_folding_range_refresh = supported;
+                    state.supports_folding_collapsed_text = labels;
+                    let path = PathBuf::from("/tmp/plumb-independent-folding.plumb");
+                    state.workspace.open_document(&path, 1, old);
+                    let dependent = PathBuf::from("/tmp/plumb-fold-dependent.plumb");
+                    state.workspace.open_document(&dependent, 1, "`- Dependent\n `+ task\n `= depends plumb-independent-folding.plumb#target\n");
+                    let dependent_params: FoldingRangeParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(&dependent).unwrap()}})).unwrap();
+                    let dependent_before = futures::FutureExt::now_or_never(
+                        state.folding_range(dependent_params.clone()),
+                    )
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                    let params: FoldingRangeParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(&path).unwrap()}})).unwrap();
+                    let before =
+                        futures::FutureExt::now_or_never(state.folding_range(params.clone()))
+                            .unwrap()
+                            .unwrap()
+                            .unwrap();
+                    let (_, generation) = state.document_analysis_tokens.next(&path);
+                    let analysis = state
+                        .workspace
+                        .begin_document_revision(&path, 2, new)
+                        .unwrap()
+                        .analyze();
+                    let _ = state.finish_document_analysis(DocumentAnalysisResult {
+                        path,
+                        generation,
+                        analysis: Ok(analysis),
+                    });
+                    let after = futures::FutureExt::now_or_never(state.folding_range(params))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    let changed = structure_changed || (labels && label_changed);
+                    let dependent_after =
+                        futures::FutureExt::now_or_never(state.folding_range(dependent_params))
+                            .unwrap()
+                            .unwrap()
+                            .unwrap();
+                    assert_eq!(
+                        dependent_before != dependent_after,
+                        labels && old.contains("`+ task")
+                    );
+                    assert_eq!(before != after, changed, "labels={labels} {new}");
+                    tokio::task::yield_now().await;
+                    client.emit(Stop).unwrap();
+                    let mut output = Vec::new();
+                    server
+                        .run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output)
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        String::from_utf8(output)
+                            .unwrap()
+                            .matches("workspace/foldingRange/refresh")
+                            .count(),
+                        usize::from(supported && changed),
+                        "labels={labels} {new}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn syntax_only_folding_recovers_intermediate_and_invalid_revisions() {
+        for invalid in [true, false] {
+            struct Stop;
+            let (server, client) = async_lsp::MainLoop::new_server(|_| {
+                let mut router = async_lsp::router::Router::new(());
+                router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+                router
+            });
+            let mut state = ServerState::new(client.clone());
+            state.index_complete = true;
+            state.supports_folding_range_refresh = true;
+            let path = PathBuf::from("/tmp/plumb-intermediate-folding.plumb");
+            let source = "`note Head\n `child Body\n";
+            state.workspace.open_document(&path, 1, source);
+            let intermediate = if invalid {
+                "{unclosed\n"
+            } else {
+                "`note Head\n`child Body\n"
+            };
+            let _superseded = state
+                .workspace
+                .begin_document_revision(&path, 2, intermediate);
+            let params: FoldingRangeParams = serde_json::from_value(
+                serde_json::json!({"textDocument":{"uri":Url::from_file_path(&path).unwrap()}}),
+            )
+            .unwrap();
+            let before = futures::FutureExt::now_or_never(state.folding_range(params.clone()))
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(state.folding_refresh_pending, !invalid);
+            let (_, generation) = state.document_analysis_tokens.next(&path);
+            let analysis = state
+                .workspace
+                .begin_document_revision(&path, 3, source)
+                .unwrap()
+                .analyze();
+            assert_eq!(analysis.previous_valid_output().is_none(), invalid);
+            let _ = state.finish_document_analysis(DocumentAnalysisResult {
+                path,
+                generation,
+                analysis: Ok(analysis),
+            });
+            let after = futures::FutureExt::now_or_never(state.folding_range(params))
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_ne!(before, after);
+            tokio::task::yield_now().await;
+            client.emit(Stop).unwrap();
+            let mut output = Vec::new();
+            server
+                .run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output)
+                .await
+                .unwrap();
+            assert_eq!(
+                String::from_utf8(output)
+                    .unwrap()
+                    .matches("workspace/foldingRange/refresh")
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn folding_refresh_defers_labels_but_not_syntax_only_clients() {
         use std::io::{BufRead, Read};
         for labels in [true, false] {
@@ -3411,7 +3610,7 @@ mod tests {
                 let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
                 refreshes += usize::from(message["method"] == "workspace/foldingRange/refresh");
             }
-            assert_eq!(refreshes, if labels { 1 } else { 2 });
+            assert_eq!(refreshes, if labels { 1 } else { 3 });
         }
     }
 

@@ -13,6 +13,63 @@ use plumb_workspace::{DocumentEntry, TaskWorkflowState, Workspace, WorkspaceQuer
 
 use crate::position::PositionIndex;
 
+/// Prove unchanged structure conservatively without rebuilding ranges or labels.
+pub(crate) fn structural_inputs_changed(previous: &GreenDocument, current: &GreenDocument) -> bool {
+    let old = previous.shards();
+    let new = current.shards();
+    if old.len() != new.len() {
+        return true;
+    }
+    old.zip(new).any(|(old, new)| {
+        if old.offset() != new.offset() {
+            return true;
+        }
+        if std::sync::Arc::ptr_eq(old.shard(), new.shard()) {
+            return false;
+        }
+        let old = old.shard().parsed();
+        let new = new.shard().parsed();
+        let shape = |(offset, ch): (usize, char)| {
+            let whitespace = match ch {
+                '\r' => 1,
+                '\n' => 2,
+                ch if ch.is_whitespace() => 3,
+                _ => 0,
+            };
+            (offset, ch.len_utf16(), whitespace)
+        };
+        if old.source.len() != new.source.len()
+            || !old
+                .source
+                .char_indices()
+                .map(shape)
+                .eq(new.source.char_indices().map(shape))
+        {
+            return true;
+        }
+        let mut pending = vec![(&old.syntax.blocks, &new.syntax.blocks)];
+        while let Some((old, new)) = pending.pop() {
+            if old.len() != new.len() {
+                return true;
+            }
+            for (old, new) in old.iter().zip(new) {
+                match (old, new) {
+                    (Block::Parsed(old), Block::Parsed(new))
+                        if old.range == new.range
+                            && old.mark.as_ref().map(|mark| &mark.marker)
+                                == new.mark.as_ref().map(|mark| &mark.marker) =>
+                    {
+                        pending.push((&old.children, &new.children));
+                    }
+                    (Block::Verbatim(old), Block::Verbatim(new)) if old.range == new.range => {}
+                    _ => return true,
+                }
+            }
+        }
+        false
+    })
+}
+
 #[derive(Clone)]
 pub(crate) struct FoldLabel {
     text: String,
@@ -498,6 +555,105 @@ mod tests {
     use super::{
         green_ranges, include_one_trailing_blank_line, is_heading_marker, ranges, single_line_label,
     };
+
+    #[test]
+    #[ignore = "manual structural invalidation versus folding projection profile"]
+    fn profile_folding_invalidation() {
+        let source = "`note See `->{foo.plumb}\n `child Body\n\n".repeat(2000);
+        let old = plumb_syntax::GreenDocument::parse(&source);
+        let changed = source.replacen("foo.plumb", "bar.plumb", 1);
+        let new = old.reparse(&changed).document;
+        for project in [false, true] {
+            let started = std::time::Instant::now();
+            for _ in 0..100 {
+                if project {
+                    std::hint::black_box(green_ranges(&changed, &new, None, None, true));
+                } else {
+                    assert!(!std::hint::black_box(super::structural_inputs_changed(
+                        &old, &new
+                    )));
+                }
+            }
+            eprintln!(
+                "folding project={project}, 2000 owners: {:?}/call",
+                started.elapsed() / 100
+            );
+        }
+        let mut metadata = String::new();
+        for index in 0..2000 {
+            metadata.push_str(&format!("`= field-{index} metadata scalar value\n"));
+        }
+        metadata.push_str("\nSee `->{foo.plumb}\n");
+        let mut old_workspace = plumb_workspace::Workspace::new();
+        let mut new_workspace = plumb_workspace::Workspace::new();
+        let old = old_workspace
+            .open_document("metadata.plumb", 1, &metadata)
+            .current
+            .as_ref()
+            .unwrap();
+        let new = new_workspace
+            .open_document(
+                "metadata.plumb",
+                2,
+                metadata.replace("foo.plumb", "bar.plumb"),
+            )
+            .current
+            .as_ref()
+            .unwrap();
+        for labels in [false, true] {
+            let started = std::time::Instant::now();
+            for _ in 0..100 {
+                assert!(!std::hint::black_box(
+                    labels && old.output.metadata() != new.output.metadata()
+                ));
+            }
+            eprintln!(
+                "metadata comparison labels={labels}, 2000 entries: {:?}/call",
+                started.elapsed() / 100
+            );
+        }
+    }
+
+    #[test]
+    fn unchanged_structural_inputs_preserve_folding_projection() {
+        for source in [
+            "`note First\r\n\r\n`note Second\r\n",
+            "`# Heading\n\n`note Body\n `child Child\n\n`# Next\n",
+            "`rust\"\n code\n \n\n`rust\"\n tail\n",
+            "`note See `->{target.plumb}\n `child Body\n",
+        ] {
+            let old = plumb_syntax::GreenDocument::parse(source);
+            for (offset, ch) in source.char_indices() {
+                for replacement in ["a", " ", "\r", "\n", "😀", ""] {
+                    let mut changed = source.to_owned();
+                    changed.replace_range(offset..offset + ch.len_utf8(), replacement);
+                    let fresh = plumb_syntax::GreenDocument::parse(&changed);
+                    if !fresh.is_valid() {
+                        continue;
+                    }
+                    let incremental = old.reparse(&changed).document;
+                    for current in [&fresh, &incremental] {
+                        if !super::structural_inputs_changed(&old, current) {
+                            for line_only in [true, false] {
+                                assert_eq!(
+                                    green_ranges(source, &old, None, None, line_only),
+                                    green_ranges(&changed, current, None, None, line_only),
+                                    "{changed}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let old = plumb_syntax::GreenDocument::parse("`note First\r\n\r\n`note Second\r\n");
+        let new = plumb_syntax::GreenDocument::parse("`note First \n\r\n`note Second\r\n");
+        assert!(super::structural_inputs_changed(&old, &new));
+        assert_ne!(
+            green_ranges(old.source(), &old, None, None, true),
+            green_ranges(new.source(), &new, None, None, true)
+        );
+    }
 
     #[test]
     #[ignore = "manual folding stage profile; run with --release --ignored --nocapture"]

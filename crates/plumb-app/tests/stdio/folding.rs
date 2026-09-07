@@ -516,7 +516,7 @@ fn refreshes_folding_after_index_only_for_declared_clients() {
 }
 
 #[test]
-fn waits_for_semantic_equal_fold_labels_without_a_recovery_refresh() {
+fn waits_for_current_fold_labels_and_refreshes_changed_non_exported_metadata() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("2026-09-05.plumb");
@@ -582,6 +582,17 @@ fn waits_for_semantic_equal_fold_labels_without_a_recovery_refresh() {
         pending_event["collapsedText"],
         "`- 2026-09-05T14:30--15:15 Event"
     );
+    assert!(pending["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|range| { range["collapsedText"] == "created  2026-09-05T16:25:29+08:00" }));
+    let changed_refresh = session.wait_for(|message| {
+        message["method"] == "workspace/foldingRange/refresh"
+            && message["id"] != initial_refresh["id"]
+            && message["id"] != open_refresh["id"]
+    });
+    session.send(&json!({"jsonrpc":"2.0","id":changed_refresh["id"],"result":null}));
 
     session.send(&json!({ "jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null }));
     session.wait_for_response(&json!(4));
@@ -592,7 +603,7 @@ fn waits_for_semantic_equal_fold_labels_without_a_recovery_refresh() {
             .iter()
             .filter(|message| message["method"] == "workspace/foldingRange/refresh")
             .count(),
-        2
+        3
     );
     std::fs::remove_dir_all(root).unwrap();
 }

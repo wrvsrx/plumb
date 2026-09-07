@@ -43,4 +43,9 @@
  更新，保留owner range、id/type membership、prev/depends source/target/ranges。Anchor现只比较id/kind和有效lens
  位置，保留数量/顺序及duplicate-id解析；Link保留resolution/containment/location/component去重输入，忽略editing
  spelling等元数据。锚定block尾正文增长和等宽单参数Link spelling转换已用完整CodeLens projection与wire验证。
- CodeLens独立引用输入及geometry边界已完成；Folding依赖边界仍待细化，不能复用CodeLens的reference-input gate。
+ CodeLens独立引用输入及geometry边界已完成。Folding现独立比较green structure/position与label inputs，修复
+ exported-summary相等但generic结构或metadata labels改变时漏refresh；syntax-only已展示中间revision及invalid→valid
+ 同样恢复。source shape区分CR/LF/其它whitespace并保留UTF-16 geometry，相同shards跳过；label clients保守消费
+ Anchor/Task/Event完整变化，metadata比较只在协商refresh且需要labels时执行。无workspace-wide folding重算，
+ 不承诺精确免除同最终label的Task/Event/metadata变化。完整Fold Vec、wire正反例、跨文件workflow及恢复路径已验证；
+ 2,000 owners局部structure检查约5–7 us，2,000 metadata的workspace install仍约7.3 us，label客户端metadata比较约153 us。
