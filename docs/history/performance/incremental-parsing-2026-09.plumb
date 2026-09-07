@@ -95,3 +95,36 @@ identity拒绝。green event revision自身为 4.43 ms；旧 EventOutput eager m
 这些结果仍不是完整 red-view architecture。headings、metadata、tables、association与 resource records保留现有
 reducers；compatibility ParsedDocument 仍在主线程构造。后续任务分别迁移 syntax consumers与剩余 semantic
 reducers，并用 exported-summary equality缩小 workspace invalidation。
+
+`# Subsequent optimization checkpoint
+
+本节记录截至 commit `"3c51835" 的后续测量，不覆盖前面各阶段的历史边界。当前实现已删除 workspace 的
+absolute ParsedDocument cache；现行 contract 见 `->{{semantic analysis} ../../architecture/semantic-analysis.plumb}。
+本机当前环境为 Intel Core i9-9980XE、Linux 6.18.49、rustc 1.97.1；以下均为 release profile。
+历史对照并非全部在同一 kernel 下测量，不作为跨环境保证。
+
+Criterion 项使用 1 s warmup、约 5 s measurement、10 samples。完整响应 profile 使用 5 次 warmup、20 次
+samples；task-target profile 使用 2 次 warmup、10 次 samples，cold batch 只有单次观察。
+
+`- `"export_task_event_lookup_2000"：2,000 task 与 2,000 event 完整导出，旧线性 owned 查询约 2.1085 s，
+ borrowed exact-start 查询约 95.1 ms。测量包含 parse、semantics、Pandoc JSON construction 和结果销毁。
+`- `"export_table_lookup_1000"：1,000 tables 完整导出，171.6 ms 降至 53.7 ms，先定位再投影命中 records。
+`- `"export_list_groups_2000"：2,000 个由 paragraph 分开的 list groups，304.4 ms 降至 31.1 ms。
+`- `"open_event_title_candidates"：33,512 events，query 为 `"Event 12"，16.98 ms 降至 1.34 ms。
+`- `"profile_semantic_token_response"：2,000 closed tasks、6,000 tokens、64,000 JSON bytes；旧位置转换
+ 943.21 ms，共享 line index 后 0.870 ms。包含 token range generation、UTF-16 encoding 和 JSON serialization，
+ 不包含 document analysis、transport 或 Neovim rendering。
+`- `"profile_document_symbol_response"：2,000 heading/task pairs 从 7.67 ms 降至 4.28 ms；4,000 pairs 从
+ 24.0 ms 降至 8.32 ms。包含 symbol projection、树构造和 JSON serialization，不包含 analysis 或 client rendering。
+`- `"incremental_revision_pipeline"：33,512-record fixture 曾从历史 4.13 ms 回退至 13.07 ms。分阶段测得
+ 首次 incremental analysis 约 2.82 ms、安装约 8.29 ms；shared segment equality 将 summary comparison 从
+ 2.48 ms 降至 0.191 ms，graph-input 比较复用同一路径后完整 pipeline 为 4.56 ms。安装回退大部分已消除，
+ 不能宣称严格恢复历史值；不同子基准缓存状态不同，不直接相减归因。
+`- `"profile_cycle_membership_batch"：2,000-node chain，全节点逐次 DFS 为 297.25 ms，SCC 构建加全部成员
+ 查询为 0.555 ms。仅测 cycle membership，不含 graph construction、target resolution 或完整 diagnostics。
+`- `"profile_open_task_target_resolution"：1,000/2,000 targets 的旧查询约 10.54/50.26 ms，anchor id 索引后
+ warm 约 0.93/1.45 ms；首次整批查询含 index construction 观察到 1.73/2.16 ms。cold 数字不是中位数。
+
+新增基准位于 `"crates/plumb-workspace/benches/semantic_store.rs"；manual profiles 位于 LSP/workspace unit tests，
+使用 `"cargo test --release" 配合指定 test name 和 `"-- --ignored --nocapture" 运行。所有 profile 保留结果或
+record-count 校验，普通 CI 不以 wall-clock 阈值判定正确性。
