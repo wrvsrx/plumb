@@ -971,6 +971,21 @@
 
 `# Workspace performance and maintenance
 
+`- Finish semantic reducer deltas and equality invalidation
+ `+ task
+
+ `@ green-semantic-reducers
+
+ `= created 2026-09-05T03:24:13+08:00
+ `= done 2026-09-07T19:55:49+08:00
+
+ `note Tree-based DocumentOutput以relative semantic shards和borrowed typed views为权威；稳定record/diagnostic/heading/list topology共享并重新绑定current revision。local-summary short-circuit保留metadata context、source geometry与global reducer约束。
+ `note 按需record delta保留source order、duplicate records及old/new snapshot identity；workspace按typed changed ids缩小diagnostics publication，invalid/valid、pending和context缺失保守恢复。
+ `note CodeLens按引用/解析/去重输入与source positions失效；Folding按structure/geometry及label/workflow输入独立失效，不依赖exported-summary相等或client自动重查。pending、syntax-only中间revision和invalid→valid恢复已验证；Folding仍保守比较完整Anchor/Task/Event及metadata输入，允许同最终label的变化刷新，不承诺精确最小化所有refresh。
+ `note fresh/incremental differential覆盖UTF-8/CRLF、metadata context、heading/list/definition boundaries、duplicate ids、nested Task/Event/Table、containment和range shift；definition删除及adjacency分裂/合并的等宽反例证明local facts相等也不会误复用global reducer。完整CodeLens/Fold Vec及wire正反例、默认/feature tests、workspace all-targets与warning gates通过。
+ `note opt-in production profiling复用同一analyzer，分别测syntax、metadata/context、local/reuse bookkeeping、document reduction、指定owned absolute projection、workspace install及真实root/tree/syntax销毁。normal/profile完整pipeline成对对照，生命周期探针不进入timing；保留旧revision释放新root与最后版本teardown分开报告，不把后者当每次按键成本。
+ `note 验收依据：`->{{semantic analysis contract} ../architecture/semantic-analysis.plumb}、`->{{benchmark methodology} performance-benchmarks.plumb}和`->{{performance measurements} ../history/performance/incremental-parsing-2026-09.plumb}。历史数值及适用环境以测量记录为准；本条完成不排除未来新的优化任务。
+
 `- 评估 notes interactive mode 的旧 dependency generations
  `+ task
 
