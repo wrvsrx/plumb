@@ -5,7 +5,7 @@ use chrono::{DateTime, FixedOffset, Local};
 use lsp_types::FoldingRange;
 #[cfg(test)]
 use plumb_semantics::analyze_recovered_headings;
-use plumb_semantics::{EventRecord, MetadataValue, TaskRecord, TaskState};
+use plumb_semantics::{EventRecordView, MetadataValue, TaskRecord, TaskState};
 #[cfg(test)]
 use plumb_syntax::Document;
 use plumb_syntax::{Block, GreenDocument};
@@ -184,19 +184,20 @@ pub(crate) fn event_labels(entry: &DocumentEntry) -> HashMap<(usize, usize), Fol
         .output
         .events()
         .events
-        .iter()
+        .views()
         .filter_map(|event| {
-            let time = event_time_label(&event)?;
+            let time = event_time_label(event)?;
+            let range = event.range();
             let source = entry.parsed.source();
-            let indent = line_indent(source, event.range.start);
-            let marker = &source[event.range.start + 1..event.range.start + 2];
-            let title = if event.title.is_empty() {
+            let indent = line_indent(source, range.start);
+            let marker = &source[range.start + 1..range.start + 2];
+            let title = if event.title().is_empty() {
                 "Untitled event"
             } else {
-                &event.title
+                event.title()
             };
             Some((
-                (event.range.start, event.range.end),
+                (range.start, range.end),
                 FoldLabel {
                     text: format!("{indent}`{marker} {time} {title}"),
                 },
@@ -214,7 +215,7 @@ const SECONDS_PER_DAY: i64 = 24 * 60 * 60;
 /// `start` (the cutoff beyond which a bare end time would point to the wrong
 /// day) and expands to the full datetime once it spans further; a `start`-only
 /// event renders `start-running`. Events without a usable time yield `None`.
-fn event_time_label(event: &EventRecord) -> Option<String> {
+fn event_time_label(event: EventRecordView<'_>) -> Option<String> {
     if let Some(at) = event.at_datetime() {
         return Some(format_datetime(&at));
     }
@@ -337,13 +338,12 @@ fn finish_ranges(
     let mut ranges = byte_ranges
         .into_iter()
         .filter_map(|(range, label_range, include_trailing_blank)| {
-            let label =
-                labels.and_then(|table| table.get(&(label_range.start, label_range.end)).cloned());
+            let label = labels.and_then(|table| table.get(&(label_range.start, label_range.end)));
             line_range(
                 source,
                 &positions,
                 &range,
-                label.as_ref(),
+                label,
                 include_trailing_blank,
                 line_folding_only,
             )
@@ -497,6 +497,156 @@ mod tests {
     use super::{
         green_ranges, include_one_trailing_blank_line, is_heading_marker, ranges, single_line_label,
     };
+
+    #[test]
+    #[ignore = "manual folding stage profile; run with --release --ignored --nocapture"]
+    fn profile_metadata_folding_stages() {
+        use std::{hint::black_box, time::Instant};
+
+        let path = std::path::Path::new("/tmp/plumb-decoration-profile.plumb");
+        let mut source = "`= date 2026-09-05\n`= timezone +08:00\n\n".to_owned();
+        for index in 0..2000 {
+            source.push_str(&format!("`- 14:30--15:15 Event {index}\n `+ event\n\n"));
+        }
+        source.push_str("`- Completed\n `+ task\n `= done 2026-09-05T00:00:00Z\n");
+        let mut workspace = plumb_workspace::Workspace::new();
+        workspace.open_document(path, 1, source.clone());
+        let mut samples = [const { Vec::new() }; 6];
+        for iteration in 0..55 {
+            let date = if iteration % 2 == 0 {
+                "2026-09-06"
+            } else {
+                "2026-09-05"
+            };
+            let changed = source.replacen("2026-09-05", date, 1);
+            let start = Instant::now();
+            let pending = workspace
+                .begin_document_revision_with_change(
+                    path,
+                    iteration + 2,
+                    changed,
+                    Some(plumb_syntax::SourceChange {
+                        old_range: 8..18,
+                        new_range: 8..18,
+                    }),
+                )
+                .unwrap();
+            let parse = start.elapsed();
+            let start = Instant::now();
+            let analysis = pending.analyze();
+            let semantics = start.elapsed();
+            let start = Instant::now();
+            assert!(workspace.install_document_analysis(analysis));
+            let install = start.elapsed();
+            let entry = workspace.get(path).unwrap();
+            let start = Instant::now();
+            let labels = super::collapsed_text_labels(&workspace, path, entry, true);
+            let label_time = start.elapsed();
+            let start = Instant::now();
+            let folds = green_ranges(
+                entry.parsed.source(),
+                entry.parsed.green(),
+                None,
+                Some(&labels),
+                true,
+            );
+            let bytes = serde_json::to_vec(&folds).unwrap();
+            let projection = start.elapsed();
+            let start = Instant::now();
+            let context = workspace.diagnostic_context().unwrap();
+            let diagnostics = workspace.diagnostics_with_context(path, &context).unwrap();
+            let diagnostic_time = start.elapsed();
+            assert!(diagnostics.value.is_empty());
+            let expected = format!("`- {date}T14:30--15:15 Event ");
+            assert_eq!(
+                folds
+                    .iter()
+                    .filter(|fold| fold
+                        .collapsed_text
+                        .as_ref()
+                        .is_some_and(|label| label.starts_with(&expected)))
+                    .count(),
+                2000
+            );
+            black_box(bytes);
+            if iteration >= 5 {
+                for (samples, elapsed) in samples.iter_mut().zip([
+                    parse,
+                    semantics,
+                    install,
+                    label_time,
+                    projection,
+                    diagnostic_time,
+                ]) {
+                    samples.push(elapsed);
+                }
+            }
+        }
+        for (name, samples) in [
+            "parse",
+            "semantics",
+            "install",
+            "labels",
+            "ranges+json",
+            "diagnostics",
+        ]
+        .into_iter()
+        .zip(&mut samples)
+        {
+            samples.sort();
+            eprintln!(
+                "metadata folding stage {name}: events=2000 warmup=5 samples=50 p50={:?} p95={:?}",
+                samples[24], samples[47]
+            );
+        }
+    }
+
+    #[test]
+    fn borrowed_event_labels_project_current_ranges_after_prefix_insertion() {
+        let source = "`= date 2026-09-05\r\n`= timezone +08:00\r\n\r\n`- 14:30 Point\r\n `+ event\r\n\r\n `- 23:30--00:30 Nested\r\n  `+ event\r\n\r\n`. 14:30--2026-09-07T15:30 Long\r\n `+ event\r\n\r\n`- invalid Invalid\r\n `+ event\r\n";
+        let path = std::path::Path::new("events.plumb");
+        let mut workspace = plumb_workspace::Workspace::new();
+        workspace.insert(path, 1, source);
+        let prefix = "Prelude \u{1f600}\r\n\r\n";
+        let changed = format!("{prefix}{source}");
+        let analysis = workspace
+            .begin_document_revision_with_change(
+                path,
+                2,
+                changed.clone(),
+                Some(plumb_syntax::SourceChange {
+                    old_range: 0..0,
+                    new_range: 0..prefix.len(),
+                }),
+            )
+            .unwrap()
+            .analyze();
+        assert!(workspace.install_document_analysis(analysis));
+        let entry = workspace.get(path).unwrap();
+        let events = &entry.current.as_ref().unwrap().output.events().events;
+        let labels = super::event_labels(entry);
+        let expected = [
+            Some("`- 2026-09-05T14:30 Point"),
+            Some(" `- 2026-09-05T23:30--00:30 Nested"),
+            Some("`. 2026-09-05T14:30--2026-09-07T15:30 Long"),
+            None,
+        ];
+        assert_eq!(events.len(), expected.len());
+        assert_eq!(labels.len(), 3);
+        for ((view, owned), expected) in events.views().zip(events.iter()).zip(expected) {
+            assert_eq!(view.at_datetime(), owned.at_datetime());
+            assert_eq!(view.start_datetime(), owned.start_datetime());
+            assert_eq!(view.end_datetime(), owned.end_datetime());
+            assert_eq!(view.range(), owned.range);
+            assert!(changed[owned.range.clone()].starts_with('`'));
+            assert_eq!(
+                labels
+                    .get(&(owned.range.start, owned.range.end))
+                    .map(|label| label.text.as_str()),
+                expected,
+            );
+        }
+    }
 
     #[test]
     fn normalizes_and_truncates_fold_labels_on_character_boundaries() {

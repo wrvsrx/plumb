@@ -99,6 +99,18 @@ pub type EventRecords = SemanticRecords<EventRecord>;
 pub type EventRecordView<'a> = SemanticRecordView<'a, EventRecord>;
 
 impl<'a> EventRecordView<'a> {
+    pub fn at_datetime(self) -> Option<DateTime<FixedOffset>> {
+        self.record.at_datetime()
+    }
+
+    pub fn start_datetime(self) -> Option<DateTime<FixedOffset>> {
+        self.record.start_datetime()
+    }
+
+    pub fn end_datetime(self) -> Option<DateTime<FixedOffset>> {
+        self.record.end_datetime()
+    }
+
     pub fn start_value(self) -> Option<&'a str> {
         self.record.start.as_ref().map(|start| start.value.as_str())
     }
