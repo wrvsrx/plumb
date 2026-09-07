@@ -1,3 +1,4 @@
+mod admission;
 pub mod cache_cli;
 mod folding;
 pub mod format_cli;
@@ -8,6 +9,7 @@ mod semantic_tokens;
 mod server;
 mod symbols;
 
+use admission::{NonblockingAdmission, MAX_IN_FLIGHT_REQUESTS};
 use async_lsp::client_monitor::ClientProcessMonitorLayer;
 use async_lsp::concurrency::ConcurrencyLayer;
 use async_lsp::panic::CatchUnwindLayer;
@@ -31,7 +33,10 @@ pub async fn run_lsp() {
             .layer(TracingLayer::default())
             .layer(LifecycleLayer::default())
             .layer(CatchUnwindLayer::default())
-            .layer(ConcurrencyLayer::default())
+            .layer(tower::layer::layer_fn(NonblockingAdmission::new))
+            .layer(ConcurrencyLayer::new(
+                std::num::NonZeroUsize::new(MAX_IN_FLIGHT_REQUESTS).unwrap(),
+            ))
             .layer(ClientProcessMonitorLayer::new(client.clone()))
             .service(router)
     });

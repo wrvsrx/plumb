@@ -232,6 +232,12 @@ analysis 或阻塞 server event loop。new didChange、close/reopen、rename 或
 必须唤醒等待者；stale result 不唤醒较新 revision，所有终结路径释放等待资源。request 等待期间 formatting、recovered
 completion、其它 document requests 与 notifications 继续处理。
 
+请求准入不得让主循环等待并发额度：等待语义结果的请求可能依赖同一主循环安装 worker completion，
+因此阻塞准入会使完成事件与 cancellation 都无法处理。最多接受 256 个在途请求，
+该上限不随 CPU 数量变化；额度耗尽时新请求立即返回 `"RequestFailed"（-32803）与明确的 busy/retry 消息，
+不得返回成功空值、无限排队或阻塞事件循环。已有请求保留原 revision-bound 结果；完成、取消或丢弃请求后
+释放额度，后续请求可以正常进入。notifications 与内部事件不占请求额度，饱和时仍按原顺序处理。
+
 当前 generation 的 worker 异常终止必须结束等待并返回 protocol internal error，不作为 source diagnostic；同一失败
 revision 的后续请求也立即失败，直到新的 revision 或显式 navigation 成功重建 semantics，不能等待已不存在的 worker。
 
