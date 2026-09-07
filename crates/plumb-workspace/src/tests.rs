@@ -2794,6 +2794,68 @@ fn record_delta_limits_dependent_diagnostics_but_preserves_recovery_and_revision
 }
 
 #[test]
+fn anchor_and_link_reference_impact_ignores_navigation_extent_and_editing_spelling() {
+    for (old, new, expected) in [
+        (
+            "`# Title\n `@ main\n\n Body\n",
+            "`# Title\n `@ main\n\n Longer body\n",
+            false,
+        ),
+        (
+            "`# Title\n `@ main\n\n`# Next\n `@ next\n",
+            "`# Longer title\n `@ main\n\n`# Next\n `@ next\n",
+            true,
+        ),
+        (
+            "See `->{target.plumb#task}\n",
+            "See `->\"target.plumb#task\"\n",
+            false,
+        ),
+        (
+            "See `->{target.plumb#task}\n",
+            "See `->{target.plumb#else}\n",
+            true,
+        ),
+        ("`# Title\n `@ main\n", "`# Title\n `@ else\n", true),
+        (
+            "`# Title\n `@ main\n",
+            "`# Title\n `@ main\n\n`node\n `@ main\n",
+            true,
+        ),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("target.plumb", 1, "`- Task\n `+ task\n `@ task\n");
+        workspace.open_document("source.plumb", 1, old);
+        workspace.open_document("ref.plumb", 1, "See `->{source.plumb#main}\n");
+        let ids = HashSet::from(["task".to_owned(), "main".to_owned()]);
+        let before = ["source.plumb", "target.plumb"].map(|path| {
+            workspace
+                .reverse_references_for_document(path, &ids)
+                .unwrap()
+                .value
+        });
+        let analysis = workspace
+            .begin_document_revision("source.plumb", 2, new)
+            .unwrap()
+            .analyze();
+        let impact = workspace
+            .install_document_analysis_with_impact(analysis)
+            .unwrap();
+        assert_eq!(impact.exported, ExportedSemanticChange::Changed);
+        assert_eq!(impact.reference_inputs_changed, expected, "{new}");
+        if !expected {
+            let after = ["source.plumb", "target.plumb"].map(|path| {
+                workspace
+                    .reverse_references_for_document(path, &ids)
+                    .unwrap()
+                    .value
+            });
+            assert_eq!(before, after, "{new}");
+        }
+    }
+}
+
+#[test]
 fn task_reference_impact_ignores_workflow_but_preserves_identity_and_outgoing_references() {
     let old = "`- Main\n `+ task\n `@ main\n `= created 2026-09-07T10:00:00Z\n `= due 2026-09-08T10:00:00Z\n `= wait 2099-01-01T00:00:00Z\n `= priority 1\n `= prev target.plumb#task\n `= depends target.plumb#task\n";
     for (new, expected) in [

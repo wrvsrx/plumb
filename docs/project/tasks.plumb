@@ -40,5 +40,7 @@
  哪些exported facts及source position变化实际需要CodeLens/Folding refresh。CodeLens已独立检查source geometry，
  并跳过不改变引用输入及位置的document title/Event presentation更新；event range、tasks override与显式引用
  继续参与判定，pending恢复需求不受该筛选影响。Task现同样跳过引用输入与位置未变的title/state/time/priority
- 更新，保留owner range、id/type membership、prev/depends source/target/ranges；duplicate anchors仍由完整Anchor
- 比较保护。Anchor/Link仍保守比较完整records；Folding依赖边界仍待细化，不能复用CodeLens的reference-input gate。
+ 更新，保留owner range、id/type membership、prev/depends source/target/ranges。Anchor现只比较id/kind和有效lens
+ 位置，保留数量/顺序及duplicate-id解析；Link保留resolution/containment/location/component去重输入，忽略editing
+ spelling等元数据。锚定block尾正文增长和等宽单参数Link spelling转换已用完整CodeLens projection与wire验证。
+ CodeLens独立引用输入及geometry边界已完成；Folding依赖边界仍待细化，不能复用CodeLens的reference-input gate。

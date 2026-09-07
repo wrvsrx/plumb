@@ -2906,6 +2906,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn code_lens_projection_ignores_anchor_extent_and_link_editing_spelling() {
+        for (old, new, equal) in [
+            (
+                "`# Title\n `@ main\n\n Body\n",
+                "`# Title\n `@ main\n\n Longer body\n",
+                true,
+            ),
+            (
+                "See `->{target.plumb#task}\n",
+                "See `->\"target.plumb#task\"\n",
+                true,
+            ),
+            (
+                "`# Title\n `@ main\n\n`# Next\n `@ next\n",
+                "`# Title\n `@ main\n\n Body\n\n`# Next\n `@ next\n",
+                false,
+            ),
+            (
+                "See `->{target.plumb#task}\n",
+                "See `->{target.plumb#else}\n",
+                false,
+            ),
+        ] {
+            let (_main, client) =
+                async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+            let mut state = ServerState::new(client);
+            state.index_complete = true;
+            let root = Path::new("/tmp/plumb-reference-projection");
+            let source = root.join("source.plumb");
+            state.workspace.open_document(
+                root.join("target.plumb"),
+                1,
+                "`- Task\n `+ task\n `@ task\n",
+            );
+            state.workspace.open_document(
+                root.join("ref.plumb"),
+                1,
+                "See `->{source.plumb#main}\n",
+            );
+            state.workspace.open_document(&source, 1, old);
+            let project = |state: &mut ServerState| {
+                ["source.plumb", "target.plumb"].map(|path| {
+                    let params: CodeLensParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(root.join(path)).unwrap()}})).unwrap();
+                    futures::FutureExt::now_or_never(state.code_lens(params)).unwrap().unwrap().unwrap()
+                })
+            };
+            let before = project(&mut state);
+            let analysis = state
+                .workspace
+                .begin_document_revision(&source, 2, new)
+                .unwrap()
+                .analyze();
+            let impact = state
+                .workspace
+                .install_document_analysis_with_impact(analysis)
+                .unwrap();
+            assert_eq!(impact.reference_inputs_changed, !equal);
+            let after = project(&mut state);
+            // Include all command arguments and UTF-16 locations, not only displayed counts.
+            assert_eq!(before == after, equal, "{new}");
+        }
+    }
+
+    #[test]
     fn semantic_equal_revisions_can_change_code_lens_reference_positions() {
         let (_main, client) =
             async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));

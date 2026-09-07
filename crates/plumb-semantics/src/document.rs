@@ -76,6 +76,17 @@ impl RelativeSemanticRecord for AnchorRecord {
 }
 
 impl<'a> crate::SemanticRecordView<'a, AnchorRecord> {
+    /// Reference identity and declaration lens position; navigation spans may differ.
+    pub fn reference_inputs_equal(self, other: Self) -> bool {
+        self.id_value() == other.id_value()
+            && self.kind() == other.kind()
+            && if self.kind() == AnchorKind::Inline {
+                self.id_range() == other.id_range()
+            } else {
+                self.owner_range().start == other.owner_range().start
+            }
+    }
+
     pub fn kind(self) -> AnchorKind {
         self.record.kind
     }
@@ -135,6 +146,35 @@ pub struct LinkRecord {
 pub type LinkRecordView<'a> = crate::SemanticRecordView<'a, LinkRecord>;
 
 impl<'a> LinkRecordView<'a> {
+    /// Resolution, containment, locations and deduplication, excluding editing-only spelling.
+    pub fn reference_inputs_equal(self, other: Self) -> bool {
+        self.range() == other.range()
+            && self.selection_range() == other.selection_range()
+            && self.target_value() == other.target_value()
+            && self.target_kind() == other.target_kind()
+            && self.target_source_range() == other.target_source_range()
+            && self
+                .record
+                .path_range
+                .as_ref()
+                .map(|range| shifted_range(range, self.offset))
+                == other
+                    .record
+                    .path_range
+                    .as_ref()
+                    .map(|range| shifted_range(range, other.offset))
+            && self
+                .record
+                .fragment_range
+                .as_ref()
+                .map(|range| shifted_range(range, self.offset))
+                == other
+                    .record
+                    .fragment_range
+                    .as_ref()
+                    .map(|range| shifted_range(range, other.offset))
+    }
+
     pub fn selection_range(self) -> Range<usize> {
         shifted_range(&self.record.selection_range, self.offset)
     }

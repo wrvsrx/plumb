@@ -114,6 +114,8 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
     let event = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
     let task = "`- Task\n `+ task\n `@ target\n `= wait 2099-01-01T00:00:00Z\n";
     let canceled = "`- Task\n `+ task\n `@ target\n `= canceled 2026-09-07T00:00:00Z\n";
+    let anchor = "`# Title\n `@ target\n\n Body\n";
+    let link = "See `->{other.plumb#target}\n";
     for (initial, changed, dependent_publications, code_lens_refreshes) in [
         (event, event.replace("Old", "New"), 0, 0),
         (event, event.replace("10:00", "11:00"), 0, 0),
@@ -124,6 +126,10 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
         (task, task.replace("Task", "Next"), 1, 0),
         (canceled, canceled.replace("09-07", "09-08"), 1, 0),
         (task, task.replace("`+ task", "`+ nope"), 1, 1),
+        (anchor, anchor.replace("Body", "Longer body"), 1, 0),
+        (anchor, anchor.replace("target", "elsexx"), 1, 1),
+        (link, "See `->\"other.plumb#target\"\n".to_owned(), 0, 0),
+        (link, link.replace("target", "elsexx"), 0, 1),
     ] {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();

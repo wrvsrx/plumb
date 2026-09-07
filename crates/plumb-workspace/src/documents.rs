@@ -216,8 +216,20 @@ impl Workspace {
                 } else {
                     ExportedSemanticChange::Changed
                 };
-                let reference_inputs_changed = kinds.anchors
-                    || kinds.links
+                let reference_inputs_changed = (kinds.anchors
+                    && (previous.anchors().len() != analysis.output.anchors().len()
+                        || !previous
+                            .anchors()
+                            .views()
+                            .zip(analysis.output.anchors().views())
+                            .all(|(old, new)| old.reference_inputs_equal(new))))
+                    || (kinds.links
+                        && (previous.links().len() != analysis.output.links().len()
+                            || !previous
+                                .links()
+                                .views()
+                                .zip(analysis.output.links().views())
+                                .all(|(old, new)| old.reference_inputs_equal(new))))
                     || (kinds.tasks
                         && (previous.tasks().tasks.len() != analysis.output.tasks().tasks.len()
                             || !previous
