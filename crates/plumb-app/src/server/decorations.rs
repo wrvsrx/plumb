@@ -72,6 +72,15 @@ impl ServerState {
         }) else {
             return;
         };
+        if pending.fold_labels
+            && self.supports_folding_range_refresh
+            && self
+                .workspace
+                .documents()
+                .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+        {
+            self.folding_refresh_pending = true;
+        }
         let labels = pending.fold_labels.then(|| {
             collapsed_text_labels(&self.workspace, &entry.path, entry, self.index_complete)
         });

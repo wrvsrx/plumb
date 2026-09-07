@@ -233,6 +233,11 @@ Task fold completeness 已实现：initial index complete 不代表 workspace qu
 为 partial 时，必须回到上述 locally determined state 规则；pending 目标暂时缺失不能被当成 ready。
 closed/future-wait/no-dependency states、已知 open blocker 和全部已解析 closed dependencies 仍可提供 label。
 
+Folding pending recovery 已实现：需要collapsedText且支持refresh的client，在直接生成labels或完成本文件
+semantic waiting后，若其它有效document仍pending，记录一次恢复需求。label客户端的pending期常规refresh合并，
+initial index与有效analyses完成后发送一次refresh，不受exported summary相等限制。查询本身不等待其它documents；
+syntax-only client的查询与常规refresh不因此延迟。unsupported client不接收未知请求，继续保留保守结果直到自身重查。
+
 CodeLens pending recovery 已实现：请求因本文件或其它文件的有效 semantic analysis pending 而返回
 `"null" 时，为支持 CodeLens refresh 的 client 记录一次恢复需求。pending 期间的多个需求及正常 refresh
 合并，不发送已知仍只能得到 partial result 的重查请求。initial index complete 且所有有效 pending analyses
@@ -266,7 +271,7 @@ LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；�
 
 valid open-document revision进入background analysis时，adapter只发布该document的current syntax diagnostics，不提前
 重算其它open documents或发送workspace CodeLens/Folding refresh。常规refresh由安装结果的exported summary变化触发，
-CodeLens暂时不可用的恢复请求不受summary相等限制；diagnostics publication scope 按下文的 record delta 规则决定。summary相等时只发布edited document的current diagnostics，并完成该 revision 的等待
+CodeLens/Folding的pending恢复请求不受summary相等限制；diagnostics publication scope 按下文的 record delta 规则决定。summary相等时只发布edited document的current diagnostics，并完成该 revision 的等待
 请求。invalid revision与
 invalid/valid transition继续走workspace-changed路径，不能借用last-valid summary抑制恢复通知。
 

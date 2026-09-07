@@ -99,6 +99,7 @@ pub(crate) struct ServerState {
     supports_code_lens_refresh: bool,
     code_lens_refresh_pending: bool,
     supports_folding_range_refresh: bool,
+    folding_refresh_pending: bool,
     folding_range_limit: Option<usize>,
     supports_folding_collapsed_text: bool,
     line_folding_only: bool,
@@ -187,6 +188,7 @@ impl ServerState {
             supports_code_lens_refresh: false,
             code_lens_refresh_pending: false,
             supports_folding_range_refresh: false,
+            folding_refresh_pending: false,
             folding_range_limit: None,
             supports_folding_collapsed_text: false,
             line_folding_only: false,
@@ -311,6 +313,9 @@ impl ServerState {
                 }
                 if self.code_lens_refresh_pending {
                     self.refresh_code_lenses();
+                }
+                if self.folding_refresh_pending {
+                    self.refresh_folding_ranges();
                 }
             }
         }
@@ -672,10 +677,24 @@ impl ServerState {
         });
     }
 
-    fn refresh_folding_ranges(&self) {
-        if !self.supports_folding_range_refresh || !self.index_complete {
+    fn refresh_folding_ranges(&mut self) {
+        if !self.supports_folding_range_refresh {
+            self.folding_refresh_pending = false;
             return;
         }
+        if !self.index_complete {
+            return;
+        }
+        if self.supports_folding_collapsed_text
+            && self
+                .workspace
+                .documents()
+                .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+        {
+            self.folding_refresh_pending = true;
+            return;
+        }
+        self.folding_refresh_pending = false;
         let client = self.client.clone();
         tokio::spawn(async move {
             let _ = client.request::<FoldingRangeRefresh>(()).await;
@@ -1433,6 +1452,7 @@ impl LanguageServer for ServerState {
         &mut self,
         params: FoldingRangeParams,
     ) -> BoxFuture<'static, Result<Option<Vec<FoldingRange>>, Self::Error>> {
+        let mut partial_labels = false;
         if let Ok(path) = params.text_document.uri.to_file_path() {
             if self.supports_folding_collapsed_text {
                 if let Some(pending) = self.await_document_semantics(&path, true) {
@@ -1459,6 +1479,12 @@ impl LanguageServer for ServerState {
                 return Ok(None);
             };
             let labels = if self.supports_folding_collapsed_text {
+                partial_labels = self.supports_folding_range_refresh
+                    && entry.current.is_some()
+                    && self
+                        .workspace
+                        .documents()
+                        .any(|entry| entry.parsed.is_valid() && entry.current.is_none());
                 Some(fold_labels(
                     &self.workspace,
                     &entry.path,
@@ -1477,6 +1503,9 @@ impl LanguageServer for ServerState {
             );
             Ok(Some(ranges))
         })();
+        if partial_labels {
+            self.folding_refresh_pending = true;
+        }
         Box::pin(async move { result })
     }
 
@@ -3151,6 +3180,216 @@ mod tests {
             &original,
             state.diagnostic_context.as_ref().unwrap()
         ));
+    }
+
+    #[tokio::test]
+    async fn folding_refresh_defers_labels_but_not_syntax_only_clients() {
+        use std::io::{BufRead, Read};
+        for labels in [true, false] {
+            struct Stop;
+            let (server, client) = async_lsp::MainLoop::new_server(|_| {
+                let mut router = async_lsp::router::Router::new(());
+                router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+                router
+            });
+            let mut state = ServerState::new(client.clone());
+            state.index_complete = true;
+            state.supports_folding_range_refresh = true;
+            state.supports_folding_collapsed_text = labels;
+            let path = PathBuf::from("/tmp/plumb-fold-refresh.plumb");
+            let source = "Old\n\n`note Parent\n `child Child\n";
+            state.workspace.open_document(&path, 1, source);
+            let (_, generation) = state.document_analysis_tokens.next(&path);
+            let pending = state
+                .workspace
+                .begin_document_revision(&path, 2, source.replace("Old", "New"))
+                .unwrap()
+                .analyze();
+            state.refresh_folding_ranges();
+            state.refresh_folding_ranges();
+            assert_eq!(state.folding_refresh_pending, labels);
+            if !labels {
+                let params = serde_json::from_value(
+                    serde_json::json!({"textDocument":{"uri":Url::from_file_path(&path).unwrap()}}),
+                )
+                .unwrap();
+                assert!(
+                    !futures::FutureExt::now_or_never(state.folding_range(params))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap()
+                        .is_empty()
+                );
+            }
+            let _ = state.finish_document_analysis(DocumentAnalysisResult {
+                path,
+                generation,
+                analysis: Ok(pending),
+            });
+            assert!(!state.folding_refresh_pending);
+            tokio::task::yield_now().await;
+            client.emit(Stop).unwrap();
+            let mut output = Vec::new();
+            server
+                .run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output)
+                .await
+                .unwrap();
+            let mut input = std::io::Cursor::new(output);
+            let mut refreshes = 0;
+            while input.position() < input.get_ref().len() as u64 {
+                let mut header = String::new();
+                input.read_line(&mut header).unwrap();
+                let length: usize = header
+                    .trim()
+                    .strip_prefix("Content-Length: ")
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let mut separator = [0; 2];
+                input.read_exact(&mut separator).unwrap();
+                let mut body = vec![0; length];
+                input.read_exact(&mut body).unwrap();
+                let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                refreshes += usize::from(message["method"] == "workspace/foldingRange/refresh");
+            }
+            assert_eq!(refreshes, if labels { 1 } else { 2 });
+        }
+    }
+
+    #[tokio::test]
+    async fn folding_labels_recover_after_cross_document_pending_for_both_response_paths() {
+        use std::io::{BufRead, Read};
+        for supported in [false, true] {
+            for own_pending in [false, true] {
+                for finish in ["worker", "navigation", "close"] {
+                    struct Stop;
+                    let (server, client) = async_lsp::MainLoop::new_server(|_| {
+                        let mut router = async_lsp::router::Router::new(());
+                        router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+                        router
+                    });
+                    let mut state = ServerState::new(client.clone());
+                    state.index_complete = true;
+                    state.supports_folding_collapsed_text = true;
+                    state.supports_folding_range_refresh = supported;
+                    let a = PathBuf::from("/tmp/plumb-fold-recovery/a.plumb");
+                    let b = PathBuf::from("/tmp/plumb-fold-recovery/b.plumb");
+                    let source_a = "`= created 2026-09-07T00:00:00Z\n\n`- A\n `+ task\n `= depends b.plumb#b\n";
+                    let source_b = "Old text\n\n`- B\n `+ task\n `@ b\n";
+                    for (path, source) in [(&a, source_a), (&b, source_b)] {
+                        state.workspace.open_document(path, 1, source);
+                        state
+                            .open_documents
+                            .insert(Url::from_file_path(path).unwrap(), path.clone());
+                    }
+                    let (_, generation_b) = state.document_analysis_tokens.next(&b);
+                    let pending_b = state
+                        .workspace
+                        .begin_document_revision(&b, 2, source_b.replace("Old", "New"))
+                        .unwrap()
+                        .analyze();
+                    let params: FoldingRangeParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(&a).unwrap()}})).unwrap();
+                    let ranges = if own_pending {
+                        let (_, generation) = state.document_analysis_tokens.next(&a);
+                        let pending_a = state
+                            .workspace
+                            .begin_document_revision(
+                                &a,
+                                2,
+                                source_a.replace("00:00:00", "00:00:01"),
+                            )
+                            .unwrap()
+                            .analyze();
+                        let mut request = state.folding_range(params.clone());
+                        assert!(futures::FutureExt::now_or_never(request.as_mut()).is_none());
+                        let _ = state.finish_document_analysis(DocumentAnalysisResult {
+                            path: a.clone(),
+                            generation,
+                            analysis: Ok(pending_a),
+                        });
+                        request.await.unwrap().unwrap()
+                    } else {
+                        futures::FutureExt::now_or_never(state.folding_range(params.clone()))
+                            .unwrap()
+                            .unwrap()
+                            .unwrap()
+                    };
+                    assert!(ranges
+                        .iter()
+                        .find(|range| range.start_line == 2)
+                        .unwrap()
+                        .collapsed_text
+                        .is_none());
+                    match finish {
+                        "worker" => {}
+                        "navigation" => {
+                            assert!(state.complete_pending_navigation_documents([b.clone()]));
+                        }
+                        "close" => {
+                            let _ = state.did_close(DidCloseTextDocumentParams {
+                                text_document: lsp_types::TextDocumentIdentifier {
+                                    uri: Url::from_file_path(&b).unwrap(),
+                                },
+                            });
+                        }
+                        _ => unreachable!(),
+                    }
+                    let _ = state.finish_document_analysis(DocumentAnalysisResult {
+                        path: b,
+                        generation: generation_b,
+                        analysis: Ok(pending_b),
+                    });
+                    let ranges = futures::FutureExt::now_or_never(state.folding_range(params))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(
+                        ranges
+                            .iter()
+                            .find(|range| range.start_line == 2)
+                            .unwrap()
+                            .collapsed_text
+                            .as_deref(),
+                        Some(if finish == "close" {
+                            "`- [ ]  A"
+                        } else {
+                            "`- [=]  A"
+                        })
+                    );
+                    tokio::task::yield_now().await;
+                    client.emit(Stop).unwrap();
+                    let mut output = Vec::new();
+                    server
+                        .run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output)
+                        .await
+                        .unwrap();
+                    let mut input = std::io::Cursor::new(output);
+                    let mut refreshes = 0;
+                    while input.position() < input.get_ref().len() as u64 {
+                        let mut header = String::new();
+                        input.read_line(&mut header).unwrap();
+                        let length: usize = header
+                            .trim()
+                            .strip_prefix("Content-Length: ")
+                            .unwrap()
+                            .parse()
+                            .unwrap();
+                        let mut separator = [0; 2];
+                        input.read_exact(&mut separator).unwrap();
+                        let mut body = vec![0; length];
+                        input.read_exact(&mut body).unwrap();
+                        let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                        refreshes +=
+                            usize::from(message["method"] == "workspace/foldingRange/refresh");
+                    }
+                    assert_eq!(
+                        refreshes,
+                        usize::from(supported),
+                        "own_pending={own_pending} finish={finish} supported={supported}"
+                    );
+                }
+            }
+        }
     }
 
     #[tokio::test]
