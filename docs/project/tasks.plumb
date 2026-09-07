@@ -49,3 +49,10 @@
  Anchor/Task/Event完整变化，metadata比较只在协商refresh且需要labels时执行。无workspace-wide folding重算，
  不承诺精确免除同最终label的Task/Event/metadata变化。完整Fold Vec、wire正反例、跨文件workflow及恢复路径已验证；
  2,000 owners局部structure检查约5–7 us，2,000 metadata的workspace install仍约7.3 us，label客户端metadata比较约153 us。
+
+ definition删除、body修改、adjacency分裂/合并的focused incremental differential已补齐，覆盖LF/CRLF与UTF-8前缀；
+ 等宽反例明确验证所有local facts/root roles和source geometry相同，但definition reducer变化仍禁止short-circuit。
+ opt-in production stage profiling现分别测metadata/context、local/reuse bookkeeping、document reduction、owned absolute
+ projection、workspace install及真实root/tree/syntax销毁，并与相同生命周期的normal完整pipeline成对对照。
+ 默认入口不读取observer时钟；生命周期探针只在计时外验证。完整矩阵及范围见上述performance checkpoint的
+ Production semantic stage profile节，整个任务仍待最终验收。

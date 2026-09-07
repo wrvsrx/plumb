@@ -128,3 +128,65 @@ samples；task-target profile 使用 2 次 warmup、10 次 samples，cold batch 
 新增基准位于 `"crates/plumb-workspace/benches/semantic_store.rs"；manual profiles 位于 LSP/workspace unit tests，
 使用 `"cargo test --release" 配合指定 test name 和 `"-- --ignored --nocapture" 运行。所有 profile 保留结果或
 record-count 校验，普通 CI 不以 wall-clock 阈值判定正确性。
+
+`# Production semantic stage profile
+
+本节记录commit `"801854b3921b1ddde42f14ecf5620b3911ab26f8"，测量时间2026-09-07T19:46:55+08:00。
+host为pba，Intel Core i9-9980XE（18 cores/36 threads），NixOS/Linux 6.18.49 x86_64，rustc 1.97.1
+（8bab26f4f，LLVM 21.1.8），Cargo release profile。最终采样期间没有并行agent构建或benchmark。
+
+`"profile_production_semantic_stages" 使用mixed-2000 generated fixture：314,461 bytes，2,000 Task、2,000 Event、
+2,000 Link、2,100 Anchor、50 Table及50 definition lists。source SHA-256为
+`"0bac372200304fdf8efc4705f22c5ac5924a79fd53162fec71caa2e9c88dfd9a"。Event样本把中间event的Event改成Later；
+Equal样本把中间普通paragraph的Body改成Text，二者均等宽并传递known byte edit。该fixture有definition lists，
+metadata/context preparation会走完整metadata/definition检查，不代表所有文档的metadata成本。
+
+每种edit/lifetime组合各5次warmup、30个samples，normal/profile交替成对执行；测试总运行时间17.88 s。
+normal是同一feature-enabled binary中的no-op observer入口，不读取内部阶段时钟；profile使用同一生产算法。
+报告p50/p95观察值，不把它们当置信区间或跨机器保证；不同阶段分位数之和不是端到端分位数。
+
+阶段边界见 `->{{benchmark methodology} ../../project/performance-benchmarks.plumb}。syntax包括begin revision、validity和
+workspace state切换；publication仅 `"install_document_analysis_with_impact"，不含LSP通知、dependency queries或SQLite
+落盘。absolute projection只collect Anchor/Link/Task/Event/root diagnostic owned records，不含metadata/table投影、
+LSP position/JSON、transport或editor rendering。旧revision初次build与next source clone在计时外。
+
+以下为profile入口的阶段耗时，单位us，每格是p50/p95。final表示没有旧revision或外部workspace/cache持有者；
+shared表示保留旧revision并释放新revision，不是释放旧revision并保留新revision。
+
+`table
+ `- Stage {Event/final} {Event/shared} {Equal/final} {Equal/shared}
+  `+ header
+ `- Syntax 211.902/239.149 213.740/233.019 213.646/248.403 218.071/251.235
+ `- Metadata/context 1037.464/1073.526 1026.445/1080.048 1022.551/1113.354 1029.550/1130.371
+ `- {Local nodes/bookkeeping} 359.584/380.881 373.654/425.079 368.113/409.866 373.823/436.098
+ `- {Document reduction} 274.942/296.374 301.747/345.175 1.811/2.339 1.780/2.384
+ `- {Semantic total} 1660.382/1731.055 1733.091/1809.364 1394.739/1519.731 1411.805/1568.861
+ `- {Workspace install} 791.241/829.356 476.318/513.988 45.447/63.683 31.551/35.654
+ `- {Owned projection} 5128.341/5313.920 5031.919/5614.232 5552.584/5777.828 5429.297/5895.462
+ `- {Projection destruction} 847.559/966.413 805.447/884.536 878.530/971.871 864.494/1257.059
+ `- {Workspace detach} 1.716/2.243 1.713/1.954 1.718/2.112 1.754/2.352
+ `- {Current root/tree/syntax destruction} 11552.264/12093.167 354.249/386.935 12046.386/12673.109 299.886/356.444
+ `- {Complete pipeline} 20274.426/21094.885 8797.272/9308.941 20075.920/22628.512 8295.505/8835.039
+
+同一完整pipeline的normal/profile对照，单位ms，每格为p50/p95：
+
+`table
+ `- Case Normal Profile
+  `+ header
+ `- Event/final 20.319/20.860 20.274/21.095
+ `- Event/shared 8.642/9.170 8.797/9.309
+ `- Equal/final 20.110/21.925 20.076/22.629
+ `- Equal/shared 8.423/9.781 8.296/8.835
+
+p50差异约-1.5%至+1.8%，不据此声称profiling提速。short-circuit确实把document reduction从约0.3 ms降为
+约1.8 us，但本fixture的owned projection仍约5–6 ms；只报告local/reducer成本不能代表完整消费路径。
+
+timed destruction前移除workspace entry、释放Pending/Prepared和其它外层holders，并验证内部SemanticRoot强引用计数为1。
+独立untimed测试以Weak探针证明root/tree/syntax真正释放，及shared模式旧revision仍持有复用local nodes；先只丢弃外层
+handle的反例不会被当作销毁。timed样本不保留Weak，避免allocation header延迟释放污染数据。
+final约11.6–12.0 ms包含当前DocumentOutput拥有的最后syntax/local payload释放；shared约0.30–0.35 ms只释放新root及
+独有部分。旧root的部分清理也可能发生在install阶段。完整pipeline在此包含当前revision teardown，不是每次按键或
+普通LSP request latency；不能把final销毁数值当作每次增量编辑成本。
+
+默认构建的semantics/workspace/LSP tests与warning gate通过；feature构建的workspace all-targets（含bench smoke）、
+normal/profile结果一致性、short-circuit及生命周期测试与warning gate通过。此测量只补验收阶段边界，不引入新的性能优化。
