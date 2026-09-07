@@ -344,7 +344,14 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
     }
 
     pub fn get(&self, index: usize) -> Option<T> {
-        self.views().nth(index).map(SemanticRecordView::to_owned)
+        match &self.storage {
+            RecordStorage::Empty => None,
+            RecordStorage::Owned(records) => records.get(index).cloned(),
+            RecordStorage::Segmented(_) if index >= self.len() => None,
+            RecordStorage::Segmented(_) => {
+                self.views().nth(index).map(SemanticRecordView::to_owned)
+            }
+        }
     }
 
     pub fn first(&self) -> Option<T> {
@@ -352,7 +359,17 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
     }
 
     pub fn last(&self) -> Option<T> {
-        self.views().last().map(SemanticRecordView::to_owned)
+        match &self.storage {
+            RecordStorage::Empty => None,
+            RecordStorage::Owned(records) => records.last().cloned(),
+            RecordStorage::Segmented(storage) => {
+                let segment = storage.segments.last()?;
+                let (offset, output) = storage.tree.record_node(segment.node_index);
+                let mut record = (storage.records)(output).owned_records()?.last()?.clone();
+                record.shift(offset);
+                Some(record)
+            }
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = T> + '_ {
@@ -563,6 +580,10 @@ mod tests {
 
         assert_eq!(record.to_owned().start, 20);
         assert_eq!(clones.load(Ordering::Relaxed), 1);
+        assert_eq!(records.get(2).unwrap().start, 30);
+        assert_eq!(records.last().unwrap().start, 30);
+        assert!(records.get(usize::MAX).is_none());
+        assert_eq!(clones.load(Ordering::Relaxed), 3);
     }
 
     #[test]
