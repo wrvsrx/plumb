@@ -281,6 +281,10 @@ Formatting 使用同一 syntax-only edit contract：consumer 传入当前 `"Pars
 
 `# 10. Diagnostics and failure
 
+diagnostic context 构建时一次计算 task dependency graph 的强连通分量，保存循环成员集合；多节点分量及
+有 self-edge 的单节点属于循环。仅能到达循环而不在循环中的任务不得报告 cycle。逐任务诊断只查询成员集合，
+不得重复遍历整图；分析使用显式栈，长依赖链不依赖调用栈深度。
+
 valid semantic installation 同时报告 exported facts 是否变化与 task dependency graph 输入是否变化。
 graph 输入比较包含 source-ordered anchor ids、task ids 与每个 task 的 dependency targets，保守地保留序列顺序；
 title、closure state、priority、source ranges 不属于图输入。只有输入相等才允许复用已有完整

@@ -602,7 +602,9 @@ pub struct WorkspaceTaskKey {
 
 #[derive(Debug, Clone)]
 pub struct WorkspaceDiagnosticContext {
+    #[cfg(test)]
     task_dependency_graph: HashMap<TaskRef, Vec<TaskRef>>,
+    cycle_members: HashSet<TaskRef>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1905,8 +1907,11 @@ impl Workspace {
     }
 
     pub fn diagnostic_context(&self) -> Result<WorkspaceDiagnosticContext, WorkspaceQueryError> {
+        let graph = self.task_dependency_graph()?;
         Ok(WorkspaceDiagnosticContext {
-            task_dependency_graph: self.task_dependency_graph()?,
+            cycle_members: dependency_cycle_members(&graph),
+            #[cfg(test)]
+            task_dependency_graph: graph,
         })
     }
 
@@ -1987,7 +1992,7 @@ impl Workspace {
         diagnostics.extend(self.task_workspace_diagnostics(
             &path,
             current,
-            &context.task_dependency_graph,
+            &context.cycle_members,
         )?);
         diagnostics.extend(self.event_workspace_diagnostics(&path, current)?);
         Ok(self.query_result(diagnostics))
@@ -2027,7 +2032,7 @@ impl Workspace {
         &self,
         path: &Path,
         current: &VersionedDocumentOutput,
-        graph: &HashMap<TaskRef, Vec<TaskRef>>,
+        cycle_members: &HashSet<TaskRef>,
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
         let mut diagnostics = Vec::new();
         let tasks = &current.output.tasks().tasks;
@@ -2073,7 +2078,7 @@ impl Workspace {
                 }
             }
             if let Some(task_ref) = &own_ref {
-                if dependency_cycle_contains(graph, task_ref) {
+                if cycle_members.contains(task_ref) {
                     diagnostics.push(Diagnostic {
                         code: "task.dependency-cycle",
                         severity: DiagnosticSeverity::Warning,
@@ -4087,6 +4092,69 @@ fn resolve_relative(from: &Path, target: &str) -> PathBuf {
     } else {
         normalize(&from.parent().unwrap_or_else(|| Path::new("")).join(target))
     }
+}
+
+fn dependency_cycle_members(graph: &HashMap<TaskRef, Vec<TaskRef>>) -> HashSet<TaskRef> {
+    let nodes = graph.keys().collect::<Vec<_>>();
+    let indices = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (*node, index))
+        .collect::<HashMap<_, _>>();
+    let mut edges = vec![Vec::new(); nodes.len()];
+    let mut reverse = vec![Vec::new(); nodes.len()];
+    for (index, node) in nodes.iter().enumerate() {
+        for target in &graph[*node] {
+            if let Some(&target) = indices.get(target) {
+                edges[index].push(target);
+                reverse[target].push(index);
+            }
+        }
+    }
+    let mut seen = vec![false; nodes.len()];
+    let mut order = Vec::with_capacity(nodes.len());
+    for start in 0..nodes.len() {
+        if seen[start] {
+            continue;
+        }
+        seen[start] = true;
+        let mut stack = vec![(start, 0)];
+        while let Some((node, next)) = stack.last_mut() {
+            if let Some(&target) = edges[*node].get(*next) {
+                *next += 1;
+                if !seen[target] {
+                    seen[target] = true;
+                    stack.push((target, 0));
+                }
+            } else {
+                order.push(*node);
+                stack.pop();
+            }
+        }
+    }
+    seen.fill(false);
+    let mut members = HashSet::new();
+    for start in order.into_iter().rev() {
+        if seen[start] {
+            continue;
+        }
+        seen[start] = true;
+        let mut stack = vec![start];
+        let mut component = Vec::new();
+        while let Some(node) = stack.pop() {
+            component.push(node);
+            for &target in &reverse[node] {
+                if !seen[target] {
+                    seen[target] = true;
+                    stack.push(target);
+                }
+            }
+        }
+        if component.len() > 1 || edges[start].contains(&start) {
+            members.extend(component.into_iter().map(|index| nodes[index].clone()));
+        }
+    }
+    members
 }
 
 fn dependency_cycle_contains(graph: &HashMap<TaskRef, Vec<TaskRef>>, start: &TaskRef) -> bool {

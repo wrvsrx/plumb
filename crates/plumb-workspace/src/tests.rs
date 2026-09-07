@@ -2761,6 +2761,41 @@ fn idless_dependencies_do_not_enter_cycle_graph_but_still_report_resolution_erro
 }
 
 #[test]
+fn cycle_members_match_individual_reachability_for_all_three_node_graphs() {
+    let nodes = (0..3)
+        .map(|index| TaskRef {
+            path: PathBuf::from("graph.plumb"),
+            id: index.to_string(),
+        })
+        .collect::<Vec<_>>();
+    for mask in 0..512 {
+        let graph = nodes
+            .iter()
+            .enumerate()
+            .map(|(source, node)| {
+                (
+                    node.clone(),
+                    nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(target, _)| mask & (1 << (source * 3 + target)) != 0)
+                        .map(|(_, node)| node.clone())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let members = dependency_cycle_members(&graph);
+        for node in &nodes {
+            assert_eq!(
+                members.contains(node),
+                dependency_cycle_contains(&graph, node),
+                "mask {mask}, node {node:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn cycle_query_handles_long_chains_and_excludes_nodes_only_leading_to_cycles() {
     let node = |index| TaskRef {
         path: PathBuf::from("chain.plumb"),
@@ -2775,6 +2810,7 @@ fn cycle_query_handles_long_chains_and_excludes_nodes_only_leading_to_cycles() {
     assert!(dependency_cycle_contains(&graph, &node(19_999)));
     graph.insert(node(20_000), vec![node(0)]);
     assert!(dependency_cycle_contains(&graph, &node(0)));
+    assert_eq!(dependency_cycle_members(&graph).len(), 20_001);
 }
 
 #[test]
