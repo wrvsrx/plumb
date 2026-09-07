@@ -654,20 +654,23 @@ pub(super) fn task_graph_inputs_equal(
     left: &plumb_semantics::DocumentOutput,
     right: &plumb_semantics::DocumentOutput,
 ) -> bool {
-    left.anchors()
-        .views()
-        .map(|anchor| anchor.id_value())
-        .eq(right.anchors().views().map(|anchor| anchor.id_value()))
-        && left.tasks().tasks.len() == right.tasks().tasks.len()
-        && left
-            .tasks()
-            .tasks
+    (left.anchors() == right.anchors()
+        || left
+            .anchors()
             .views()
-            .zip(right.tasks().tasks.views())
-            .all(|(left, right)| {
-                left.id_value() == right.id_value()
-                    && left.dependency_targets().eq(right.dependency_targets())
-            })
+            .map(|anchor| anchor.id_value())
+            .eq(right.anchors().views().map(|anchor| anchor.id_value())))
+        && (left.tasks().tasks == right.tasks().tasks
+            || (left.tasks().tasks.len() == right.tasks().tasks.len()
+                && left
+                    .tasks()
+                    .tasks
+                    .views()
+                    .zip(right.tasks().tasks.views())
+                    .all(|(left, right)| {
+                        left.id_value() == right.id_value()
+                            && left.dependency_targets().eq(right.dependency_targets())
+                    })))
 }
 
 fn dependency_task_ref(source_path: &Path, target: &TaskReferenceTarget) -> Option<TaskRef> {
