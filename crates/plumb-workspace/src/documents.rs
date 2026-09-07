@@ -226,6 +226,27 @@ impl Workspace {
                 .is_some_and(|previous| {
                     crate::tasks::task_graph_inputs_equal(previous, &analysis.output)
                 });
+        let diagnostic_targets = if dependent_diagnostics_changed && !task_graph_changed {
+            analysis.previous_exported_output.as_ref().map(|previous| {
+                let delta = analysis.output.exported_semantic_delta(previous);
+                let mut ids = HashSet::new();
+                for change in &delta.anchors {
+                    for record in [change.previous(), change.current()].into_iter().flatten() {
+                        ids.insert(record.value.id_value().to_owned());
+                    }
+                }
+                for change in &delta.tasks {
+                    for record in [change.previous(), change.current()].into_iter().flatten() {
+                        if let Some(id) = record.value.id_value() {
+                            ids.insert(id.to_owned());
+                        }
+                    }
+                }
+                ids
+            })
+        } else {
+            None
+        };
         let current = Arc::new(VersionedDocumentOutput {
             revision: analysis.revision,
             output: analysis.output,
@@ -236,7 +257,60 @@ impl Workspace {
             exported: change,
             task_graph_changed,
             dependent_diagnostics_changed,
+            diagnostic_targets,
         })
+    }
+
+    /// Conservative source-fact filter, including unresolved references without store queries.
+    pub fn document_may_reference_targets(
+        &self,
+        candidate: impl AsRef<Path>,
+        changed: impl AsRef<Path>,
+        ids: &HashSet<String>,
+    ) -> bool {
+        use plumb_semantics::{parse_task_reference_target, LinkTarget, TaskReferenceTarget};
+        let Some(entry) = self.get(candidate) else {
+            return true;
+        };
+        let Some(current) = &entry.current else {
+            return true;
+        };
+        if ids.is_empty() {
+            return false;
+        }
+        let changed = normalize(changed.as_ref());
+        let matches_parts = |path: Option<&str>, id: &str| {
+            ids.contains(id)
+                && path.map_or_else(
+                    || entry.path == changed,
+                    |path| crate::resolve_relative(&entry.path, path) == changed,
+                )
+        };
+        let matches_task = |target: &TaskReferenceTarget| match target {
+            TaskReferenceTarget::Internal { id } => matches_parts(None, id),
+            TaskReferenceTarget::External { path, id } => matches_parts(Some(path), id),
+            TaskReferenceTarget::Invalid => false,
+        };
+        current
+            .output
+            .links()
+            .views()
+            .any(|link| match link.target_kind() {
+                LinkTarget::Anchor { path, fragment } => matches_parts(path.as_deref(), fragment),
+                _ => false,
+            })
+            || current.output.tasks().tasks.views().any(|task| {
+                task.dependency_targets().any(matches_task)
+                    || task
+                        .previous_value()
+                        .is_some_and(|value| matches_task(&parse_task_reference_target(value)))
+            })
+            || current
+                .output
+                .events()
+                .events
+                .views()
+                .any(|event| event.task_targets().any(matches_task))
     }
 
     pub fn document_analysis_pending(&self, path: impl AsRef<Path>) -> bool {

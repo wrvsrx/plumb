@@ -289,8 +289,11 @@ impl ServerState {
             ExportedSemanticChange::Changed => {
                 if impact.task_graph_changed {
                     self.publish_all_open_diagnostics();
-                } else if impact.dependent_diagnostics_changed || self.diagnostic_context.is_none()
-                {
+                } else if self.diagnostic_context.is_none() {
+                    self.publish_all_open_diagnostics_reusing_context();
+                } else if let Some(ids) = &impact.diagnostic_targets {
+                    self.publish_diagnostics_for_targets(&result.path, ids);
+                } else if impact.dependent_diagnostics_changed {
                     self.publish_all_open_diagnostics_reusing_context();
                 } else {
                     self.publish_open_document_diagnostics(&result.path);
@@ -360,6 +363,23 @@ impl ServerState {
             return;
         };
         self.publish(uri, path, context.as_ref());
+    }
+
+    fn publish_diagnostics_for_targets(&mut self, changed: &Path, ids: &HashSet<String>) {
+        let Some(context) = self.diagnostic_publication_context() else {
+            return;
+        };
+        let complete = self.diagnostic_context.is_some();
+        for (uri, path) in &self.open_documents {
+            if !complete
+                || path == changed
+                || self
+                    .workspace
+                    .document_may_reference_targets(path, changed, ids)
+            {
+                self.publish(uri, path, context.as_ref());
+            }
+        }
     }
 
     fn publish_syntax_diagnostics(&self, uri: &Url, path: &Path) {
@@ -3221,6 +3241,7 @@ mod tests {
                         0 => state.publish_all_open_diagnostics(),
                         1 => state.publish_all_open_diagnostics_reusing_context(),
                         2 => state.publish_open_document_diagnostics(&other),
+                        3 => state.publish_diagnostics_for_targets(&path, &HashSet::new()),
                         _ => unreachable!(),
                     }
                     let result = state.finish_document_analysis(DocumentAnalysisResult {
@@ -3280,7 +3301,7 @@ mod tests {
             );
             assert_eq!(publications.len(), 3);
         }
-        for scope in 0..3 {
+        for scope in 0..4 {
             for title in ["Old", "New"] {
                 run(scope, title).await;
             }

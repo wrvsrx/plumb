@@ -3,6 +3,97 @@ use serde_json::json;
 use crate::support::{diagnostic_counts, response, run_server, unique_temp_dir, LspTestSession};
 
 #[test]
+fn task_state_publication_uses_proven_identity_and_conservative_full_replacement() {
+    fn run(full: bool) {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let target = lsp_types::Url::from_file_path(root.join("target.plumb")).unwrap();
+        let affected = lsp_types::Url::from_file_path(root.join("affected.plumb")).unwrap();
+        let unrelated = lsp_types::Url::from_file_path(root.join("unrelated.plumb")).unwrap();
+        let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+        let source =
+        "`- First\n `+ task\n `@ a\n `= wait 2099-01-01T00:00:00Z\n\n`- Other\n `+ task\n `@ b\n";
+        let mut session = LspTestSession::new();
+        session.send(&json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":root_uri,"capabilities":{"workspace":{"codeLens":{"refreshSupport":true}}}}}));
+        session.wait_for_response(&json!(1));
+        session.send(&json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+        session.wait_for(|message| {
+            message["method"] == "$/progress" && message["params"]["value"]["kind"] == "end"
+        });
+        let refresh = session.wait_for(|message| message["method"] == "workspace/codeLens/refresh");
+        session.send(&json!({"jsonrpc":"2.0","id":refresh["id"],"result":null}));
+        for (uri, text) in [
+            (&target, source),
+            (
+                &affected,
+                "`- Depends on A\n `+ task\n `= depends target.plumb#a\n",
+            ),
+            (
+                &unrelated,
+                "`- Depends on B\n `+ task\n `= depends target.plumb#b\n",
+            ),
+        ] {
+            session.send(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":text}}}));
+            let refresh =
+                session.wait_for_next(|message| message["method"] == "workspace/codeLens/refresh");
+            session.send(&json!({"jsonrpc":"2.0","id":refresh["id"],"result":null}));
+        }
+        session.send(&json!({"jsonrpc":"2.0","id":10,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":target}}}));
+        session.wait_for_response(&json!(10));
+        let change = if full {
+            json!({"text":source.replace("`= wait", "`= done")})
+        } else {
+            json!({"range":{"start":{"line":3,"character":4},"end":{"line":3,"character":8}},"text":"done"})
+        };
+        session.send(&json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":target,"version":2},"contentChanges":[change]}}));
+        session.send(&json!({"jsonrpc":"2.0","id":11,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":target}}}));
+        session.wait_for_response(&json!(11));
+        session.send(&json!({"jsonrpc":"2.0","id":99,"method":"shutdown","params":null}));
+        session.wait_for_response(&json!(99));
+        session.send(&json!({"jsonrpc":"2.0","method":"exit","params":null}));
+        let messages = session.finish();
+        let boundary = messages
+            .iter()
+            .position(|message| message["id"] == 10 && message.get("method").is_none())
+            .unwrap();
+        let before = &messages[..boundary];
+        for uri in [&affected, &unrelated] {
+            assert!(before.iter().any(|message| message["method"]
+                == "textDocument/publishDiagnostics"
+                && message["params"]["uri"] == uri.as_str()
+                && message["params"]["diagnostics"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|diagnostic| diagnostic["code"] == "task.blocked")));
+        }
+        let after = &messages[boundary + 1..];
+        let updates = after
+            .iter()
+            .filter(|message| {
+                message["method"] == "textDocument/publishDiagnostics"
+                    && message["params"]["uri"] == affected.as_str()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0]["params"]["diagnostics"], json!([]));
+        assert_eq!(
+            after
+                .iter()
+                .filter(
+                    |message| message["method"] == "textDocument/publishDiagnostics"
+                        && message["params"]["uri"] == unrelated.as_str()
+                )
+                .count(),
+            usize::from(full)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    run(false);
+    run(true);
+}
+
+#[test]
 fn exported_record_delta_limits_diagnostic_publication_without_suppressing_refresh() {
     fn settle_refreshes(session: &mut LspTestSession, initial: bool) {
         for method in [
@@ -21,7 +112,7 @@ fn exported_record_delta_limits_diagnostic_publication_without_suppressing_refre
     for (changed, dependent_publications) in [
         (initial.replace("Old", "New"), 0),
         (format!("{initial} `@ target\n"), 1),
-        ("`- Task\n `+ task\n".to_owned(), 1),
+        ("`- Task\n `+ task\n".to_owned(), 0),
     ] {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();

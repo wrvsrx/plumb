@@ -31,6 +31,9 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
   reparsed range，prototype 不作为 released syntax API。
 `- `"workspace_batch_index_1408"：serial/batch、memory/SQLite、cold/warm indexing。
 `- `"event_containment_4000"：source-ordered lookup 与 explicit containment index。
+`- `"targeted_diagnostic_publication_8_documents"：8个candidate documents各8个tasks，分别有1个或全部8个
+  documents引用变化的task id。比较全量与按目标发布，包含revision分析/安装、target筛选与diagnostics query，
+  不包含transport/rendering；高匹配率场景用于检查筛选开销，graph context在相同inputs下复用。
 `- `"profile_code_lens_response"：manual release-profile LSP test，以两个open documents中的2,000 anchors与
   2,000 references测量CodeLens query、position projection与JSON构建；3次warmup、10个samples，校验lens/
   reference counts及确定性response bytes。不包含document analysis、stdio transport或editor渲染。

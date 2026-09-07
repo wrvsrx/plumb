@@ -597,6 +597,75 @@ fn benchmark_diagnostic_round(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_targeted_diagnostic_publication(c: &mut Criterion) {
+    let mut group = c.benchmark_group("targeted_diagnostic_publication_8_documents");
+    group.sample_size(10);
+    for matching in [1, 8] {
+        for selective in [false, true] {
+            let mut workspace = Workspace::new();
+            let source = "`- Selected\n `+ task\n `@ selected\n `= wait 2099-01-01T00:00:00Z\n\n`- Other\n `+ task\n `@ other\n";
+            workspace.open_document("target.plumb", 1, source);
+            let paths = (0..8)
+                .map(|index| format!("candidate-{index}.plumb"))
+                .collect::<Vec<_>>();
+            for (index, path) in paths.iter().enumerate() {
+                let id = if index < matching {
+                    "selected"
+                } else {
+                    "other"
+                };
+                let mut candidate = String::new();
+                for task in 0..8 {
+                    candidate.push_str(&format!(
+                        "`- Task {task}\n `+ task\n `= depends target.plumb#{id}\n\n"
+                    ));
+                }
+                workspace.open_document(path, 1, candidate);
+            }
+            let context = workspace.diagnostic_context().unwrap();
+            let mut revision = 2;
+            let name = format!(
+                "matches_{matching}_{}",
+                if selective { "targeted" } else { "all" }
+            );
+            group.bench_function(name, |b| {
+                b.iter(|| {
+                    let changed = if revision % 2 == 0 {
+                        source.replace("`= wait", "`= done")
+                    } else {
+                        source.to_owned()
+                    };
+                    let prepared = workspace
+                        .begin_document_revision("target.plumb", revision, changed)
+                        .unwrap()
+                        .analyze();
+                    revision += 1;
+                    let impact = workspace
+                        .install_document_analysis_with_impact(prepared)
+                        .unwrap();
+                    assert!(!impact.task_graph_changed);
+                    let ids = impact.diagnostic_targets.as_ref().unwrap();
+                    assert_eq!(ids.len(), 1);
+                    assert!(ids.contains("selected"));
+                    black_box(
+                        workspace
+                            .diagnostics_with_context("target.plumb", &context)
+                            .unwrap(),
+                    );
+                    for path in &paths {
+                        if !selective
+                            || workspace.document_may_reference_targets(path, "target.plumb", ids)
+                        {
+                            black_box(workspace.diagnostics_with_context(path, &context).unwrap());
+                        }
+                    }
+                })
+            });
+        }
+    }
+    group.finish();
+}
+
 fn benchmark_open_document_generation(c: &mut Criterion) {
     let count = 33_512;
     let (_, source) = workload(count, count / 10, "");
@@ -1506,6 +1575,7 @@ criterion_group! {
     targets = benchmark_build, benchmark_warm_start, benchmark_queries, benchmark_replacement,
         benchmark_task_queries, benchmark_diagnostic_round, benchmark_open_document_generation,
         benchmark_incremental_parse, benchmark_semantic_components, benchmark_batch_index,
+        benchmark_targeted_diagnostic_publication,
         benchmark_event_containment, benchmark_export_record_lookup,
         benchmark_semantic_equality_publication
 }

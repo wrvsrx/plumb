@@ -391,11 +391,13 @@ pub enum ExportedSemanticChange {
     Unchanged,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentAnalysisImpact {
     pub exported: ExportedSemanticChange,
     pub task_graph_changed: bool,
     pub dependent_diagnostics_changed: bool,
+    /// None means no target-level refinement; consult the change flags.
+    pub diagnostic_targets: Option<HashSet<String>>,
 }
 
 #[derive(Debug, Clone)]

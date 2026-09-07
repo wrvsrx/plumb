@@ -150,7 +150,7 @@ record index）及 borrowed typed view；地址只在对应 snapshot 和 record 
 duplicate id 仍是不同 source records，不能合并。absolute range 改变必须进入 delta；summary 相等时 delta
 为空。各 kind 的 old/new entries 分别保持 source order，consumer 应先移除全部 old entries 再安装 new entries。
 计算只在显式请求 delta 时发生。borrowed views 属于各自 snapshot，不 flatten/clone 整份输出。
-workspace publication 的消费规则见下文；按目标 identity 精确选择 dependent documents 仍未实现。
+workspace publication 的消费规则见下文。
 
 tree replacement的验收 differential compare fresh/incremental semantic revisions，覆盖 metadata context change、
 duplicate id、nested task/event/table、link containment 与 file-start range shift，并证明 unchanged green identity
@@ -319,19 +319,30 @@ diagnostic context 构建时一次计算 task dependency graph 的强连通分�
 valid semantic installation 同时报告 exported facts 是否变化与 task dependency graph 输入是否变化。
 graph 输入比较包含 source-ordered anchor ids、有 id 的 task ids 与这些 task 的 dependency targets，保守地保留序列顺序；
 title、closure state、priority、source ranges 不属于图输入。只有输入相等才允许复用已有完整
-diagnostic context。task 展示字段变化仍保守地重新发布全部 open-document diagnostics，但不因此重建 task
-dependency graph。没有 previous valid output 或没有完整缓存时必须重新建立 context。
+diagnostic context。task 展示字段变化不因此重建 task dependency graph，publication scope 按下文 target rule
+决定。没有 previous valid output 或没有完整缓存时必须重新建立 context。
 
 Delta-based diagnostic publication 已实现：valid installation 比较 old/new exported record delta，报告
 是否存在 Anchor 或 Task 的 added/removed/changed entries。该决策使用与完整 delta 一致的轻量 kind 摘要，
 不构造消费者未请求的逐记录 entries。没有这些 entries 时，Event、Link 或 document
 title 单独变化不影响其它 documents 的 diagnostics；已有完整 context 时只重新发布 edited document 的诊断。
 Anchor/Task collections 完全相等也足以证明 graph inputs 相等，不再重复执行 graph-input comparison。
-任一 Anchor/Task entry 变化仍保守发布全部 open documents，包括仅 range 变化；graph inputs 未变时复用
+Anchor/Task entry 变化的 publication scope 由下面的 target rule 决定；graph inputs 未变时复用
 context。没有 previous valid output（包括 invalid/valid transition）或没有完整 context 时继续全量 publication，
 不得省略 pending 期间可能缺失事实的恢复。stale revision 不安装、不发布；多个 pending revisions 仍遵守
 原 generation/provenance gate。CodeLens/Folding refresh 继续由完整 exported-summary change 决定，不能用
 diagnostic scope 替代其依赖边界。
+
+Targeted diagnostic publication 已实现：有 previous valid output、graph inputs 不变且存在完整 context 时，
+从 Anchor/Task delta 的 old/new entries 收集受影响 explicit ids，只发布 edited document 与可能引用这些
+目标的 open documents。筛选使用 normalized document path 加 id，读取 current typed Link targets、Task
+depends/prev 和 Event tasks，不执行 resolution、不读 disk/store，也不能只使用当前已解析成功的 reverse
+references。implicit Event associations 由其 source links 覆盖。无法取得 candidate current output 时保守包含；
+idless records 不产生跨文档目标。重复 id 不合并 semantic records，但同一目标只需要一次 publication。
+graph inputs 变化、invalid/valid transition、context 缺失或存在 pending document 时仍全量 publication；
+只有可能受影响集合的计算可以收敛，diagnostic 内容仍由同一 workspace diagnostic query 产生。
+全文替换或其它无法证明 record correspondence 的 revision 可以产生更宽的 removed/added 集合，从而保守
+扩大 publication scope；已知局部 edit 应保留未重解析 shards 的对应关系。
 
 当任一有效文档的 semantic analysis 尚在 pending 时，diagnostic publication 可以使用当前可用 facts 构造临时
 context，但不得将该 context 缓存供后续 revision 复用。pending 文档完成后，即使 exported summary 未变化，

@@ -27,5 +27,7 @@
  range shift仍报告变化。核心重建测试覆盖valid edits与fresh/incremental parity。workspace现消费与delta一致的
  轻量kind摘要：Anchor/Task未变且完整context可用时，只重新诊断edited document，避免Event/Link/title修改
  重发其它open documents的diagnostics；invalid/valid、stale/pending revisions与context丢失继续保守恢复。
- 剩余工作是消费逐记录entries，按目标identity收敛真正受影响的dependent documents，以及分别细化CodeLens/
- Folding refresh的依赖边界；目前Anchor/Task任意变化仍保守重新诊断所有open documents。
+ graph输入稳定时现进一步消费逐记录delta的old/new explicit ids，按Link、Task depends/prev与Event tasks
+ 的声明式targets筛选open documents，不依赖已成功解析的reverse references。range shift与全文替换可保守扩大
+ 目标集合；graph变化、invalid/valid、pending与context缺失仍全量恢复。剩余工作是分别细化CodeLens/Folding
+ refresh的依赖边界，并验证decorative query在跨文档pending期间暂时不可用后的恢复行为。

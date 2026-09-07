@@ -2657,6 +2657,76 @@ fn diagnoses_invalid_task_targets_self_dependencies_and_cycles() {
 }
 
 #[test]
+fn diagnostic_target_filter_reads_unresolved_typed_targets_without_resolution() {
+    let changed = "/notes/target notes.plumb";
+    let ids = HashSet::from(["selected".to_owned()]);
+    for (source, expected) in [
+        ("See `->{label ../target notes.plumb#selected}\n", true),
+        ("`- Task\n `+ task\n `= depends ../target notes.plumb#selected\n", true),
+        ("`- Task\n `+ task\n `= prev ../target notes.plumb#selected\n", true),
+        ("`- 2026-09-07T10:00:00Z Event\n `+ event\n `= tasks ../target notes.plumb#selected\n", true),
+        ("`- 2026-09-07T10:00:00Z Event\n `+ event\n\n See `->{label ../target notes.plumb#selected}\n", true),
+        ("See `->{label ../target notes.plumb#different}\n", false),
+        ("See `->{label ../other.plumb#selected}\n", false),
+        ("See `->{#selected}\n", false),
+        ("See `->{{../target notes.plumb}}\n", false),
+        ("`- Task\n `+ task\n `= depends invalid\n", false),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("/notes/sub/source.plumb", 1, source);
+        assert_eq!(workspace.document_may_reference_targets("/notes/sub/source.plumb", changed, &ids), expected, "{source}");
+    }
+    let mut workspace = Workspace::new();
+    workspace.open_document(changed, 1, "See `->{#selected}\n");
+    assert!(workspace.document_may_reference_targets(changed, changed, &ids));
+    assert!(workspace.document_may_reference_targets("missing.plumb", changed, &ids));
+    workspace.begin_document_revision(changed, 2, "{invalid\n");
+    assert!(workspace.document_may_reference_targets(changed, changed, &ids));
+}
+
+#[test]
+fn analysis_impact_collects_only_changed_ids_when_graph_inputs_are_stable() {
+    let source =
+        "`- First\n `+ task\n `@ a\n `= wait 2099-01-01T00:00:00Z\n\n`- Other\n `+ task\n `@ b\n";
+    let mut workspace = Workspace::new();
+    workspace.open_document("target.plumb", 1, source);
+    let pending = workspace
+        .begin_document_revision("target.plumb", 2, source.replace("`= wait", "`= done"))
+        .unwrap();
+    let impact = workspace
+        .install_document_analysis_with_impact(pending.analyze())
+        .unwrap();
+    assert!(!impact.task_graph_changed);
+    assert_eq!(
+        impact.diagnostic_targets,
+        Some(HashSet::from(["a".to_owned()]))
+    );
+    let pending = workspace
+        .begin_document_revision(
+            "target.plumb",
+            3,
+            format!("Prelude\n\n{}", source.replace("`= wait", "`= done")),
+        )
+        .unwrap();
+    let impact = workspace
+        .install_document_analysis_with_impact(pending.analyze())
+        .unwrap();
+    assert!(!impact.task_graph_changed);
+    assert_eq!(
+        impact.diagnostic_targets,
+        Some(HashSet::from(["a".to_owned(), "b".to_owned()]))
+    );
+    let pending = workspace
+        .begin_document_revision("target.plumb", 4, source.replace("`@ a", "`@ renamed"))
+        .unwrap();
+    let impact = workspace
+        .install_document_analysis_with_impact(pending.analyze())
+        .unwrap();
+    assert!(impact.task_graph_changed);
+    assert!(impact.diagnostic_targets.is_none());
+}
+
+#[test]
 fn record_delta_limits_dependent_diagnostics_but_preserves_recovery_and_revision_gates() {
     for (old, new, affected) in [
         ("`= title Old\n", "`= title New\n", false),
