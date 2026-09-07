@@ -1610,25 +1610,23 @@ fn collect_document_records(
     document: &Document,
     headings: &HeadingOutput,
 ) -> RecordOutput {
-    let mut output = SemanticRoot::default();
-    output.headings = Arc::new(headings.clone());
+    let mut output = RecordOutput::default();
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
-    collect_blocks(source, &document.blocks, &mut first_ids, &mut output);
-    let mut diagnostics = output.diagnostics.to_vec();
-    diagnostics.sort_by_key(|diagnostic| {
+    collect_blocks(
+        source,
+        &document.blocks,
+        headings,
+        &mut first_ids,
+        &mut output,
+    );
+    output.diagnostics.sort_by_key(|diagnostic| {
         (
             diagnostic.range.start,
             diagnostic.range.end,
             diagnostic.code,
         )
     });
-    RecordOutput {
-        anchors: output.anchors,
-        links: output.links,
-        images: output.images,
-        files: output.files,
-        diagnostics,
-    }
+    output
 }
 
 fn local_root_diagnostics(
@@ -1769,18 +1767,15 @@ fn association_arity_diagnostics(document: &Document) -> Vec<Diagnostic> {
 fn collect_blocks(
     source: &str,
     blocks: &[Block],
+    headings: &HeadingOutput,
     first_ids: &mut HashMap<String, Range<usize>>,
-    output: &mut SemanticRoot,
+    output: &mut RecordOutput,
 ) {
     for block in blocks {
         match block {
             Block::Parsed(parsed) => {
                 if let Some(mark) = &parsed.mark {
-                    let kind = if output
-                        .headings
-                        .heading_at_node_start(parsed.range.start)
-                        .is_some()
-                    {
+                    let kind = if headings.heading_at_node_start(parsed.range.start).is_some() {
                         AnchorKind::Heading
                     } else {
                         AnchorKind::Block
@@ -1797,7 +1792,13 @@ fn collect_blocks(
                 }
                 collect_inlines(source, &parsed.content, first_ids, output);
                 for child in crate::body_children(parsed) {
-                    collect_blocks(source, std::slice::from_ref(child), first_ids, output);
+                    collect_blocks(
+                        source,
+                        std::slice::from_ref(child),
+                        headings,
+                        first_ids,
+                        output,
+                    );
                 }
             }
             Block::Verbatim(block) => {
@@ -1821,7 +1822,7 @@ fn collect_inlines(
     source: &str,
     content: &InlineContent,
     first_ids: &mut HashMap<String, Range<usize>>,
-    output: &mut SemanticRoot,
+    output: &mut RecordOutput,
 ) {
     for inline in &content.items {
         match inline {
@@ -1912,7 +1913,7 @@ struct VerbatimLink<'a> {
     attrs: &'a Attributes,
 }
 
-fn collect_verbatim_link(source: &str, input: VerbatimLink<'_>, output: &mut SemanticRoot) {
+fn collect_verbatim_link(source: &str, input: VerbatimLink<'_>, output: &mut RecordOutput) {
     let VerbatimLink {
         range,
         kind_range,
@@ -2035,7 +2036,7 @@ fn collect_image(
     range: Range<usize>,
     selection_range: Range<usize>,
     attrs: &Attributes,
-    output: &mut SemanticRoot,
+    output: &mut RecordOutput,
 ) {
     let Some(value) = attrs.items.iter().find_map(|item| match item {
         AttrItem::Pair { key, value, .. } if key == "src" => Some(value),
@@ -2102,7 +2103,7 @@ fn collect_file(
     range: Range<usize>,
     selection_range: Range<usize>,
     attrs: &Attributes,
-    output: &mut SemanticRoot,
+    output: &mut RecordOutput,
 ) {
     let Some(value) = attrs.items.iter().find_map(|item| match item {
         AttrItem::Pair { key, value, .. } if key == "src" => Some(value),
@@ -2171,7 +2172,7 @@ fn collect_anchor(
     range: Range<usize>,
     selection_range: Range<usize>,
     first_ids: &mut HashMap<String, Range<usize>>,
-    output: &mut SemanticRoot,
+    output: &mut RecordOutput,
 ) {
     let Some((value, value_range)) = attrs.items.iter().find_map(|item| match item {
         AttrItem::Id {
@@ -2205,7 +2206,7 @@ fn collect_link(
     source: &str,
     range: Range<usize>,
     content: &InlineContent,
-    output: &mut SemanticRoot,
+    output: &mut RecordOutput,
 ) {
     let view = crate::owner_semantic_view(content);
     let Some(arguments) = view.split_first() else {
@@ -2375,7 +2376,7 @@ fn push_link(
     target: SourceBacked<String>,
     source: LinkSourceProjection,
     classification: (LinkTarget, Option<Range<usize>>, Option<Range<usize>>),
-    output: &mut SemanticRoot,
+    output: &mut RecordOutput,
 ) {
     let LinkSourceProjection {
         spelling,
