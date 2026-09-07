@@ -2669,11 +2669,22 @@ fn analysis_impact_separates_event_and_title_changes_from_task_graph_inputs() {
         (
             "`- Task\n `+ task\n",
             "`- Task\n `+ task\n `= done 2026-09-07T10:00:00+08:00\n",
+            false,
+        ),
+        (
+            "`- Task\n `+ task\n `@ task\n",
+            "Prelude\n\n`- Task\n `+ task\n `@ task\n",
+            false,
+        ),
+        (
+            "`- Task\n `+ task\n `@ task\n `= depends #a\n",
+            "`- Task\n `+ task\n `@ task\n `= depends #b\n",
             true,
         ),
     ] {
         let mut workspace = Workspace::new();
         workspace.open_document("impact.plumb", 1, old);
+        let previous_graph = workspace.task_dependency_graph().unwrap();
         let analysis = workspace
             .begin_document_revision("impact.plumb", 2, new)
             .unwrap()
@@ -2683,6 +2694,9 @@ fn analysis_impact_separates_event_and_title_changes_from_task_graph_inputs() {
             .unwrap();
         assert_eq!(impact.exported, ExportedSemanticChange::Changed);
         assert_eq!(impact.task_graph_changed, graph_changed, "{new}");
+        if !graph_changed {
+            assert_eq!(previous_graph, workspace.task_dependency_graph().unwrap());
+        }
     }
 }
 

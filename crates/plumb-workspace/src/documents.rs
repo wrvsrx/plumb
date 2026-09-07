@@ -221,8 +221,7 @@ impl Workspace {
                 .previous_exported_output
                 .as_ref()
                 .is_some_and(|previous| {
-                    previous.anchors() == analysis.output.anchors()
-                        && previous.tasks().tasks == analysis.output.tasks().tasks
+                    crate::tasks::task_graph_inputs_equal(previous, &analysis.output)
                 });
         let current = Arc::new(VersionedDocumentOutput {
             revision: analysis.revision,
