@@ -99,6 +99,10 @@ pub type EventRecords = SemanticRecords<EventRecord>;
 pub type EventRecordView<'a> = SemanticRecordView<'a, EventRecord>;
 
 impl<'a> EventRecordView<'a> {
+    pub fn task_targets(self) -> impl Iterator<Item = &'a crate::TaskReferenceTarget> {
+        self.record.tasks.iter().map(|task| &task.target)
+    }
+
     pub fn at_datetime(self) -> Option<DateTime<FixedOffset>> {
         self.record.at_datetime()
     }

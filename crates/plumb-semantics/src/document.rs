@@ -123,6 +123,10 @@ pub struct LinkRecord {
 pub type LinkRecordView<'a> = crate::SemanticRecordView<'a, LinkRecord>;
 
 impl<'a> LinkRecordView<'a> {
+    pub fn target_kind(self) -> &'a LinkTarget {
+        &self.record.target_kind
+    }
+
     pub fn range(self) -> Range<usize> {
         shifted_range(&self.record.range, self.offset)
     }

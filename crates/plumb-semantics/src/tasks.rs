@@ -89,6 +89,10 @@ impl TaskRecord {
 }
 
 impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
+    pub fn previous_value(self) -> Option<&'a str> {
+        self.record.prev.as_ref().map(|field| field.value.as_str())
+    }
+
     pub fn dependency_targets(self) -> impl Iterator<Item = &'a TaskReferenceTarget> {
         self.record
             .depends

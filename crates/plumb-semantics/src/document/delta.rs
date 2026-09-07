@@ -232,6 +232,28 @@ pub enum SemanticRecordChange<'a, T> {
     },
 }
 
+impl<'a, T> SemanticRecordChange<'a, T> {
+    pub fn previous(&self) -> Option<&SemanticRecordEntry<'a, T>> {
+        match self {
+            Self::Removed(record)
+            | Self::Changed {
+                previous: record, ..
+            } => Some(record),
+            Self::Added(_) => None,
+        }
+    }
+
+    pub fn current(&self) -> Option<&SemanticRecordEntry<'a, T>> {
+        match self {
+            Self::Added(record)
+            | Self::Changed {
+                current: record, ..
+            } => Some(record),
+            Self::Removed(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ExportedSemanticDelta<'a> {
     pub title_changed: bool,
