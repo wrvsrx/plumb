@@ -264,7 +264,8 @@ fn collect_blocks(
             && crate::list_item_facet(block) == crate::ListItemFacet::Event;
 
         if is_event {
-            let (event, argument_count) = event_record(source, block, event_depth, &scoped_context);
+            let (event, argument_count, time_error) =
+                event_record(source, block, event_depth, &scoped_context);
             if argument_count < 2 {
                 output.diagnostics.push(Diagnostic {
                     code: "event.invalid-head-arity",
@@ -275,7 +276,7 @@ fn collect_blocks(
                     related: Vec::new(),
                 });
             }
-            collect_event_diagnostics(&event, &scoped_context, output);
+            collect_event_diagnostics(&event, time_error, output);
             output.events.push(event);
         }
         for child in crate::body_children(block) {
@@ -296,7 +297,7 @@ fn event_record(
     block: &ParsedBlock,
     depth: usize,
     context: &EventContext,
-) -> (EventRecord, usize) {
+) -> (EventRecord, usize, Option<EventWhenError>) {
     let mark = block.mark.as_ref().expect("event is a marked block");
     let date = text_field(&mark.attrs.items, "date");
     let timezone = text_field(&mark.attrs.items, "timezone");
@@ -310,6 +311,7 @@ fn event_record(
             .as_ref()
             .map_or(context.timezone.as_deref(), |field| Some(&field.value)),
     );
+    let time_error = resolved.as_ref().err().copied();
     let (at, start, end) = match resolved {
         Ok(ResolvedWhen::Point(value)) => (Some(resolved_field(value, &when)), None, None),
         Ok(ResolvedWhen::Interval(start, end)) => (
@@ -352,6 +354,7 @@ fn event_record(
                 .any(|item| matches!(item, AttrItem::Pair { key, .. } if key == "tasks")),
         },
         argument_count,
+        time_error,
     )
 }
 
@@ -430,7 +433,7 @@ fn event_field(value: &AttrValue) -> EventField {
 
 fn collect_event_diagnostics(
     event: &EventRecord,
-    context: &EventContext,
+    time_error: Option<EventWhenError>,
     output: &mut EventOutput,
 ) {
     if event.when.is_none() {
@@ -462,21 +465,14 @@ fn collect_event_diagnostics(
         });
     }
 
-    let date = event.date.as_ref().map(|field| field.value.as_str());
-    let timezone = event.timezone.as_ref().map(|field| field.value.as_str());
-    let result = resolve_when(
-        event.when.as_ref(),
-        date.or(context.date.as_deref()),
-        timezone.or(context.timezone.as_deref()),
-    );
     if let (None, None, Some(when)) = (&event.at, &event.start, &event.when) {
-        let code = match result {
-            Err(EventWhenError::MissingDate) => "event.missing-date-context",
-            Err(EventWhenError::InvalidDate) => "event.invalid-date",
-            Err(EventWhenError::MissingTimezone) => "event.missing-timezone-context",
-            Err(EventWhenError::InvalidTimezone) => "event.invalid-timezone",
-            Err(EventWhenError::InvalidInterval) => "event.invalid-interval",
-            Err(EventWhenError::InvalidWhen) | Ok(_) => "event.invalid-when",
+        let code = match time_error {
+            Some(EventWhenError::MissingDate) => "event.missing-date-context",
+            Some(EventWhenError::InvalidDate) => "event.invalid-date",
+            Some(EventWhenError::MissingTimezone) => "event.missing-timezone-context",
+            Some(EventWhenError::InvalidTimezone) => "event.invalid-timezone",
+            Some(EventWhenError::InvalidInterval) => "event.invalid-interval",
+            Some(EventWhenError::InvalidWhen) | None => "event.invalid-when",
         };
         output.diagnostics.push(Diagnostic {
             code,
