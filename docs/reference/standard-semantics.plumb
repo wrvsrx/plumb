@@ -63,6 +63,7 @@ elements共同形成 inline body；multi-element term使用 anonymous group。�
 
 相邻 definition entries 形成 DefinitionList。term 必须 nonempty plain/grouped text；rich invalid key/term 发布
 semantic diagnostic。
+DefinitionList属于可渲染body语义，不是document metadata，也不向Event等分析提供继承上下文；其分析输出独立于metadata。
 
 `# 5. Document metadata
 

@@ -3,26 +3,11 @@ use std::ops::Range;
 
 use chrono::DateTime;
 use plumb_syntax::{
-    AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
-    ParsedBlock, ValidDocument, ValidGreenDocument,
+    Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, ParsedBlock,
+    ValidDocument, ValidGreenDocument,
 };
 
-use crate::text::plain_text;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DefinitionRecord {
-    pub range: Range<usize>,
-    pub term: InlineContent,
-    pub term_range: Range<usize>,
-    pub inline_body: Option<InlineContent>,
-    pub body_range: Range<usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DefinitionList {
-    pub range: Range<usize>,
-    pub definitions: Vec<DefinitionRecord>,
-}
+use crate::text::{plain_text, shift_inline_content};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataBlock {
@@ -92,21 +77,11 @@ pub struct BibliographySource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MetadataOutput {
-    pub definition_lists: Vec<DefinitionList>,
     pub metadata: Option<MetadataBlock>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl MetadataOutput {
-    pub fn definition_list_at_node_start(&self, start: usize) -> Option<&DefinitionList> {
-        let index = self
-            .definition_lists
-            .partition_point(|definitions| definitions.range.start < start);
-        self.definition_lists
-            .get(index)
-            .filter(|definitions| definitions.range.start == start)
-    }
-
     pub fn document_title(&self) -> Option<String> {
         let metadata = self.metadata.as_ref()?;
         let entry = metadata.entries.iter().find(|entry| entry.key == "title")?;
@@ -176,7 +151,6 @@ pub fn analyze_metadata(valid: ValidDocument<'_>) -> MetadataOutput {
 
 pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
     let mut output = MetadataOutput::default();
-    let mut pending_definitions: Option<DefinitionList> = None;
     let mut entries = Vec::new();
     let mut keys = HashMap::<String, Range<usize>>::new();
     let mut metadata_range: Option<Range<usize>> = None;
@@ -186,47 +160,6 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
     for shard in valid.syntax().shards() {
         let document = &shard.shard().parsed().syntax;
         let offset = shard.offset() as isize;
-        let root = document.blocks.first();
-
-        let mut definitions = Vec::new();
-        collect_definition_lists(
-            document
-                .blocks
-                .iter()
-                .filter(|block| !crate::is_document_declaration(block)),
-            &mut definitions,
-        );
-        for definitions in &mut definitions {
-            shift_definition_list(definitions, offset);
-        }
-        let root_definition = root
-            .filter(|block| definition_block(block).is_some())
-            .and_then(|root| {
-                definitions.iter().position(|definitions| {
-                    definitions.range.start == root.range().start + shard.offset()
-                })
-            })
-            .map(|index| definitions.remove(index));
-        match root {
-            Some(root) if crate::is_document_declaration(root) => {}
-            Some(_) if root_definition.is_some() => {
-                let mut root = root_definition.expect("root definition checked");
-                if let Some(pending) = &mut pending_definitions {
-                    pending.range.end = root.range.end;
-                    pending.definitions.append(&mut root.definitions);
-                } else {
-                    pending_definitions = Some(root);
-                }
-            }
-            Some(_) => {
-                if let Some(pending) = pending_definitions.take() {
-                    output.definition_lists.push(pending);
-                }
-            }
-            None => {}
-        }
-        output.definition_lists.extend(definitions);
-
         for block in &document.blocks {
             if parsed_marker(block) == Some("=") {
                 let absolute_range =
@@ -285,12 +218,6 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
             unsupported.extend(diagnostic);
         }
     }
-    if let Some(pending) = pending_definitions {
-        output.definition_lists.push(pending);
-    }
-    output
-        .definition_lists
-        .sort_by_key(|definitions| definitions.range.start);
     lint_standard_entries(&entries, &mut output.diagnostics);
     output.diagnostics.extend(unsupported);
     if let (Some(range), Some(selection_range)) = (metadata_range, metadata_selection) {
@@ -301,19 +228,6 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
         });
     }
     output
-}
-
-fn shift_definition_list(definitions: &mut DefinitionList, delta: isize) {
-    shift_range(&mut definitions.range, delta);
-    for definition in &mut definitions.definitions {
-        shift_range(&mut definition.range, delta);
-        shift_inline_content(&mut definition.term, delta);
-        shift_range(&mut definition.term_range, delta);
-        if let Some(body) = &mut definition.inline_body {
-            shift_inline_content(body, delta);
-        }
-        shift_range(&mut definition.body_range, delta);
-    }
 }
 
 fn shift_metadata_entry(entry: &mut MetadataEntry, delta: isize) {
@@ -342,76 +256,6 @@ fn shift_metadata_value(value: &mut MetadataValue, delta: isize) {
             shift_range(range, delta);
             for entry in entries {
                 shift_metadata_entry(entry, delta);
-            }
-        }
-    }
-}
-
-fn shift_inline_content(content: &mut InlineContent, delta: isize) {
-    let mut pending = vec![content];
-    while let Some(content) = pending.pop() {
-        shift_range(&mut content.range, delta);
-        for inline in &mut content.items {
-            match inline {
-                Inline::Text { range, .. }
-                | Inline::Space { range, .. }
-                | Inline::SoftBreak { range } => shift_range(range, delta),
-                Inline::Group {
-                    range,
-                    mark,
-                    content,
-                } => {
-                    shift_range(range, delta);
-                    if let Some(mark) = mark {
-                        shift_range(&mut mark.range, delta);
-                        shift_range(&mut mark.marker_range, delta);
-                        shift_attributes(&mut mark.attrs, delta);
-                    }
-                    pending.push(content);
-                }
-                Inline::Verbatim {
-                    range,
-                    mark,
-                    text_range,
-                    ..
-                } => {
-                    shift_range(range, delta);
-                    if let Some(mark) = mark {
-                        shift_range(&mut mark.range, delta);
-                        shift_range(&mut mark.marker_range, delta);
-                        shift_attributes(&mut mark.attrs, delta);
-                    }
-                    shift_range(text_range, delta);
-                }
-            }
-        }
-    }
-}
-
-fn shift_attributes(attributes: &mut Attributes, delta: isize) {
-    if let Some(range) = &mut attributes.range {
-        shift_range(range, delta);
-    }
-    for item in &mut attributes.items {
-        match item {
-            AttrItem::Id {
-                value_range, range, ..
-            }
-            | AttrItem::Class {
-                value_range, range, ..
-            } => {
-                shift_range(value_range, delta);
-                shift_range(range, delta);
-            }
-            AttrItem::Pair {
-                key_range,
-                value,
-                range,
-                ..
-            } => {
-                shift_range(key_range, delta);
-                shift_range(&mut value.range, delta);
-                shift_range(range, delta);
             }
         }
     }
@@ -464,17 +308,6 @@ pub fn green_recovered_bibliography_sources(
 
 fn analyze_metadata_document(document: &Document) -> MetadataOutput {
     let mut output = MetadataOutput::default();
-    collect_definition_lists(
-        document
-            .blocks
-            .iter()
-            .filter(|block| !crate::is_document_declaration(block)),
-        &mut output.definition_lists,
-    );
-    output
-        .definition_lists
-        .sort_by_key(|definitions| definitions.range.start);
-
     let properties = document
         .blocks
         .iter()
@@ -706,53 +539,6 @@ fn parse_direct_children(
     MetadataValue::Unsupported { range }
 }
 
-fn collect_definition_lists<'a>(
-    blocks: impl IntoIterator<Item = &'a Block>,
-    output: &mut Vec<DefinitionList>,
-) {
-    let mut blocks = blocks.into_iter().peekable();
-    while let Some(current) = blocks.next() {
-        if definition_block(current).is_none() {
-            if let Block::Parsed(block) = current {
-                collect_definition_lists(crate::body_children(block), output);
-            }
-            continue;
-        }
-
-        let mut definitions = Vec::new();
-        let start = current.range().start;
-        let mut current = Some(current);
-        while let Some(block) = current.and_then(definition_block) {
-            let (term, inline_body) = if block.children.is_empty() {
-                split_inline_arguments(&block.content)
-            } else {
-                (block.content.trim_boundary_padding(), None)
-            };
-            let projected_body_range = inline_body
-                .as_ref()
-                .map_or_else(|| body_range(block), |body| body.range.clone());
-            definitions.push(DefinitionRecord {
-                range: block.range.clone(),
-                term_range: crate::element_selection_range(&term),
-                term,
-                inline_body,
-                body_range: projected_body_range,
-            });
-            collect_definition_lists(crate::body_children(block), output);
-            current = blocks.next_if(|next| definition_block(next).is_some());
-        }
-        output.push(DefinitionList {
-            range: start
-                ..definitions
-                    .last()
-                    .expect("definition list is nonempty")
-                    .range
-                    .end,
-            definitions,
-        });
-    }
-}
-
 fn lint_standard_entries(entries: &[MetadataEntry], diagnostics: &mut Vec<Diagnostic>) {
     for entry in entries.iter().filter(|entry| entry.key == "created") {
         let valid = match &entry.value {
@@ -817,21 +603,6 @@ fn plain_association_key(content: &InlineContent) -> Option<String> {
     (!key.is_empty()).then_some(key)
 }
 
-fn split_inline_arguments(content: &InlineContent) -> (InlineContent, Option<InlineContent>) {
-    let view = crate::owner_semantic_view(content);
-    let Some(arguments) = view.split_first() else {
-        return (content.clone(), None);
-    };
-    (arguments.first.clone(), arguments.rest_content())
-}
-
-fn definition_block(block: &Block) -> Option<&ParsedBlock> {
-    let Block::Parsed(block) = block else {
-        return None;
-    };
-    (marker(block) == Some(":")).then_some(block)
-}
-
 fn parsed_marker(block: &Block) -> Option<&str> {
     let Block::Parsed(block) = block else {
         return None;
@@ -891,7 +662,7 @@ mod tests {
     }
 
     #[test]
-    fn groups_definition_lists_and_projects_metadata_values() {
+    fn projects_metadata_values_independently_of_definitions() {
         let parsed = parse(
             "`= title Document `em{title}\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n  `+ 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
         );
@@ -901,7 +672,6 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        assert_eq!(output.definition_lists.len(), 1);
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         assert_eq!(output.document_title().as_deref(), Some("Document title"));
         let metadata = output.metadata.unwrap();
@@ -1110,40 +880,6 @@ mod tests {
             2
         );
         assert!(codes.contains(&"document.unsupported-identity"));
-    }
-
-    #[test]
-    fn definitions_use_head_arguments_or_children_for_their_body() {
-        let source = "`: term inline body\n`: {term with spaces}\n\n child body\n";
-        let parsed = parse(source);
-        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
-
-        let output = analyze_metadata(
-            parsed
-                .valid_syntax()
-                .expect("semantic analysis requires valid syntax"),
-        );
-        let definitions = &output.definition_lists[0].definitions;
-        assert_eq!(definitions.len(), 2);
-        assert_eq!(definitions[0].term.plain_text(), "term");
-        assert_eq!(
-            definitions[0]
-                .inline_body
-                .as_ref()
-                .map(InlineContent::plain_text)
-                .as_deref(),
-            Some("inline body")
-        );
-        assert_eq!(
-            &parsed.source[definitions[0].body_range.clone()],
-            "inline body"
-        );
-        assert_eq!(definitions[1].term.plain_text(), "term with spaces");
-        assert!(definitions[1].inline_body.is_none());
-        assert_eq!(
-            &parsed.source[definitions[1].term_range.clone()],
-            "term with spaces"
-        );
     }
 
     #[test]

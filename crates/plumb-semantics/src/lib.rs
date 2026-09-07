@@ -1,4 +1,5 @@
 mod citations;
+mod definitions;
 mod document;
 #[cfg(feature = "profile-semantic-stages")]
 pub use document::profiling;
@@ -248,6 +249,9 @@ pub fn body_children(
 }
 
 pub use citations::{analyze_citations, CitationOutput, CitationRecord, CitationRecordView};
+pub use definitions::{
+    analyze_definitions, DefinitionGroups, DefinitionList, DefinitionOutput, DefinitionRecord,
+};
 pub use document::{
     analyze_document, analyze_document_incremental, analyze_green_document,
     analyze_green_document_incremental, AnchorKind, AnchorRecord, DocumentChange, DocumentOutput,
@@ -268,8 +272,8 @@ pub use lists::{analyze_lists, ListGroup, ListGroups, ListItemRecord, ListKind, 
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord, MathRecordView};
 pub use metadata::{
     analyze_metadata, green_recovered_bibliography_sources, recovered_bibliography_sources,
-    BibliographySource, DefinitionList, DefinitionRecord, MetadataBlock, MetadataEntry,
-    MetadataListItem, MetadataOutput, MetadataValue,
+    BibliographySource, MetadataBlock, MetadataEntry, MetadataListItem, MetadataOutput,
+    MetadataValue,
 };
 pub use queries::{
     attribute_completion_context, citation_completion_context, construct_completion_context,

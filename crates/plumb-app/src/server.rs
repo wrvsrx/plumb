@@ -3389,6 +3389,12 @@ mod tests {
                     ),
                     ("`= author Old\n", "`= author New\n", false, true),
                     (
+                        "`= title Notes\n\n`: term old\n`= author Alice\n`: other value\n",
+                        "`= title Notes\n\n`: term new\n`= author Alice\n`: other value\n",
+                        false,
+                        false,
+                    ),
+                    (
                         "`- 2026-09-07T10:00:00Z Old\n `+ event\n",
                         "`- 2026-09-07T11:00:00Z Old\n `+ event\n",
                         false,

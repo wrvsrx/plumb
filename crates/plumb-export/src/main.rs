@@ -159,13 +159,13 @@ fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> 
     while index < blocks.len() {
         if let Block::Parsed(block) = blocks[index] {
             if let Some(definitions) = analysis
-                .metadata()
-                .definition_list_at_node_start(block.range.start)
+                .definitions()
+                .group_at_node_start(block.range.start)
             {
                 let end = index + definitions.definitions.len();
                 output.push(lower_definition_list(
                     &blocks[index..end],
-                    definitions,
+                    &definitions,
                     analysis,
                 ));
                 index = end;
@@ -879,6 +879,58 @@ mod tests {
     fn exports_empty_quote() {
         let document = export("`>\n").unwrap();
         assert_eq!(document["blocks"], json!([{"t": "BlockQuote", "c": []}]));
+    }
+
+    #[test]
+    fn exports_incremental_definition_groups_like_fresh_analysis() {
+        use std::sync::Arc;
+        let source = "`= title Notes\n\n`: first old\n`= author Alice\n`: second\n\n body\n `: nested value\n\n`note separator\n\n`: third end\n";
+        let old = Arc::new(plumb_syntax::GreenDocument::parse(source));
+        let previous =
+            plumb_semantics::analyze_green_document(old.valid_syntax().unwrap(), Arc::clone(&old))
+                .unwrap();
+        let old_blocks = export(source).unwrap()["blocks"].clone();
+        for (needle, replacement) in [
+            ("first old", "first new"),
+            ("`: first old\n", ""),
+            ("`note separator", "`= extra transparent"),
+            ("value", "longer value"),
+            ("", "Prelude 😀\n\n"),
+        ] {
+            let start = source.find(needle).unwrap();
+            let changed = source.replacen(needle, replacement, 1);
+            let green = old.reparse_from_change(
+                &changed,
+                plumb_syntax::SourceChange {
+                    old_range: start..start + needle.len(),
+                    new_range: start..start + replacement.len(),
+                },
+            );
+            let change = plumb_semantics::DocumentChange {
+                old_range: green.old_reparsed_range,
+                new_range: green.reparsed_range,
+            };
+            let syntax = Arc::new(green.document);
+            let output = plumb_semantics::analyze_green_document_incremental(
+                syntax.valid_syntax().unwrap(),
+                Arc::clone(&syntax),
+                &previous,
+                &change,
+            )
+            .unwrap();
+            let parsed = plumb_syntax::parse(&changed);
+            assert_eq!(
+                super::lower_document_blocks(&parsed.syntax.blocks, &output),
+                export(&changed).unwrap()["blocks"]
+                    .as_array()
+                    .unwrap()
+                    .clone()
+            );
+            assert_eq!(
+                super::lower_document_blocks(&plumb_syntax::parse(source).syntax.blocks, &previous),
+                old_blocks.as_array().unwrap().clone()
+            );
+        }
     }
 
     #[test]

@@ -1215,6 +1215,9 @@ fn benchmark_semantic_components(c: &mut Criterion) {
     group.bench_function("metadata", |b| {
         b.iter(|| black_box(analyze_metadata(valid)))
     });
+    group.bench_function("definitions", |b| {
+        b.iter(|| black_box(plumb_semantics::analyze_definitions(valid)))
+    });
     group.bench_function("citations", |b| {
         b.iter(|| black_box(analyze_citations(valid)))
     });

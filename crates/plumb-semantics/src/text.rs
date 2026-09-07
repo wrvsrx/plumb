@@ -66,3 +66,78 @@ mod tests {
         );
     }
 }
+
+pub(crate) fn shift_inline_content(content: &mut InlineContent, delta: isize) {
+    let mut pending = vec![content];
+    while let Some(content) = pending.pop() {
+        shift_range(&mut content.range, delta);
+        for inline in &mut content.items {
+            match inline {
+                Inline::Text { range, .. }
+                | Inline::Space { range, .. }
+                | Inline::SoftBreak { range } => shift_range(range, delta),
+                Inline::Group {
+                    range,
+                    mark,
+                    content,
+                } => {
+                    shift_range(range, delta);
+                    if let Some(mark) = mark {
+                        shift_range(&mut mark.range, delta);
+                        shift_range(&mut mark.marker_range, delta);
+                        shift_attributes(&mut mark.attrs, delta);
+                    }
+                    pending.push(content);
+                }
+                Inline::Verbatim {
+                    range,
+                    mark,
+                    text_range,
+                    ..
+                } => {
+                    shift_range(range, delta);
+                    if let Some(mark) = mark {
+                        shift_range(&mut mark.range, delta);
+                        shift_range(&mut mark.marker_range, delta);
+                        shift_attributes(&mut mark.attrs, delta);
+                    }
+                    shift_range(text_range, delta);
+                }
+            }
+        }
+    }
+}
+
+fn shift_attributes(attributes: &mut plumb_syntax::Attributes, delta: isize) {
+    if let Some(range) = &mut attributes.range {
+        shift_range(range, delta);
+    }
+    for item in &mut attributes.items {
+        match item {
+            plumb_syntax::AttrItem::Id {
+                value_range, range, ..
+            }
+            | plumb_syntax::AttrItem::Class {
+                value_range, range, ..
+            } => {
+                shift_range(value_range, delta);
+                shift_range(range, delta);
+            }
+            plumb_syntax::AttrItem::Pair {
+                key_range,
+                value,
+                range,
+                ..
+            } => {
+                shift_range(key_range, delta);
+                shift_range(&mut value.range, delta);
+                shift_range(range, delta);
+            }
+        }
+    }
+}
+
+fn shift_range(range: &mut std::ops::Range<usize>, delta: isize) {
+    range.start = range.start.checked_add_signed(delta).unwrap();
+    range.end = range.end.checked_add_signed(delta).unwrap();
+}

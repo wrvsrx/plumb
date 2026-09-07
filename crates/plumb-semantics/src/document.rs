@@ -350,7 +350,8 @@ pub struct SemanticRoot {
     document_declaration_end: usize,
     heading_nodes: Arc<[usize]>,
     pub(crate) headings: Arc<HeadingOutput>,
-    pub(crate) metadata: MetadataOutput,
+    pub(crate) metadata: Arc<MetadataOutput>,
+    pub(crate) definitions: crate::DefinitionOutput,
     pub(crate) citations: CitationOutput,
     pub(crate) inline_styles: InlineStyleOutput,
     pub(crate) lists: ListOutput,
@@ -377,6 +378,30 @@ pub struct SemanticTree {
 }
 
 impl SemanticTree {
+    pub(crate) fn definition_nodes(
+        &self,
+    ) -> impl Iterator<Item = (usize, crate::definitions::RootRole, usize)> + '_ {
+        self.nodes.iter().enumerate().map(|(index, node)| {
+            (
+                index,
+                crate::definitions::root_role(&node.syntax),
+                node.output.definitions.groups.len(),
+            )
+        })
+    }
+
+    pub(crate) fn definition_group_segment(
+        &self,
+        node: usize,
+        group: usize,
+    ) -> (isize, &crate::DefinitionList) {
+        let node = &self.nodes[node];
+        (
+            node.offset as isize,
+            node.output.definitions.groups.owned(group),
+        )
+    }
+
     pub(crate) fn node_offset(&self, node_index: usize) -> usize {
         self.nodes[node_index].offset
     }
@@ -413,6 +438,7 @@ struct SemanticNode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticNodeOutput {
     headings: HeadingOutput,
+    definitions: crate::DefinitionOutput,
     citations: CitationOutput,
     inline_styles: InlineStyleOutput,
     math: MathOutput,
@@ -466,7 +492,8 @@ impl Default for SemanticRoot {
             document_declaration_end: 0,
             heading_nodes: Arc::from([]),
             headings: Arc::new(HeadingOutput::default()),
-            metadata: MetadataOutput::default(),
+            metadata: Arc::new(MetadataOutput::default()),
+            definitions: crate::DefinitionOutput::default(),
             citations: CitationOutput::default(),
             inline_styles: InlineStyleOutput::default(),
             lists: ListOutput::default(),
@@ -501,6 +528,7 @@ impl PartialEq for DocumentOutput {
     fn eq(&self, other: &Self) -> bool {
         self.headings() == other.headings()
             && self.metadata() == other.metadata()
+            && self.definitions() == other.definitions()
             && self.citations() == other.citations()
             && self.inline_styles() == other.inline_styles()
             && self.lists() == other.lists()
@@ -566,6 +594,10 @@ impl DocumentOutput {
 
     pub fn metadata(&self) -> &MetadataOutput {
         &self.root.metadata
+    }
+
+    pub fn definitions(&self) -> &crate::DefinitionOutput {
+        &self.root.definitions
     }
 
     pub fn citations(&self) -> &CitationOutput {
@@ -838,15 +870,17 @@ fn analyze_semantic_tree_observed(
     let reusable_metadata =
         previous.filter(|previous| can_reuse_metadata(previous, &syntax, change));
     let metadata = reusable_metadata
-        .map(|previous| previous.metadata().clone())
-        .unwrap_or_else(|| analyze_green_metadata(valid));
+        .map(|previous| Arc::clone(&previous.root.metadata))
+        .unwrap_or_else(|| Arc::new(analyze_green_metadata(valid)));
     let document_declaration_end = reusable_metadata.map_or_else(
         || document_declaration_end(&syntax),
         |previous| previous.root.document_declaration_end,
     );
-    let reusable = previous.filter(|previous| previous.metadata() == &metadata);
+    let reusable = previous.filter(|previous| {
+        Arc::ptr_eq(&previous.root.metadata, &metadata) || previous.metadata() == metadata.as_ref()
+    });
     observer.metadata_complete();
-    let reusable_nodes = reusable_node_indices(reusable, &syntax, change);
+    let reusable_nodes = reusable_node_indices(previous, &syntax, change);
     let previous_nodes = previous.map(|previous| previous.root.tree.nodes.as_slice());
     let same_node_count = previous_nodes.is_some_and(|nodes| nodes.len() == reusable_nodes.len());
     let mut records_rebindable = same_node_count;
@@ -860,6 +894,7 @@ fn analyze_semantic_tree_observed(
                 .any(|diagnostic| diagnostic.code == "anchor.duplicate-id")
         });
     let mut lists_rebindable = same_node_count;
+    let mut definitions_rebindable = same_node_count;
     let mut heading_topology_rebindable = same_node_count;
     let mut cache_hits = 0;
     let mut semantic_equal_hits = 0;
@@ -875,6 +910,7 @@ fn analyze_semantic_tree_observed(
         .map(|(node_index, view)| {
             let node_syntax = Arc::clone(view.shard());
             let mut output = reusable_nodes[node_index]
+                .filter(|_| reusable.is_some())
                 .map(|previous_index| {
                     Arc::clone(
                         &reusable
@@ -907,6 +943,18 @@ fn analyze_semantic_tree_observed(
                     );
                     Arc::new(SemanticNodeOutput {
                         headings: local_headings.clone(),
+                        definitions: reusable_nodes[node_index]
+                            .map(|index| {
+                                previous
+                                    .expect("reused syntax has previous output")
+                                    .root
+                                    .tree
+                                    .nodes[index]
+                                    .output
+                                    .definitions
+                                    .clone()
+                            })
+                            .unwrap_or_else(|| crate::analyze_definitions(local)),
                         citations: analyze_citations(local),
                         inline_styles: analyze_inline_styles(local),
                         math: analyze_math(local),
@@ -920,9 +968,16 @@ fn analyze_semantic_tree_observed(
                     })
                 });
             if let Some(previous_node) = previous_nodes.and_then(|nodes| nodes.get(node_index)) {
-                let exact_reuse = reusable_nodes[node_index] == Some(node_index);
+                let exact_reuse =
+                    reusable.is_some() && reusable_nodes[node_index] == Some(node_index);
                 let same_root_role = exact_reuse
                     || root_list_role(&previous_node.syntax) == root_list_role(&node_syntax);
+                let same_definition_role = exact_reuse
+                    || crate::definitions::root_role(&previous_node.syntax)
+                        == crate::definitions::root_role(&node_syntax);
+                definitions_rebindable &= same_definition_role
+                    && previous_node.output.definitions.groups.len()
+                        == output.definitions.groups.len();
                 let semantic_equal =
                     exact_reuse || previous_node.output.as_ref() == output.as_ref();
                 if !exact_reuse && semantic_equal && same_root_role {
@@ -930,7 +985,8 @@ fn analyze_semantic_tree_observed(
                     semantic_equal_hits += 1;
                 }
                 let semantic_reuse = Arc::ptr_eq(&previous_node.output, &output);
-                all_local_summaries_equal &= semantic_reuse && same_root_role;
+                all_local_summaries_equal &=
+                    semantic_reuse && same_root_role && same_definition_role;
                 all_node_geometry_equal &= previous_node.offset == view.offset()
                     && (exact_reuse
                         || previous_node.syntax.parsed().source.len()
@@ -960,6 +1016,7 @@ fn analyze_semantic_tree_observed(
                 root_diagnostics_rebindable = false;
                 anchor_ids_rebindable = false;
                 lists_rebindable = false;
+                definitions_rebindable = false;
                 heading_topology_rebindable = false;
                 all_local_summaries_equal = false;
                 all_node_geometry_equal = false;
@@ -1149,6 +1206,17 @@ fn analyze_semantic_tree_observed(
         .filter(|_| lists_rebindable)
         .and_then(|previous| rebind_lists(previous.lists(), &tree))
         .unwrap_or_else(|| reduce_lists(&tree));
+    let definitions = crate::DefinitionOutput {
+        groups: if definitions_rebindable {
+            previous
+                .expect("rebind requires previous output")
+                .definitions()
+                .groups
+                .rebind(Arc::clone(&tree))
+        } else {
+            crate::DefinitionGroups::reduce(Arc::clone(&tree))
+        },
+    };
     let diagnostics = if duplicate_anchor_diagnostics.is_empty() {
         local_root_diagnostics
     } else {
@@ -1175,6 +1243,7 @@ fn analyze_semantic_tree_observed(
             heading_nodes,
             headings,
             metadata,
+            definitions,
             citations,
             inline_styles,
             lists,
@@ -1196,7 +1265,7 @@ fn analyze_semantic_tree_observed(
 fn rebind_unchanged_document(
     previous: &DocumentOutput,
     tree: Arc<SemanticTree>,
-    metadata: MetadataOutput,
+    metadata: Arc<MetadataOutput>,
     document_declaration_end: usize,
 ) -> Option<DocumentOutput> {
     let citations = CitationOutput {
@@ -1258,6 +1327,9 @@ fn rebind_unchanged_document(
     let images = previous.root.images.rebind_tree(Arc::clone(&tree))?;
     let files = previous.root.files.rebind_tree(Arc::clone(&tree))?;
     let lists = previous.root.lists.clone();
+    let definitions = crate::DefinitionOutput {
+        groups: previous.definitions().groups.rebind(Arc::clone(&tree)),
+    };
     let diagnostics = previous
         .root
         .diagnostics
@@ -1272,6 +1344,7 @@ fn rebind_unchanged_document(
             heading_nodes: Arc::clone(&previous.root.heading_nodes),
             headings: Arc::clone(&previous.root.headings),
             metadata,
+            definitions,
             citations,
             inline_styles,
             lists,
@@ -1365,19 +1438,7 @@ fn can_reuse_metadata(
     if change.old_range.start < previous.root.document_declaration_end {
         return false;
     }
-    if !previous.metadata().definition_lists.is_empty() {
-        return false;
-    }
-    !changed_green_blocks(syntax, Some(change))
-        .any(|block| crate::is_document_declaration(block) || contains_definition(block))
-}
-
-fn contains_definition(block: &Block) -> bool {
-    let Block::Parsed(block) = block else {
-        return false;
-    };
-    block.mark.as_ref().is_some_and(|mark| mark.marker == ":")
-        || crate::body_children(block).any(contains_definition)
+    !changed_green_blocks(syntax, Some(change)).any(crate::is_document_declaration)
 }
 
 fn changed_green_blocks<'a>(
@@ -2688,6 +2749,7 @@ mod tests {
         let output = analyze_document(valid);
         assert_eq!(output.headings(), &headings);
         assert_eq!(output.metadata(), &metadata);
+        assert_eq!(output.definitions(), &crate::analyze_definitions(valid));
         assert_eq!(output.citations(), &citations);
         assert_eq!(output.inline_styles(), &inline_styles);
         assert_eq!(output.lists(), &lists);
@@ -2960,6 +3022,169 @@ mod tests {
     }
 
     #[test]
+    fn definitions_and_metadata_have_independent_reuse_and_context_boundaries() {
+        let source = "`= date 2026-09-05\n`= timezone +08:00\n\n`: first one\n`: second two\n\n`- 09:00 Event\n `+ event\n\nText\n";
+        let old_syntax = Arc::new(plumb_syntax::GreenDocument::parse(source));
+        let previous =
+            analyze_green_document(old_syntax.valid_syntax().unwrap(), Arc::clone(&old_syntax))
+                .unwrap();
+        let old_definitions = previous.definitions().groups.iter().collect::<Vec<_>>();
+        for (needle, replacement, metadata_changed, definitions_changed) in [
+            ("Text", "Body", false, false),
+            ("first one", "first new", false, true),
+            ("2026-09-05", "2026-09-06", true, false),
+        ] {
+            let start = source.find(needle).unwrap();
+            let changed = source.replacen(needle, replacement, 1);
+            let green = old_syntax.reparse_from_change(
+                &changed,
+                plumb_syntax::SourceChange {
+                    old_range: start..start + needle.len(),
+                    new_range: start..start + replacement.len(),
+                },
+            );
+            let change = DocumentChange {
+                old_range: green.old_reparsed_range,
+                new_range: green.reparsed_range,
+            };
+            let syntax = Arc::new(green.document);
+            let current = analyze_green_document_incremental(
+                syntax.valid_syntax().unwrap(),
+                Arc::clone(&syntax),
+                &previous,
+                &change,
+            )
+            .unwrap();
+            assert_eq!(
+                current,
+                analyze_document(parse(&changed).valid_syntax().unwrap())
+            );
+            assert_eq!(
+                Arc::ptr_eq(&previous.root.metadata, &current.root.metadata),
+                !metadata_changed,
+                "edit={needle}, change={change:?}, declaration_end={}",
+                previous.root.document_declaration_end
+            );
+            assert_eq!(
+                previous.definitions() != current.definitions(),
+                definitions_changed
+            );
+            assert!(previous
+                .definitions()
+                .groups
+                .shares_storage(&current.definitions().groups));
+            let old_event = previous
+                .root
+                .tree
+                .nodes
+                .iter()
+                .find(|node| !node.output.events.events.is_empty())
+                .unwrap();
+            let new_event = current
+                .root
+                .tree
+                .nodes
+                .iter()
+                .find(|node| !node.output.events.events.is_empty())
+                .unwrap();
+            assert_eq!(
+                Arc::ptr_eq(&old_event.output, &new_event.output),
+                !metadata_changed
+            );
+            if metadata_changed {
+                for (old, new) in previous
+                    .root
+                    .tree
+                    .nodes
+                    .iter()
+                    .zip(&current.root.tree.nodes)
+                {
+                    if !old.output.definitions.groups.is_empty() {
+                        assert!(old
+                            .output
+                            .definitions
+                            .groups
+                            .shares_storage(&new.output.definitions.groups));
+                    }
+                }
+                assert_ne!(previous.events(), current.events());
+            }
+            if !metadata_changed && !definitions_changed {
+                assert!(current.reused_document_reducers());
+            }
+            assert_eq!(
+                previous.definitions().groups.iter().collect::<Vec<_>>(),
+                old_definitions
+            );
+        }
+    }
+
+    #[test]
+    fn definition_tree_projection_matches_standalone_for_nested_and_shifted_groups() {
+        let base = "`: first one\n`= title Example\n`: second\n\n body `*{rich}\n `: nested value\n\n`note separator\n\n`: third end\n";
+        for ending in ["\n", "\r\n"] {
+            let source = base.replace('\n', ending);
+            let old_syntax = Arc::new(plumb_syntax::GreenDocument::parse(&source));
+            let previous =
+                analyze_green_document(old_syntax.valid_syntax().unwrap(), Arc::clone(&old_syntax))
+                    .unwrap();
+            assert_eq!(
+                previous.definitions(),
+                &crate::analyze_definitions(parse(&source).valid_syntax().unwrap())
+            );
+            assert_eq!(
+                previous
+                    .definitions()
+                    .groups
+                    .iter()
+                    .map(|group| group.definitions.len())
+                    .collect::<Vec<_>>(),
+                vec![2, 1, 1]
+            );
+            for (needle, replacement) in [
+                ("`note separator", "`= extra ignored"),
+                ("value", "longer value"),
+                ("", "Prelude 😀\n\n"),
+            ] {
+                let replacement = replacement.replace('\n', ending);
+                let start = source.find(needle).unwrap();
+                let changed = source.replacen(needle, &replacement, 1);
+                let green = old_syntax.reparse_from_change(
+                    &changed,
+                    plumb_syntax::SourceChange {
+                        old_range: start..start + needle.len(),
+                        new_range: start..start + replacement.len(),
+                    },
+                );
+                let change = DocumentChange {
+                    old_range: green.old_reparsed_range,
+                    new_range: green.reparsed_range,
+                };
+                let syntax = Arc::new(green.document);
+                let current = analyze_green_document_incremental(
+                    syntax.valid_syntax().unwrap(),
+                    Arc::clone(&syntax),
+                    &previous,
+                    &change,
+                )
+                .unwrap();
+                let parsed = parse(&changed);
+                assert_eq!(
+                    current.definitions(),
+                    &crate::analyze_definitions(parsed.valid_syntax().unwrap())
+                );
+                assert_eq!(current, analyze_document(parsed.valid_syntax().unwrap()));
+                for group in current.definitions().groups.iter() {
+                    assert_eq!(
+                        current.definitions().group_at_node_start(group.range.start),
+                        Some(group)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn definition_reducer_handles_deletion_body_edits_and_adjacency_changes() {
         for ending in ["\n", "\r\n"] {
             for (name, source, needle, replacement, group_sizes, same_geometry) in [
@@ -3054,7 +3279,11 @@ mod tests {
                 let parsed = parse(&changed);
                 let fresh = analyze_document(parsed.valid_syntax().unwrap());
                 assert_eq!(incremental, fresh, "{name}, ending={ending:?}");
-                assert_ne!(previous.metadata(), incremental.metadata(), "{name}");
+                assert!(
+                    Arc::ptr_eq(&previous.root.metadata, &incremental.root.metadata),
+                    "{name}"
+                );
+                assert_ne!(previous.definitions(), incremental.definitions(), "{name}");
                 assert_eq!(
                     previous.exported_semantic_summary(),
                     incremental.exported_semantic_summary(),
@@ -3063,8 +3292,8 @@ mod tests {
                 assert!(!incremental.reused_document_reducers(), "{name}");
                 assert_eq!(
                     incremental
-                        .metadata()
-                        .definition_lists
+                        .definitions()
+                        .groups
                         .iter()
                         .map(|group| group.definitions.len())
                         .collect::<Vec<_>>(),
@@ -3084,10 +3313,14 @@ mod tests {
                             .collect::<Vec<_>>()
                     );
                     assert!(
-                        previous.root.tree.nodes.iter().zip(&incremental.root.tree.nodes)
-                            .all(|(old, new)| old.output == new.output
-                                && root_list_role(&old.syntax) == root_list_role(&new.syntax)),
-                        "all local facts and root roles, including changed definition nodes, remain equal for {name}"
+                        previous
+                            .root
+                            .tree
+                            .nodes
+                            .iter()
+                            .zip(&incremental.root.tree.nodes)
+                            .any(|(old, new)| old.output.definitions != new.output.definitions),
+                        "changed definition facts must participate in local equality for {name}"
                     );
                 }
             }

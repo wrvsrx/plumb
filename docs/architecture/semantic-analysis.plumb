@@ -90,18 +90,28 @@ document semantics 直接消费 syntax red views，并以 green node allocation 
 explicit inherited-context key 缓存 shard-local facts。pointer-identical green subtree 只有在 context key 相同
 时才能复用；date/timezone、task/event depth、table structural role 与其它 ancestor-derived input 必须进入 key。
 changed syntax 不必产生 changed semantics。Local semantic summary精确比较一个shard的全部analyzer outputs，并把
-cross-shard reducer读取的root list role作为额外input。changed shard重算后summary相等时共享旧output Arc；当metadata
+cross-shard reducer读取的root list/definition role作为额外input。changed shard重算后summary相等时共享旧output Arc；当metadata
 context、node correspondence、所有local summaries与root roles均相等，且每个shard offset/source length及document end
 未变时，document reducer直接共享或重新绑定旧root outputs，不重建heading hierarchy、list topology、record/
 diagnostic topology或global duplicate overlay。任一条件不成立时回退各reducer现有的独立delta规则。Document
 exported-summary equality与workspace notification stop同样已实现。
 
 incremental tree revision使用 green parser返回的 old/new shard-aligned replacement range，以 prefix/replacement/suffix
-线性 splice复用 nodes，不为每个 revision重建 identity hash table。metadata只有在 edit位于上一版最后一个 document
-declaration之后、上一版没有definition lists，且replacement递归不含definition或新的direct `"="/`"+"/`"@"
-block时共享；已有definition的body revision重新运行metadata/definition reducer，覆盖definition删除、修改与adjacency
-变化。删除definition、插入separator分裂相邻组、移除separator合并组，都必须与fresh analysis相等；即使等宽marker
-替换保持local summaries与source geometry不变，definition reducer变化仍禁止document-level short-circuit。
+线性 splice复用 nodes，不为每个 revision重建 identity hash table。
+
+Definition/metadata independence 已实现：`"MetadataOutput"只拥有document metadata与其diagnostics，不包含definition
+lists。`"DocumentOutput::definitions()"提供独立的source-ordered definition groups；definition属于body semantics，
+不能参与metadata context equality、Event继承上下文或metadata fold labels的失效。
+metadata只有在edit位于上一版最后一个document declaration之后，且replacement没有新的direct `"="/`"+"/`"@"
+block时共享；文档含有definition或修改definition不再阻止metadata复用。metadata共享immutable output，不深拷贝entries。
+Definition局部facts按green shard保存relative ranges；未变化shard复用局部结果。独立document reducer按body sibling
+adjacency分组，document declarations保持透明，nested groups不能与top-level groups合并。稳定分组拓扑共享索引并绑定
+current semantic tree，absolute ranges只在consumer访问时投影，不为无关编辑clone/rebase完整definition records。
+metadata context改变时，仍可按syntax identity共享未变化的definition局部结果；包含Event等context-dependent facts的
+SemanticNode继续按metadata equality重新生成其余局部输出。
+删除definition、插入separator分裂相邻组、移除separator合并组、修改body、修改prefix后的ranges都必须与fresh analysis
+及export相等。definition变化不能误复用旧definition body/groups，也不能使未变化的Event shard仅因definition变化而重算。
+short-circuit必须包含definition局部facts与分组边界；metadata本身变化仍按原规则重算相关context和diagnostics。
 empty heading output只有在replacement不引入nested heading时共享，其他情况回退完整reducer。
 
 typed record projection保存 record-count topology；node index稳定且changed nodes各类record count不变时，projection
@@ -169,6 +179,7 @@ Production stage profiling 已实现，使用opt-in `"profile-semantic-stages" f
 observer运行，不复制算法；普通入口不读取时钟。metadata/context preparation包含metadata复用/重建、declaration end及
 context equality；local阶段包含node correspondence、analyzers、reuse/summary与delta/topology bookkeeping；document reduction
 包含tree/root构造、heading/list/duplicate及record/diagnostic topology，覆盖short-circuit rebind。observer只在阶段边界计时。
+Definition分离后，其局部分析计入local阶段、跨shard相邻分组计入document reduction，不再计入metadata/context。
 workspace沿同一Pending→Prepared→install路径测syntax revision和publication；absolute projection必须列明实际消费的record
 集合，不冒称所有LSP response。完整pipeline包含相同source revision、分析、安装、projection和生命周期，normal/profile
 两入口比较输出及端到端成本，分阶段分位数之和不充当端到端分位数。
