@@ -503,6 +503,12 @@ mod tests {
     fn profile_metadata_folding_stages() {
         use std::{hint::black_box, time::Instant};
 
+        let background = std::env::var_os("PLUMB_PROFILE_BACKGROUND_SEMANTICS").is_some();
+        let runtime = background.then(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+        });
         let path = std::path::Path::new("/tmp/plumb-decoration-profile.plumb");
         let mut source = "`= date 2026-09-05\n`= timezone +08:00\n\n".to_owned();
         for index in 0..2000 {
@@ -533,7 +539,15 @@ mod tests {
                 .unwrap();
             let parse = start.elapsed();
             let start = Instant::now();
-            let analysis = pending.analyze();
+            let analysis = if let Some(runtime) = &runtime {
+                runtime.block_on(async {
+                    tokio::task::spawn_blocking(move || pending.analyze())
+                        .await
+                        .unwrap()
+                })
+            } else {
+                pending.analyze()
+            };
             let semantics = start.elapsed();
             let start = Instant::now();
             assert!(workspace.install_document_analysis(analysis));
@@ -595,7 +609,7 @@ mod tests {
         {
             samples.sort();
             eprintln!(
-                "metadata folding stage {name}: events=2000 warmup=5 samples=50 p50={:?} p95={:?}",
+                "metadata folding stage {name}: background={background} events=2000 warmup=5 samples=50 p50={:?} p95={:?}",
                 samples[24], samples[47]
             );
         }
