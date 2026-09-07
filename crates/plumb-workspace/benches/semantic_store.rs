@@ -613,6 +613,27 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
         &fresh_output
     );
     let warm_changed = changed.replacen("Event 167", "Changed event 167", 1);
+    let old_output = &previous_workspace
+        .get("events.plumb")
+        .unwrap()
+        .current
+        .as_ref()
+        .unwrap()
+        .output;
+    let new_output = &incremental_workspace
+        .get("events.plumb")
+        .unwrap()
+        .current
+        .as_ref()
+        .unwrap()
+        .output;
+    group.bench_function("exported_summary_comparison", |b| {
+        b.iter(|| {
+            black_box(
+                old_output.exported_semantic_summary() == new_output.exported_semantic_summary(),
+            )
+        })
+    });
     let warm_start = changed.find("Event 167").unwrap();
     let warm_change = SourceChange {
         old_range: warm_start..warm_start + "Event 167".len(),
