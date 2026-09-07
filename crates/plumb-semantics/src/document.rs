@@ -3499,6 +3499,34 @@ mod tests {
     }
 
     #[test]
+    fn incremental_anchor_index_keeps_old_snapshot_and_rebuilds_changed_ids() {
+        let source = "`node First\n `@ old\n\n`node Second\n `@ tail\n";
+        let previous = parse(source);
+        let old_output = analyze_document(previous.valid_syntax().unwrap());
+        let old_tail = old_output.anchors_named("tail");
+        assert_eq!(old_output.anchors_named("old").len(), 1);
+        let updated = source.replace("old", "new-long-id");
+        let current = plumb_syntax::parse_incremental(&previous, updated.clone());
+        let output = analyze_document_incremental(
+            current.document.valid_syntax().unwrap(),
+            &old_output,
+            &DocumentChange {
+                old_range: current.old_reparsed_range,
+                new_range: current.reparsed_range,
+            },
+        );
+        let fresh = analyze_document(parse(updated).valid_syntax().unwrap());
+        assert!(output.root.anchor_index.get().is_none());
+        for id in ["old", "new-long-id", "tail"] {
+            assert_eq!(output.anchors_named(id), fresh.anchors_named(id));
+        }
+        assert_eq!(old_output.anchors_named("tail"), old_tail);
+        assert_eq!(old_output.anchors_named("old").len(), 1);
+        assert!(old_output.anchors_named("new-long-id").is_empty());
+        assert!(output.anchors_named("tail")[0].range.start > old_tail[0].range.start);
+    }
+
+    #[test]
     fn anchor_id_index_preserves_duplicate_order_and_revision_ranges() {
         let body = "`node First\n `@ same\n\n`node Second\n `@ same\n\n`node Third\n `@ unique\n";
         for source in [body.to_owned(), format!("Prelude\n\n{body}")] {
