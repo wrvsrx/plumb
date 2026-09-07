@@ -284,6 +284,36 @@ impl<T: RelativeSemanticRecord> SemanticRecordView<'_, T> {
 
 impl<T: RelativeSemanticRecord> SemanticRecords<T> {
     pub(crate) fn absolute_eq(&self, other: &Self) -> bool {
+        if let (RecordStorage::Owned(left), RecordStorage::Owned(right)) =
+            (&self.storage, &other.storage)
+        {
+            return Arc::ptr_eq(left, right) || left == right;
+        }
+        if let (RecordStorage::Segmented(left), RecordStorage::Segmented(right)) =
+            (&self.storage, &other.storage)
+        {
+            if Arc::ptr_eq(&left.segments, &right.segments) {
+                for segment in left.segments.iter() {
+                    let (left_offset, left_node) = left.tree.record_node(segment.node_index);
+                    let (right_offset, right_node) = right.tree.record_node(segment.node_index);
+                    if left_offset != right_offset {
+                        return self.projected_eq(other);
+                    }
+                    let left_records = (left.records)(left_node);
+                    let right_records = (right.records)(right_node);
+                    if !std::ptr::eq(left_records, right_records)
+                        && !left_records.absolute_eq(right_records)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+        }
+        self.projected_eq(other)
+    }
+
+    fn projected_eq(&self, other: &Self) -> bool {
         self.len() == other.len()
             && self.views().zip(other.views()).all(|(left, right)| {
                 let left_start = left.record.start().checked_add_signed(left.offset).unwrap();
