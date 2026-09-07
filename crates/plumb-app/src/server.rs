@@ -80,7 +80,7 @@ use decorations::{semantic_tokens, PendingDocumentReads};
 
 use completion::{
     attribute_completion_text, completion_indentation, completion_items,
-    construct_completion_items, CompletionIndentation,
+    completion_items_with_kind, construct_completion_items, CompletionIndentation,
 };
 #[cfg(test)]
 use completion::{task_construct_template, CompletionIndentationProjection};
@@ -2007,6 +2007,7 @@ impl LanguageServer for ServerState {
                     return Ok(None);
                 };
                 let query = context.query.to_lowercase();
+                let mut replace = None;
                 return Ok(Some(
                     bibliography
                         .records
@@ -2027,7 +2028,9 @@ impl LanguageServer for ServerState {
                             kind: Some(CompletionItemKind::REFERENCE),
                             detail: Some(record.detail()),
                             text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                byte_range_to_lsp(source, &context.replace),
+                                *replace.get_or_insert_with(|| {
+                                    byte_range_to_lsp(source, &context.replace)
+                                }),
                                 record.id.clone(),
                             ))),
                             ..CompletionItem::default()
@@ -2039,46 +2042,31 @@ impl LanguageServer for ServerState {
                 let candidates = self
                     .complete_query(self.workspace.complete_task_dependency(&path, &context))
                     .map_err(workspace_query_response_error)?;
-                return Ok(Some(
-                    candidates
-                        .into_iter()
-                        .map(|candidate| CompletionItem {
-                            kind: Some(if candidate.new_text.ends_with('#') {
-                                CompletionItemKind::FILE
-                            } else {
-                                CompletionItemKind::REFERENCE
-                            }),
-                            label: candidate.label,
-                            detail: Some(candidate.detail),
-                            text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                byte_range_to_lsp(source, &candidate.replace),
-                                candidate.new_text,
-                            ))),
-                            ..CompletionItem::default()
-                        })
-                        .collect(),
-                ));
+                return Ok(Some(completion_items_with_kind(
+                    source,
+                    candidates,
+                    |candidate| {
+                        if candidate.new_text.ends_with('#') {
+                            CompletionItemKind::FILE
+                        } else {
+                            CompletionItemKind::REFERENCE
+                        }
+                    },
+                )));
             }
             if let Some(context) = event_title_completion_context(green, offset) {
-                return Ok(Some(
-                    self.complete_query(self.workspace.complete_event_title(&context))
-                        .map_err(workspace_query_response_error)?
-                        .into_iter()
-                        .map(|candidate| CompletionItem {
-                            label: candidate.label,
-                            kind: Some(CompletionItemKind::VALUE),
-                            detail: Some(candidate.detail),
-                            text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                byte_range_to_lsp(source, &candidate.replace),
-                                candidate.new_text,
-                            ))),
-                            ..CompletionItem::default()
-                        })
-                        .collect(),
-                ));
+                let candidates = self
+                    .complete_query(self.workspace.complete_event_title(&context))
+                    .map_err(workspace_query_response_error)?;
+                return Ok(Some(completion_items(
+                    source,
+                    candidates,
+                    CompletionItemKind::VALUE,
+                )));
             }
             if let Some(context) = attribute_completion_context(green, offset) {
                 if !context.completions.is_empty() {
+                    let replace = byte_range_to_lsp(source, &context.replace);
                     return Ok(Some(
                         context
                             .completions
@@ -2093,7 +2081,7 @@ impl LanguageServer for ServerState {
                                     InsertTextFormat::PLAIN_TEXT
                                 }),
                                 text_edit: Some(CompletionTextEdit::Edit(LspTextEdit::new(
-                                    byte_range_to_lsp(source, &context.replace),
+                                    replace,
                                     attribute_completion_text(
                                         &candidate.new_text,
                                         self.supports_completion_snippets,
