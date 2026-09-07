@@ -2050,6 +2050,7 @@ impl Workspace {
                     diagnostics.push(diagnostic);
                 }
             }
+            let mut blockers = Vec::new();
             for dependency in &task.depends {
                 let resolution = self.resolve_task_target(path, &dependency.target)?;
                 if let Some(diagnostic) = Self::task_resolution_diagnostic(
@@ -2061,7 +2062,11 @@ impl Workspace {
                     diagnostics.push(diagnostic);
                     continue;
                 }
-                if let TaskTargetResolution::Task { target, .. } = resolution {
+                if let TaskTargetResolution::Task {
+                    target,
+                    task: target_task,
+                } = resolution
+                {
                     if own_ref.as_ref() == Some(&target) {
                         diagnostics.push(Diagnostic {
                             code: "task.self-dependency",
@@ -2072,6 +2077,13 @@ impl Workspace {
                             ),
                             range: dependency.range.clone(),
                             related: Vec::new(),
+                        });
+                    }
+                    if task.state() == TaskState::Done && target_task.state() == TaskState::Open {
+                        blockers.push(ResolvedTaskDependency {
+                            source: dependency.source.clone(),
+                            target,
+                            task: *target_task,
                         });
                     }
                 }
@@ -2091,11 +2103,12 @@ impl Workspace {
                 }
             }
             if task.state() == TaskState::Done {
-                let blockers = self
-                    .task_dependencies_value(path, &task)?
-                    .into_iter()
-                    .filter(|dependency| dependency.task.state() == TaskState::Open)
-                    .collect::<Vec<_>>();
+                blockers.sort_by(|left, right| {
+                    left.target
+                        .path
+                        .cmp(&right.target.path)
+                        .then(left.target.id.cmp(&right.target.id))
+                });
                 let blocker_targets = blockers
                     .iter()
                     .map(|dependency| dependency.target.clone())
