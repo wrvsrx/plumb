@@ -2860,6 +2860,33 @@ fn cycle_query_handles_long_chains_and_excludes_nodes_only_leading_to_cycles() {
 }
 
 #[test]
+fn task_target_lookup_does_not_decode_unrelated_persistent_tasks() {
+    let store = SqliteSemanticStore::open_in_memory().unwrap();
+    let mut workspace = Workspace::with_sqlite_store(store.clone());
+    workspace
+        .insert_disk(
+            "target.plumb",
+            1,
+            "`- Target\n `+ task\n `@ target\n\n`- Unrelated\n `+ task\n `@ unrelated\n",
+        )
+        .unwrap();
+    store
+        .execute_batch_for_test("UPDATE tasks SET record = X'FF' WHERE start <> 0")
+        .unwrap();
+    let resolved = workspace
+        .resolve_task_target(
+            Path::new("source.plumb"),
+            &TaskReferenceTarget::External {
+                path: "target.plumb".to_owned(),
+                id: "target".to_owned(),
+            },
+        )
+        .unwrap();
+    assert!(matches!(resolved, TaskTargetResolution::Task { .. }));
+    assert!(workspace.tasks_for_path(Path::new("target.plumb")).is_err());
+}
+
+#[test]
 fn diagnostic_context_builds_persistent_cycles_without_decoding_task_records() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store.clone());

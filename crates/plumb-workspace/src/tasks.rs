@@ -522,27 +522,35 @@ impl Workspace {
         if !self.contains_path(&path)? && !path.is_file() {
             return Ok(TaskTargetResolution::UnresolvedPath { path });
         }
-        let matching_anchors = self.anchors_named(&path, &id)?.len();
-        if matching_anchors == 0 {
+        let matching_anchors = self.anchors_named(&path, &id)?;
+        if matching_anchors.is_empty() {
             return Ok(TaskTargetResolution::UnresolvedAnchor { path, id });
         }
-        if matching_anchors > 1 {
+        if matching_anchors.len() > 1 {
             return Ok(TaskTargetResolution::AmbiguousAnchor { path, id });
         }
+        let start = matching_anchors[0].range.start;
         let task = if let Some(entry) = self.documents.get(&path) {
             entry.current.as_ref().and_then(|current| {
                 current
                     .output
                     .tasks()
                     .tasks
-                    .views()
-                    .find(|task| task.id_value() == Some(id.as_str()))
+                    .view_at_start(start)
+                    .filter(|task| task.id_value() == Some(id.as_str()))
                     .map(|task| task.to_owned())
             })
-        } else {
-            self.tasks_for_path(&path)?
+        } else if let Some(store) = &self.disk_store {
+            store
+                .tasks_by_keys(&[StoredTaskKey {
+                    path: path.clone(),
+                    start,
+                }])?
                 .into_iter()
+                .map(|stored| stored.record)
                 .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
+        } else {
+            None
         };
         let Some(task) = task else {
             return Ok(TaskTargetResolution::NotTask { path, id });
