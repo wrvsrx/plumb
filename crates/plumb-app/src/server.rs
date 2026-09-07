@@ -1517,14 +1517,7 @@ impl LanguageServer for ServerState {
             .and_then(|entry| {
                 let source = entry.parsed.source();
                 let edits = plumb_edit::format_green(entry.parsed.green()).ok()?;
-                Some(
-                    edits
-                        .into_iter()
-                        .map(|edit| {
-                            LspTextEdit::new(byte_range_to_lsp(source, &edit.range), edit.new_text)
-                        })
-                        .collect(),
-                )
+                Some(text_edits_to_lsp(source, edits).collect())
             });
         Box::pin(async move { Ok(edits) })
     }
@@ -1545,14 +1538,7 @@ impl LanguageServer for ServerState {
                     ..position_to_offset(source, params.range.end);
                 let edits =
                     plumb_edit::format_green_contained(entry.parsed.green(), selection).ok()?;
-                Some(
-                    edits
-                        .into_iter()
-                        .map(|edit| {
-                            LspTextEdit::new(byte_range_to_lsp(source, &edit.range), edit.new_text)
-                        })
-                        .collect(),
-                )
+                Some(text_edits_to_lsp(source, edits).collect())
             });
         Box::pin(async move { Ok(edits) })
     }
@@ -2602,6 +2588,22 @@ fn reference_code_lens(
     }
 }
 
+fn text_edits_to_lsp(
+    source: &str,
+    edits: Vec<plumb_edit::TextEdit>,
+) -> impl Iterator<Item = LspTextEdit> + '_ {
+    let positions = (edits.len() > 1).then(|| PositionIndex::new(source));
+    edits.into_iter().map(move |edit| {
+        LspTextEdit::new(
+            positions.as_ref().map_or_else(
+                || byte_range_to_lsp(source, &edit.range),
+                |positions| positions.byte_range_to_lsp(&edit.range),
+            ),
+            edit.new_text,
+        )
+    })
+}
+
 fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<LspWorkspaceEdit> {
     let has_resource_operations = !edit.resource_operations.is_empty();
     let mut document_edits = Vec::new();
@@ -2617,19 +2619,8 @@ fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<L
         let version = (document.expected_revision > 0)
             .then(|| i32::try_from(document.expected_revision).ok())
             .flatten();
-        let positions = (document.edits.len() > 1).then(|| PositionIndex::new(source));
-        let edits = document
-            .edits
-            .into_iter()
-            .map(|edit| {
-                OneOf::Left(LspTextEdit::new(
-                    positions.as_ref().map_or_else(
-                        || byte_range_to_lsp(source, &edit.range),
-                        |positions| positions.byte_range_to_lsp(&edit.range),
-                    ),
-                    edit.new_text,
-                ))
-            })
+        let edits = text_edits_to_lsp(source, document.edits)
+            .map(OneOf::Left)
             .collect();
         document_edits.push(TextDocumentEdit {
             text_document: OptionalVersionedTextDocumentIdentifier { uri, version },
@@ -2837,6 +2828,60 @@ mod tests {
     use plumb_workspace::StoreError;
 
     use super::*;
+
+    #[test]
+    fn formatting_projections_match_edit_layer_with_utf8_and_crlf() {
+        for ending in ["\n", "\r\n"] {
+            let (_main, client) =
+                async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+            let mut state = ServerState::new(client);
+            let path = "/tmp/plumb-format-projection.plumb";
+            let mut source = String::new();
+            for index in 0..3 {
+                source.push_str(&format!("`note Head {index} \u{1f600}{ending}  `child \u{4e2d}{ending}{ending}Stable {index}{ending}Another {index}{ending}{ending}"));
+            }
+            state.workspace.open_document(path, 1, source.clone());
+            let uri = Url::from_file_path(path).unwrap();
+            let expected = |edits: Vec<plumb_edit::TextEdit>| {
+                edits
+                    .into_iter()
+                    .map(|edit| {
+                        LspTextEdit::new(byte_range_to_lsp(&source, &edit.range), edit.new_text)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let full = expected(
+                plumb_edit::format_green(state.workspace.get(path).unwrap().parsed.green())
+                    .unwrap(),
+            );
+            assert!(full.len() > 1);
+            let params = serde_json::from_value(serde_json::json!({"textDocument":{"uri":uri},"options":{"tabSize":1,"insertSpaces":true}})).unwrap();
+            assert_eq!(
+                futures::FutureExt::now_or_never(state.formatting(params))
+                    .unwrap()
+                    .unwrap()
+                    .unwrap(),
+                full
+            );
+            let selection = 0..source.find("Stable 0").unwrap();
+            let partial = expected(
+                plumb_edit::format_green_contained(
+                    state.workspace.get(path).unwrap().parsed.green(),
+                    selection.clone(),
+                )
+                .unwrap(),
+            );
+            assert!(!partial.is_empty());
+            let params = serde_json::from_value(serde_json::json!({"textDocument":{"uri":uri},"range":byte_range_to_lsp(&source, &selection),"options":{"tabSize":1,"insertSpaces":true}})).unwrap();
+            assert_eq!(
+                futures::FutureExt::now_or_never(state.range_formatting(params))
+                    .unwrap()
+                    .unwrap()
+                    .unwrap(),
+                partial
+            );
+        }
+    }
 
     #[test]
     fn indexed_workspace_edits_preserve_ranges_versions_and_resource_order() {
@@ -3195,6 +3240,44 @@ mod tests {
             publications, 3,
             "initial, pending, and restored context each publish the other document"
         );
+    }
+
+    #[test]
+    #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]
+    fn profile_formatting_response() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let path = "/tmp/plumb-format-profile.plumb";
+        let mut source = String::new();
+        for index in 0..2_000 {
+            source.push_str(&format!(
+                "`note Head {index}\n  `child Body\n\nStable {index}\nAnother stable {index}\n\n"
+            ));
+        }
+        state.workspace.open_document(path, 1, source);
+        let params: DocumentFormattingParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(path).unwrap()},"options":{"tabSize":1,"insertSpaces":true}})).unwrap();
+        let mut run = || {
+            let edits = futures::FutureExt::now_or_never(state.formatting(params.clone()))
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert!(edits.len() >= 2_000, "edits={}", edits.len());
+            serde_json::to_vec(&edits).unwrap()
+        };
+        let expected = run();
+        for _ in 0..3 {
+            std::hint::black_box(run());
+        }
+        let mut samples = Vec::new();
+        for _ in 0..10 {
+            let start = std::time::Instant::now();
+            let bytes = run();
+            samples.push(start.elapsed());
+            assert_eq!(bytes, expected);
+        }
+        samples.sort();
+        eprintln!("formatting_response: changed_subtrees=2000 bytes={} warmup=3 samples=10 median={:?}; includes formatting/diff/projection/json, excludes initial parsing/transport/application", expected.len(), samples[5]);
     }
 
     #[test]
