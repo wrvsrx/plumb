@@ -486,7 +486,7 @@ impl<T: RelativeSemanticRecord> SemanticRecords<T> {
         }
     }
 
-    fn owned_records(&self) -> Option<&[T]> {
+    pub(crate) fn owned_records(&self) -> Option<&[T]> {
         match &self.storage {
             RecordStorage::Owned(records) => Some(records),
             RecordStorage::Empty | RecordStorage::Segmented(_) => None,

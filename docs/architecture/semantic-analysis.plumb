@@ -141,6 +141,17 @@ Quote、Table与document-local diagnostics不属于跨文档exported summary。w
 current invalid syntax仍不进入authoritative semantics，并保留原last-valid provenance；invalid/valid transition即使恢复到
 与last-valid相同的summary也属于exported change，因为invalid current generation期间该output没有workspace authority。
 
+Record delta API 已实现：两个同一 document 的 valid DocumentOutput 可按需比较 document title 与
+Anchor、Link、Task、Event collections。每项变化携带 old/new snapshot 各自的结构地址（node index、local
+record index）及 borrowed typed view；地址只在对应 snapshot 和 record kind 内有意义，不是跨 revision 的
+全局 id，也不得序列化 allocation address。Added 只携带新记录，Removed 只携带旧记录，Changed 同时携带
+两者。相同 syntax shard 的 source-ordered prefix/suffix 与稳定 local record count 可以证明记录对应；
+不能证明对应的 replacement 保守地报告 removed/added，不按 title、explicit id 或 absolute start 猜测。
+duplicate id 仍是不同 source records，不能合并。absolute range 改变必须进入 delta；summary 相等时 delta
+为空。各 kind 的 old/new entries 分别保持 source order，consumer 应先移除全部 old entries 再安装 new entries。
+计算只在显式请求 delta 时发生，普通 revision installation 不额外构建 record diff。borrowed views 属于
+各自 snapshot，不 flatten/clone 整份输出。workspace 对 delta 的消费与细粒度通知收敛仍未实现。
+
 tree replacement的验收 differential compare fresh/incremental semantic revisions，覆盖 metadata context change、
 duplicate id、nested task/event/table、link containment 与 file-start range shift，并证明 unchanged green identity
 命中与 adapter observable output parity。后续 reducer delta验收还必须覆盖 valid/invalid transitions、UTF-8/CRLF、

@@ -634,6 +634,21 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
             )
         })
     });
+    let delta = new_output.exported_semantic_delta(old_output);
+    assert!(!delta.title_changed);
+    assert!(delta.anchors.is_empty() && delta.links.is_empty() && delta.tasks.is_empty());
+    assert_eq!(delta.events.len(), 2);
+    assert!(matches!(
+        delta.events[0],
+        plumb_semantics::SemanticRecordChange::Removed(_)
+    ));
+    assert!(matches!(
+        delta.events[1],
+        plumb_semantics::SemanticRecordChange::Added(_)
+    ));
+    group.bench_function("exported_record_delta", |b| {
+        b.iter(|| black_box(new_output.exported_semantic_delta(old_output)))
+    });
     let warm_start = changed.find("Event 167").unwrap();
     let warm_change = SourceChange {
         old_range: warm_start..warm_start + "Event 167".len(),

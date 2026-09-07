@@ -253,6 +253,11 @@ pub struct ExportedSemanticSummary<'a> {
     output: &'a DocumentOutput,
 }
 
+mod delta;
+pub use delta::{
+    ExportedSemanticDelta, SemanticRecordAddress, SemanticRecordChange, SemanticRecordEntry,
+};
+
 impl PartialEq for ExportedSemanticSummary<'_> {
     fn eq(&self, other: &Self) -> bool {
         document_title_fact(self.output.metadata()) == document_title_fact(other.output.metadata())
