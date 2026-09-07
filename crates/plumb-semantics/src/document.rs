@@ -275,7 +275,7 @@ impl Eq for ExportedSemanticSummary<'_> {}
 
 #[derive(Debug, Clone)]
 pub struct SemanticRoot {
-    anchor_index: OnceLock<HashMap<String, Vec<(usize, usize)>>>,
+    anchor_index: Arc<OnceLock<HashMap<String, Vec<(usize, usize)>>>>,
     tree: Arc<SemanticTree>,
     document_declaration_end: usize,
     heading_nodes: Arc<[usize]>,
@@ -391,7 +391,7 @@ struct RootProjectionIndex {
 impl Default for SemanticRoot {
     fn default() -> Self {
         Self {
-            anchor_index: OnceLock::new(),
+            anchor_index: Arc::new(OnceLock::new()),
             tree: Arc::new(SemanticTree::empty()),
             document_declaration_end: 0,
             heading_nodes: Arc::from([]),
@@ -1070,7 +1070,10 @@ fn analyze_semantic_tree(
 
     Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
-            anchor_index: OnceLock::new(),
+            anchor_index: previous
+                .filter(|_| anchor_ids_rebindable)
+                .map(|previous| Arc::clone(&previous.root.anchor_index))
+                .unwrap_or_default(),
             tree,
             document_declaration_end,
             heading_nodes,
@@ -1167,7 +1170,7 @@ fn rebind_unchanged_document(
 
     Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
-            anchor_index: OnceLock::new(),
+            anchor_index: Arc::clone(&previous.root.anchor_index),
             tree,
             document_declaration_end,
             heading_nodes: Arc::clone(&previous.root.heading_nodes),
@@ -3496,6 +3499,35 @@ mod tests {
                 "link.invalid-target",
             ]
         );
+    }
+
+    #[test]
+    fn incremental_anchor_index_shares_topology_but_projects_current_offsets() {
+        let source = "`node First\n `@ first\n\n`node Second\n `@ second\n";
+        let previous = parse(source);
+        let old = analyze_document(previous.valid_syntax().unwrap());
+        let old_second = old.anchors_named("second");
+        let updated = source.replace("First", "Longer first title");
+        let revision = parse_incremental(&previous, updated.clone());
+        let output = analyze_document_incremental(
+            revision.document.valid_syntax().unwrap(),
+            &old,
+            &DocumentChange {
+                old_range: revision.old_reparsed_range,
+                new_range: revision.reparsed_range,
+            },
+        );
+        assert!(Arc::ptr_eq(
+            &old.root.anchor_index,
+            &output.root.anchor_index
+        ));
+        let fresh = analyze_document(parse(updated).valid_syntax().unwrap());
+        assert_eq!(
+            output.anchors_named("second"),
+            fresh.anchors_named("second")
+        );
+        assert_ne!(output.anchors_named("second"), old_second);
+        assert_eq!(old.anchors_named("second"), old_second);
     }
 
     #[test]
