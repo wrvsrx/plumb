@@ -2701,6 +2701,47 @@ fn analysis_impact_separates_event_and_title_changes_from_task_graph_inputs() {
 }
 
 #[test]
+fn reused_task_context_matches_fresh_diagnostics_after_state_and_layout_edits() {
+    let original = "`- A\n `+ task\n `@ a\n `= depends b.plumb#b\n";
+    for changed in [
+        format!("{original} `= done 2026-09-07T10:00:00+08:00\n"),
+        format!("{original} `= priority 42\n"),
+        format!("Prelude\n\n{original}"),
+        original.replace("`- A", "`- Renamed task"),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("a.plumb", 1, original);
+        workspace.open_document(
+            "b.plumb",
+            1,
+            "`- B\n `+ task\n `@ b\n `= depends a.plumb#a\n",
+        );
+        let cached = workspace.diagnostic_context().unwrap();
+        assert!(!cached.task_dependency_graph.is_empty());
+        let prepared = workspace
+            .begin_document_revision("a.plumb", 2, changed)
+            .unwrap()
+            .analyze();
+        let impact = workspace
+            .install_document_analysis_with_impact(prepared)
+            .unwrap();
+        assert_eq!(impact.exported, ExportedSemanticChange::Changed);
+        assert!(!impact.task_graph_changed);
+        let fresh = workspace.diagnostic_context().unwrap();
+        assert_eq!(cached.task_dependency_graph, fresh.task_dependency_graph);
+        for path in ["a.plumb", "b.plumb"] {
+            let reused = workspace.diagnostics_with_context(path, &cached).unwrap();
+            let rebuilt = workspace.diagnostics_with_context(path, &fresh).unwrap();
+            assert_eq!(reused.value, rebuilt.value);
+            assert!(reused
+                .value
+                .iter()
+                .any(|diagnostic| diagnostic.code == "task.dependency-cycle"));
+        }
+    }
+}
+
+#[test]
 fn diagnostic_context_builds_persistent_cycles_without_decoding_task_records() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store.clone());
