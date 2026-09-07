@@ -190,3 +190,40 @@ final约11.6–12.0 ms包含当前DocumentOutput拥有的最后syntax/local payl
 
 默认构建的semantics/workspace/LSP tests与warning gate通过；feature构建的workspace all-targets（含bench smoke）、
 normal/profile结果一致性、short-circuit及生命周期测试与warning gate通过。此测量只补验收阶段边界，不引入新的性能优化。
+
+`# Definition and metadata separation
+
+2026-09-07/08在同一pba环境、Cargo release profile重新运行上述mixed-2000 workload，比较基线`"88cf7c0"与
+`"16e014e"。fixture、SHA-256、5次warmup/30个samples、normal/profile交替采样和生命周期定义均不变；
+两版依次运行，采样时没有并行构建。复跑命令仍为上述production stage profile，不用单独简化的metadata微基准代替。
+
+Definition从`"MetadataOutput"拆出，局部relative facts按syntax shard共享，分组拓扑独立绑定current semantic tree；
+文档存在definition不再禁止metadata复用。Metadata自身通过Arc共享，definition变化不参与Event上下文比较，
+也不再触发metadata fold label失效。Definition局部分析计入local stage、分组计入document reduction，未从计时路径省略。
+
+以下每格为p50/p95；metadata/context单位us、来自profile入口，其余单位ms、来自normal入口。
+
+`table
+ `- Case Stage Before After
+  `+ header
+ `- Event/shared Metadata/context 1030.522/1135.183 16.787/21.690
+ `- Event/shared {Semantic total} 1.710/1.828 0.580/0.626
+ `- Event/shared {Complete pipeline} 8.847/9.363 7.068/7.714
+ `- Equal/shared Metadata/context 1025.202/1085.907 16.294/17.609
+ `- Equal/shared {Semantic total} 1.403/1.479 0.360/0.402
+ `- Equal/shared {Complete pipeline} 8.312/8.573 7.022/7.234
+ `- Event/final Metadata/context 1024.654/1086.964 16.378/18.147
+ `- Event/final {Semantic total} 1.661/1.756 0.580/0.614
+ `- Event/final {Complete pipeline} 20.418/21.096 18.949/19.371
+ `- Equal/final Metadata/context 1031.610/1096.120 16.336/17.624
+ `- Equal/final {Semantic total} 1.402/1.462 0.356/0.382
+ `- Equal/final {Complete pipeline} 19.929/20.318 18.308/18.971
+
+Event/shared语义分析p50下降约66%，该完整消费路径下降约20%；Equal/shared分别下降约74%和16%。
+这些是单机样本观察，不是保证；完整路径仍包含指定owned projection与释放新revision、保留旧revision的成本，
+不是普通LSP request或按键延迟。未改变最后版本teardown策略，也未把projection提速作为本次实现的独立保证。
+
+独立回归验证metadata Arc共享、definition局部facts和group topology共享、未变化Event node复用，及metadata日期改变
+仍更新Event却保留definition局部结果。删除/分裂/合并、嵌套与跨metadata分组、Unicode/CRLF位移分别与standalone
+definition analysis及fresh DocumentOutput比较；export和Folding的真实consumer对照通过。默认workspace all-targets
+及bench smoke通过，另行验证新增export用例、profile parity/lifetime、默认与feature warning gates。
