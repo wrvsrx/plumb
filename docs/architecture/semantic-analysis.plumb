@@ -337,6 +337,12 @@ diagnostic scope 替代其依赖边界。
 context，但不得将该 context 缓存供后续 revision 复用。pending 文档完成后，即使 exported summary 未变化，
 若没有可复用 context，也必须重新发布所有 open documents 的 diagnostics，恢复期间缺失的跨文档依赖事实。
 
+Pending publication cache rule 已实现：上述限制同样适用于此前已缓存的完整 context。任何单文档或
+批量 semantic diagnostic publication 发现有效 pending document 时，先清除旧缓存，再用当前可用 facts
+构造不缓存的临时 context；不能因缓存来自较早的完整 revision 就继续保留。所有 pending analysis 完成后，
+即使最后一次安装只改变 Event 或 exported summary 相等，也必须恢复全量诊断，清除期间的临时 unresolved
+等结果。只发布 syntax diagnostics 不需要建立 context。
+
 diagnostic 是可定位的 source problem；query failure 是请求无法完成；cancellation 不是 failure； runtime failure 不应伪装成 source diagnostic。
 
 syntax diagnostics 由 `"plumb-syntax" 拥有；semantic profile diagnostics 由 `"plumb-semantics" 拥有； 跨文档 resolution、identity 与 dependency diagnostics 由 `"plumb-workspace" 拥有。adapter 不重新解释 或复制这些 rules。

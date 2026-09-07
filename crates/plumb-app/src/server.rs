@@ -314,49 +314,43 @@ impl ServerState {
         self.publish_all_open_diagnostics_reusing_context();
     }
 
-    fn publish_all_open_diagnostics_reusing_context(&mut self) {
+    fn diagnostic_publication_context(&mut self) -> Option<Arc<WorkspaceDiagnosticContext>> {
+        let pending = self
+            .workspace
+            .documents()
+            .any(|entry| entry.parsed.is_valid() && entry.current.is_none());
+        // Partial publication needs recovery even if the eventual exported facts are equal.
+        if pending {
+            self.diagnostic_context = None;
+        }
         let context = match &self.diagnostic_context {
             Some(context) => Arc::clone(context),
             None => match self.workspace.diagnostic_context() {
                 Ok(context) => Arc::new(context),
                 Err(error) => {
                     tracing::error!(%error, "workspace diagnostic context query failed");
-                    return;
+                    return None;
                 }
             },
         };
-        if !self
-            .workspace
-            .documents()
-            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
-        {
+        if !pending {
             self.diagnostic_context = Some(Arc::clone(&context));
         }
+        Some(context)
+    }
+
+    fn publish_all_open_diagnostics_reusing_context(&mut self) {
+        let Some(context) = self.diagnostic_publication_context() else {
+            return;
+        };
         for (uri, path) in &self.open_documents {
             self.publish(uri, path, context.as_ref());
         }
     }
 
     fn publish_open_document_diagnostics(&mut self, path: &Path) {
-        let context = match &self.diagnostic_context {
-            Some(context) => Arc::clone(context),
-            None => match self.workspace.diagnostic_context() {
-                Ok(context) => {
-                    let context = Arc::new(context);
-                    if !self
-                        .workspace
-                        .documents()
-                        .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
-                    {
-                        self.diagnostic_context = Some(Arc::clone(&context));
-                    }
-                    context
-                }
-                Err(error) => {
-                    tracing::error!(%error, "workspace diagnostic context query failed");
-                    return;
-                }
-            },
+        let Some(context) = self.diagnostic_publication_context() else {
+            return;
         };
         let Some((uri, _)) = self
             .open_documents
@@ -3116,6 +3110,47 @@ mod tests {
     }
 
     #[test]
+    fn pending_publication_does_not_reuse_a_previously_complete_cycle_graph() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let a = "/tmp/plumb-cycle-a.plumb";
+        let b = "/tmp/plumb-cycle-b.plumb";
+        let source_b = "`- B\n `+ task\n `@ b\n `= depends plumb-cycle-a.plumb#a\n";
+        state.workspace.open_document(
+            a,
+            1,
+            "`- A\n `+ task\n `@ a\n `= depends plumb-cycle-b.plumb#b\n",
+        );
+        state.workspace.open_document(b, 1, source_b);
+        state.publish_all_open_diagnostics();
+        let cached = state.diagnostic_context.clone().unwrap();
+        let _pending = state
+            .workspace
+            .begin_document_revision(b, 2, source_b)
+            .unwrap();
+        let temporary = state.diagnostic_publication_context().unwrap();
+        assert!(state.diagnostic_context.is_none());
+        assert!(!Arc::ptr_eq(&cached, &temporary));
+        let stale = state
+            .workspace
+            .diagnostics_with_context(a, &cached)
+            .unwrap();
+        assert!(stale
+            .value
+            .iter()
+            .any(|diagnostic| diagnostic.code == "task.dependency-cycle"));
+        let current = state
+            .workspace
+            .diagnostics_with_context(a, &temporary)
+            .unwrap();
+        assert!(!current
+            .value
+            .iter()
+            .any(|diagnostic| diagnostic.code == "task.dependency-cycle"));
+    }
+
+    #[test]
     fn pending_publication_does_not_cache_incomplete_dependency_context() {
         let (_main, client) =
             async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
@@ -3154,80 +3189,102 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn event_only_completion_republishes_all_documents_after_context_was_lost() {
-        use std::io::{BufRead, Read};
-        struct Run;
-        struct Stop;
-        let (server, client) = async_lsp::MainLoop::new_server(|client| {
-            let completion = client.clone();
-            let mut router = async_lsp::router::Router::new(ServerState::new(client));
-            router.event::<Run>(move |state, _| {
-                let path = PathBuf::from("/tmp/plumb-context-event.plumb");
-                let other = PathBuf::from("/tmp/plumb-context-other.plumb");
-                let source = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
-                for (path, text) in [(&path, source), (&other, "Other\n")] {
-                    state.workspace.open_document(path, 1, text);
-                    state
-                        .open_documents
-                        .insert(Url::from_file_path(path).unwrap(), path.clone());
-                }
-                state.publish_all_open_diagnostics();
-                assert!(state.diagnostic_context.is_some());
-                let (_, generation) = state.document_analysis_tokens.next(&path);
-                let pending = state
-                    .workspace
-                    .begin_document_revision(&path, 2, source.replace("Old", "New"))
-                    .unwrap();
-                state.publish_all_open_diagnostics();
-                assert!(state.diagnostic_context.is_none());
-                let result = state.finish_document_analysis(DocumentAnalysisResult {
-                    path,
-                    generation,
-                    analysis: Ok(pending.analyze()),
+    async fn completion_clears_temporary_diagnostics_after_every_pending_publication_path() {
+        async fn run(scope: usize, title: &'static str) {
+            use std::io::{BufRead, Read};
+            struct Run;
+            struct Stop;
+            let (server, client) = async_lsp::MainLoop::new_server(|client| {
+                let completion = client.clone();
+                let mut router = async_lsp::router::Router::new(ServerState::new(client));
+                router.event::<Run>(move |state, _| {
+                    let path = PathBuf::from("/tmp/plumb-context-event.plumb");
+                    let other = PathBuf::from("/tmp/plumb-context-other.plumb");
+                    let source = "`- 2026-09-07T10:00:00Z Old\n `+ event\n `@ event\n";
+                    for (path, text) in [
+                        (&path, source),
+                        (&other, "See `->{plumb-context-event.plumb#event}\n"),
+                    ] {
+                        state.workspace.open_document(path, 1, text);
+                        state
+                            .open_documents
+                            .insert(Url::from_file_path(path).unwrap(), path.clone());
+                    }
+                    state.publish_all_open_diagnostics();
+                    assert!(state.diagnostic_context.is_some());
+                    let (_, generation) = state.document_analysis_tokens.next(&path);
+                    let pending = state
+                        .workspace
+                        .begin_document_revision(&path, 2, source.replace("Old", title))
+                        .unwrap();
+                    match scope {
+                        0 => state.publish_all_open_diagnostics(),
+                        1 => state.publish_all_open_diagnostics_reusing_context(),
+                        2 => state.publish_open_document_diagnostics(&other),
+                        _ => unreachable!(),
+                    }
+                    let result = state.finish_document_analysis(DocumentAnalysisResult {
+                        path,
+                        generation,
+                        analysis: Ok(pending.analyze()),
+                    });
+                    assert!(state.diagnostic_context.is_some());
+                    completion.emit(Stop).unwrap();
+                    result
                 });
-                assert!(state.diagnostic_context.is_some());
-                completion.emit(Stop).unwrap();
-                result
+                router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+                router
             });
-            router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
-            router
-        });
-        client.emit(Run).unwrap();
-        let mut output = Vec::new();
-        tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            server.run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        let mut input = std::io::Cursor::new(output);
-        let mut publications = 0;
-        while input.position() < input.get_ref().len() as u64 {
-            let mut header = String::new();
-            input.read_line(&mut header).unwrap();
-            let length: usize = header
-                .trim()
-                .strip_prefix("Content-Length: ")
+            client.emit(Run).unwrap();
+            let mut output = Vec::new();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                server.run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            let mut input = std::io::Cursor::new(output);
+            let mut publications = Vec::new();
+            while input.position() < input.get_ref().len() as u64 {
+                let mut header = String::new();
+                input.read_line(&mut header).unwrap();
+                let length: usize = header
+                    .trim()
+                    .strip_prefix("Content-Length: ")
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let mut separator = [0; 2];
+                input.read_exact(&mut separator).unwrap();
+                assert_eq!(&separator, b"\r\n");
+                let mut body = vec![0; length];
+                input.read_exact(&mut body).unwrap();
+                let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                if message["method"] == "textDocument/publishDiagnostics"
+                    && message["params"]["uri"] == "file:///tmp/plumb-context-other.plumb"
+                {
+                    publications.push(message["params"]["diagnostics"].clone());
+                }
+            }
+            assert_eq!(publications[0], serde_json::json!([]));
+            assert!(publications[1]
+                .as_array()
                 .unwrap()
-                .parse()
-                .unwrap();
-            let mut separator = [0; 2];
-            input.read_exact(&mut separator).unwrap();
-            assert_eq!(&separator, b"\r\n");
-            let mut body = vec![0; length];
-            input.read_exact(&mut body).unwrap();
-            let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            if message["method"] == "textDocument/publishDiagnostics"
-                && message["params"]["uri"] == "file:///tmp/plumb-context-other.plumb"
-            {
-                publications += 1;
+                .iter()
+                .any(|diagnostic| diagnostic["code"] == "link.unresolved-anchor"));
+            assert_eq!(
+                publications.last().unwrap(),
+                &serde_json::json!([]),
+                "scope={scope} title={title}: recovery must clear the temporary unresolved warning"
+            );
+            assert_eq!(publications.len(), 3);
+        }
+        for scope in 0..3 {
+            for title in ["Old", "New"] {
+                run(scope, title).await;
             }
         }
-        assert_eq!(
-            publications, 3,
-            "initial, pending, and restored context each publish the other document"
-        );
     }
 
     #[test]
