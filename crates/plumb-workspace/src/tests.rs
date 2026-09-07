@@ -2742,6 +2742,25 @@ fn reused_task_context_matches_fresh_diagnostics_after_state_and_layout_edits() 
 }
 
 #[test]
+fn idless_dependencies_do_not_enter_cycle_graph_but_still_report_resolution_errors() {
+    let mut workspace = Workspace::new();
+    workspace.open_document(
+        "idless.plumb",
+        1,
+        "`- Idless\n `+ task\n `= depends #missing\n",
+    );
+    let context = workspace.diagnostic_context().unwrap();
+    assert!(context.task_dependency_graph.is_empty());
+    let diagnostics = workspace
+        .diagnostics_with_context("idless.plumb", &context)
+        .unwrap();
+    assert!(diagnostics
+        .value
+        .iter()
+        .any(|diagnostic| diagnostic.code == "task.unresolved-anchor"));
+}
+
+#[test]
 fn diagnostic_context_builds_persistent_cycles_without_decoding_task_records() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store.clone());

@@ -564,18 +564,19 @@ impl Workspace {
                     .or_default() += 1;
             }
             for task in current.output.tasks().tasks.views() {
+                let Some(id) = task.id_value() else {
+                    continue;
+                };
                 let key = StoredTaskKey {
                     path: entry.path.clone(),
                     start: task.range().start,
                 };
-                if let Some(id) = task.id_value() {
-                    let task_ref = TaskRef {
-                        path: entry.path.clone(),
-                        id: id.to_owned(),
-                    };
-                    *task_counts.entry(task_ref.clone()).or_default() += 1;
-                    task_by_key.insert(key.clone(), task_ref);
-                }
+                let task_ref = TaskRef {
+                    path: entry.path.clone(),
+                    id: id.to_owned(),
+                };
+                *task_counts.entry(task_ref.clone()).or_default() += 1;
+                task_by_key.insert(key.clone(), task_ref);
                 for dependency in task.dependency_targets() {
                     if let Some(target) = dependency_task_ref(&entry.path, dependency) {
                         relations.push((key.clone(), target));
