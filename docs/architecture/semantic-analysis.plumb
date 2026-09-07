@@ -253,11 +253,16 @@ Link selection与target source、task prev/depends与event tasks。Link target�
 pending恢复的合并规则继续适用。
 
 CodeLens reference-input invalidation 已实现：document title及event的日期、时区、时间、title/details变化
-本身不影响引用。workspace impact独立报告reference inputs是否变化：Anchor、Link与Task records仍保守完整比较；
+本身不影响引用。workspace impact独立报告reference inputs是否变化：Anchor、Link records仍保守完整比较；
 Event仅比较owner range、tasks override与显式task references的source、target及range，保留implicit Link containment。
 LSP将该结果与source position变化及既有pending恢复需求合并；不能因当前revision的引用输入未变而丢弃其它
 pending document留下的恢复请求。无previous current-valid输出、invalid/valid与文件生命周期路径继续保守刷新。
 该边界不用于Folding：其本文件structure、metadata/Event labels及跨文件task workflow依赖不同。
+
+Task reference-input refinement 已实现：Task比较owner range、id、prev value、depends source/target与所有引用
+absolute ranges；record数量/顺序改变保守视为变化。id及Task membership保留implicit event-task关联的目标类型判断，
+Anchor比较继续保护duplicate id与解析唯一性。状态、时间、priority和title不参与引用关系；只有引用输入与source
+positions均未变时才免除CodeLens refresh。添加字段导致range改变仍允许保守刷新，Folding/diagnostics继续使用自身依赖。
 
 current-valid semantic output pending 时，`"textDocument/semanticTokens/full" 异步等待同一 document revision 已在运行的
 analysis 安装，再返回该 revision 的 tokens；不能把暂时 pending 投影为 `"null" 或空 tokens。客户端需要

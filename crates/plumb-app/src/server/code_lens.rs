@@ -135,6 +135,29 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "manual task reference-input comparison profile"]
+    fn profile_task_reference_input_comparison() {
+        let source = "`- Task\n `+ task\n `@ task\n `= wait 2099-01-01T00:00:00Z\n `= prev target.plumb#task\n `= depends target.plumb#task\n\n".repeat(2000);
+        let previous = output(&source);
+        let current = output(&source.replace("wait", "done"));
+        let started = std::time::Instant::now();
+        for _ in 0..1000 {
+            assert!(std::hint::black_box(
+                previous
+                    .tasks()
+                    .tasks
+                    .views()
+                    .zip(current.tasks().tasks.views())
+                    .all(|(old, new)| old.reference_inputs_equal(new))
+            ));
+        }
+        eprintln!(
+            "task reference input comparison: {:?}/call, 2000 tasks with prev/depends",
+            started.elapsed() / 1000
+        );
+    }
+
+    #[test]
     #[ignore = "manual event reference-input comparison profile"]
     fn profile_event_reference_input_comparison() {
         let source = format!(

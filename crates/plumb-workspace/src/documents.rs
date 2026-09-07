@@ -218,7 +218,14 @@ impl Workspace {
                 };
                 let reference_inputs_changed = kinds.anchors
                     || kinds.links
-                    || kinds.tasks
+                    || (kinds.tasks
+                        && (previous.tasks().tasks.len() != analysis.output.tasks().tasks.len()
+                            || !previous
+                                .tasks()
+                                .tasks
+                                .views()
+                                .zip(analysis.output.tasks().tasks.views())
+                                .all(|(old, new)| old.reference_inputs_equal(new))))
                     || (kinds.events
                         && (previous.events().events.len()
                             != analysis.output.events().events.len()

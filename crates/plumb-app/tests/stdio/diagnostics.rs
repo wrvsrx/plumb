@@ -95,7 +95,8 @@ fn task_state_publication_uses_proven_identity_and_conservative_full_replacement
 
 #[test]
 fn exported_record_delta_refreshes_only_affected_consumers() {
-    fn settle_refreshes(session: &mut LspTestSession, initial: bool) {
+    fn settle_refreshes(session: &mut LspTestSession, initial: bool) -> Vec<serde_json::Value> {
+        let mut ids = Vec::new();
         for method in [
             "workspace/codeLens/refresh",
             "workspace/foldingRange/refresh",
@@ -106,14 +107,23 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
                 session.wait_for_next(|message| message["method"] == method)
             };
             session.send(&json!({"jsonrpc":"2.0","id":request["id"],"result":null}));
+            ids.push(request["id"].clone());
         }
+        ids
     }
-    let initial = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
-    for (changed, dependent_publications, code_lens_refreshes) in [
-        (initial.replace("Old", "New"), 0, 0),
-        (initial.replace("10:00", "11:00"), 0, 0),
-        (format!("{initial} `@ target\n"), 1, 1),
-        ("`- Task\n `+ task\n".to_owned(), 0, 1),
+    let event = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
+    let task = "`- Task\n `+ task\n `@ target\n `= wait 2099-01-01T00:00:00Z\n";
+    let canceled = "`- Task\n `+ task\n `@ target\n `= canceled 2026-09-07T00:00:00Z\n";
+    for (initial, changed, dependent_publications, code_lens_refreshes) in [
+        (event, event.replace("Old", "New"), 0, 0),
+        (event, event.replace("10:00", "11:00"), 0, 0),
+        (event, format!("{event} `@ target\n"), 1, 1),
+        (event, "`- Task\n `+ task\n".to_owned(), 0, 1),
+        (task, task.replace("wait", "done"), 1, 0),
+        (task, task.replace("2099", "2098"), 1, 0),
+        (task, task.replace("Task", "Next"), 1, 0),
+        (canceled, canceled.replace("09-07", "09-08"), 1, 0),
+        (task, task.replace("`+ task", "`+ nope"), 1, 1),
     ] {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
@@ -134,16 +144,29 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
         session.wait_for(|message| {
             message["method"] == "$/progress" && message["params"]["value"]["kind"] == "end"
         });
-        settle_refreshes(&mut session, true);
+        let mut previous_refresh_ids = settle_refreshes(&mut session, true);
         for (uri, text) in [(&uri, initial), (&other, "See `->{event.plumb#target}\n")] {
             session.send(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":text}}}));
-            settle_refreshes(&mut session, false);
+            previous_refresh_ids.extend(settle_refreshes(&mut session, false));
         }
         session.send(&json!({"jsonrpc":"2.0","id":10,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":uri}}}));
         session.wait_for_response(&json!(10));
         session.send(&json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":changed}]}}));
         session.send(&json!({"jsonrpc":"2.0","id":11,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":uri}}}));
         assert!(session.wait_for_response(&json!(11))["result"]["data"].is_array());
+        // Refresh requests are spawned independently of the semantic read response.
+        for (method, expected) in [
+            ("workspace/codeLens/refresh", code_lens_refreshes),
+            ("workspace/foldingRange/refresh", 1),
+        ] {
+            if expected != 0 {
+                let request = session.wait_for(|message| {
+                    message["method"] == method && !previous_refresh_ids.contains(&message["id"])
+                });
+                session.send(&json!({"jsonrpc":"2.0","id":request["id"],"result":null}));
+            }
+        }
+        session.observe_for(std::time::Duration::from_millis(50));
         session.send(&json!({"jsonrpc":"2.0","id":99,"method":"shutdown","params":null}));
         session.wait_for_response(&json!(99));
         session.send(&json!({"jsonrpc":"2.0","method":"exit","params":null}));
@@ -181,7 +204,8 @@ fn exported_record_delta_refreshes_only_affected_consumers() {
                     code_lens_refreshes
                 } else {
                     1
-                }
+                },
+                "method={method} source={changed}"
             );
         }
         std::fs::remove_dir_all(root).unwrap();

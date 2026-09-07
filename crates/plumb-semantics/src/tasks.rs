@@ -89,6 +89,24 @@ impl TaskRecord {
 }
 
 impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
+    /// Identity/type presence and source-backed outgoing reference inputs, not workflow state.
+    pub fn reference_inputs_equal(self, other: crate::SemanticRecordView<'_, TaskRecord>) -> bool {
+        self.range() == other.range()
+            && self.id_value() == other.id_value()
+            && self.previous_value() == other.previous_value()
+            && self
+                .record
+                .depends
+                .iter()
+                .map(|dependency| (&dependency.source, &dependency.target))
+                .eq(other
+                    .record
+                    .depends
+                    .iter()
+                    .map(|dependency| (&dependency.source, &dependency.target)))
+            && self.reference_ranges().eq(other.reference_ranges())
+    }
+
     pub fn reference_ranges(self) -> impl Iterator<Item = Range<usize>> + 'a {
         let offset = self.offset;
         self.record

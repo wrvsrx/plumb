@@ -39,5 +39,6 @@
  的client合并请求，语义相等时也恢复；syntax-only查询及refresh不延迟。pending恢复路径已验证，仍需独立检查
  哪些exported facts及source position变化实际需要CodeLens/Folding refresh。CodeLens已独立检查source geometry，
  并跳过不改变引用输入及位置的document title/Event presentation更新；event range、tasks override与显式引用
- 继续参与判定，pending恢复需求不受该筛选影响。Anchor/Link/Task仍保守比较完整records；Folding依赖边界
- 仍待细化，不能复用CodeLens的reference-input gate。
+ 继续参与判定，pending恢复需求不受该筛选影响。Task现同样跳过引用输入与位置未变的title/state/time/priority
+ 更新，保留owner range、id/type membership、prev/depends source/target/ranges；duplicate anchors仍由完整Anchor
+ 比较保护。Anchor/Link仍保守比较完整records；Folding依赖边界仍待细化，不能复用CodeLens的reference-input gate。

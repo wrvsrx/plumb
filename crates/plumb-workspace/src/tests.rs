@@ -2794,6 +2794,64 @@ fn record_delta_limits_dependent_diagnostics_but_preserves_recovery_and_revision
 }
 
 #[test]
+fn task_reference_impact_ignores_workflow_but_preserves_identity_and_outgoing_references() {
+    let old = "`- Main\n `+ task\n `@ main\n `= created 2026-09-07T10:00:00Z\n `= due 2026-09-08T10:00:00Z\n `= wait 2099-01-01T00:00:00Z\n `= priority 1\n `= prev target.plumb#task\n `= depends target.plumb#task\n";
+    for (new, expected) in [
+        (old.replace("Main", "Next"), false),
+        (old.replace("`= wait", "`= done"), false),
+        (old.replace("09-07", "09-06"), false),
+        (old.replace("09-08", "09-09"), false),
+        (old.replace("priority 1", "priority 2"), false),
+        (old.replace("`@ main", "`@ else"), true),
+        (old.replace("`+ task", "`+ nope"), true),
+        (
+            old.replace("prev target.plumb#task", "prev target.plumb#else"),
+            true,
+        ),
+        (
+            old.replace("depends target.plumb#task", "depends target.plumb#else"),
+            true,
+        ),
+        (old.replace("Main", "Longer"), true),
+        (format!("{old}\n`node\n `@ main\n"), true),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("target.plumb", 1, "`- Task\n `+ task\n `@ task\n");
+        workspace.open_document("task.plumb", 1, old);
+        workspace.open_document(
+            "event.plumb",
+            1,
+            "`- 2026-09-07T10:00:00Z Event\n `+ event\n\n See `->{label task.plumb#main}\n",
+        );
+        let ids = HashSet::from(["task".to_owned(), "main".to_owned()]);
+        let before = ["target.plumb", "task.plumb"].map(|path| {
+            workspace
+                .reverse_references_for_document(path, &ids)
+                .unwrap()
+                .value
+        });
+        let analysis = workspace
+            .begin_document_revision("task.plumb", 2, new.clone())
+            .unwrap()
+            .analyze();
+        let impact = workspace
+            .install_document_analysis_with_impact(analysis)
+            .unwrap();
+        assert_eq!(impact.exported, ExportedSemanticChange::Changed);
+        assert_eq!(impact.reference_inputs_changed, expected, "{new}");
+        if !expected {
+            let after = ["target.plumb", "task.plumb"].map(|path| {
+                workspace
+                    .reverse_references_for_document(path, &ids)
+                    .unwrap()
+                    .value
+            });
+            assert_eq!(before, after, "{new}");
+        }
+    }
+}
+
+#[test]
 fn reference_impact_preserves_implicit_event_link_containment_and_override() {
     let old = "`- 2026-09-07T10:00:00Z Old\n `+ event\n `= other target.plumb#else\n\n See `->{label target.plumb#task}\n";
     for (new, expected) in [

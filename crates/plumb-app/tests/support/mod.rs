@@ -141,6 +141,19 @@ impl LspTestSession {
         self.wait_for(|message| message.get("method").is_none() && message.get("id") == Some(id))
     }
 
+    pub fn observe_for(&mut self, duration: Duration) {
+        let deadline = std::time::Instant::now() + duration;
+        while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+            match self.receiver.recv_timeout(remaining) {
+                Ok(message) => self.output.push(message),
+                Err(RecvTimeoutError::Timeout) => return,
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("LSP stdout closed during observation")
+                }
+            }
+        }
+    }
+
     pub fn wait_for_pending_responses(&mut self) {
         let pending = std::mem::take(&mut self.pending_response_ids);
         for id in pending {
