@@ -6,6 +6,96 @@ use crate::support::{
 };
 
 #[test]
+#[ignore = "manual end-to-end latency profile; run with --release --ignored --nocapture"]
+fn profile_metadata_edit_decoration_latency() {
+    use std::time::Instant;
+
+    let uri = "file:///tmp/plumb-decoration-profile.plumb";
+    let mut source = "`= date 2026-09-05\n`= timezone +08:00\n\n".to_owned();
+    for index in 0..2000 {
+        source.push_str(&format!("`- 14:30--15:15 Event {index}\n `+ event\n\n"));
+    }
+    source.push_str("`- Completed\n `+ task\n `= done 2026-09-05T00:00:00Z\n");
+    let mut session = LspTestSession::new();
+    session.send(&json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": { "processId": null, "rootUri": null, "capabilities": {
+            "textDocument": { "foldingRange": {
+                "foldingRange": { "collapsedText": true }
+            }}
+        }}
+    }));
+    session.wait_for_response(&json!(1));
+    session.send(&json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+    session.send(&json!({
+        "jsonrpc":"2.0","method":"textDocument/didOpen",
+        "params":{"textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":source}}
+    }));
+    session.send(&json!({
+        "jsonrpc":"2.0","id":2,"method":"textDocument/foldingRange",
+        "params":{"textDocument":{"uri":uri}}
+    }));
+    assert!(session.wait_for_response(&json!(2))["result"].is_array());
+    let mut samples = Vec::new();
+    let mut response_bytes = 0;
+    for iteration in 0..55 {
+        let date = if iteration % 2 == 0 {
+            "2026-09-06"
+        } else {
+            "2026-09-05"
+        };
+        let folding_id = 10 + iteration * 2;
+        let tokens_id = folding_id + 1;
+        let edit = json!({
+            "jsonrpc":"2.0","method":"textDocument/didChange",
+            "params":{"textDocument":{"uri":uri,"version":iteration + 2},"contentChanges":[{
+                "range":{"start":{"line":0,"character":8},"end":{"line":0,"character":18}},
+                "text":date
+            }]}
+        });
+        let started = Instant::now();
+        session.send(&edit);
+        for (id, method) in [
+            (folding_id, "textDocument/foldingRange"),
+            (tokens_id, "textDocument/semanticTokens/full"),
+        ] {
+            session.send(&json!({"jsonrpc":"2.0","id":id,"method":method,"params":{"textDocument":{"uri":uri}}}));
+        }
+        let folding = session.wait_for_response(&json!(folding_id));
+        let tokens = session.wait_for_response(&json!(tokens_id));
+        let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+        let labels = folding["result"]
+            .as_array()
+            .expect("current revision folds");
+        let expected = format!("`- {date}T14:30--15:15 Event ");
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|range| range["collapsedText"]
+                    .as_str()
+                    .is_some_and(|label| label.starts_with(&expected)))
+                .count(),
+            2000
+        );
+        assert!(!tokens["result"]["data"]
+            .as_array()
+            .expect("semantic tokens")
+            .is_empty());
+        if iteration >= 5 {
+            samples.push(elapsed);
+        }
+        response_bytes = serde_json::to_vec(&folding).unwrap().len()
+            + serde_json::to_vec(&tokens).unwrap().len();
+    }
+    samples.sort_by(f64::total_cmp);
+    eprintln!("metadata edit -> both decorations: events=2000 warmup=5 samples={} p50_ms={:.3} p95_ms={:.3} max_ms={:.3} response_json_bytes={response_bytes}; includes stdio/test-client decode, excludes editor rendering", samples.len(), samples[24], samples[47], samples[49]);
+    session.send(&json!({"jsonrpc":"2.0","id":999,"method":"shutdown","params":null}));
+    session.wait_for_response(&json!(999));
+    session.send(&json!({"jsonrpc":"2.0","method":"exit","params":null}));
+    session.finish();
+}
+
+#[test]
 fn labels_individual_metadata_entry_folds() {
     let uri = "file:///tmp/metadata-fold-label.plumb";
     let source = "`= title\n\n 项目 Overview\n\n`= created\n\n 2026-08-05T03:46:54+08:00\n\n`= tags\n `+ plumb\n";
