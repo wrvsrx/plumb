@@ -2051,19 +2051,17 @@ impl Workspace {
                 }
             }
             for dependency in &task.depends {
-                if let Some(diagnostic) = self.task_target_diagnostic(
-                    path,
+                let resolution = self.resolve_task_target(path, &dependency.target)?;
+                if let Some(diagnostic) = Self::task_resolution_diagnostic(
+                    &resolution,
                     &dependency.source,
                     &dependency.range,
-                    &dependency.target,
                     "dependency",
-                )? {
+                ) {
                     diagnostics.push(diagnostic);
                     continue;
                 }
-                if let TaskTargetResolution::Task { target, .. } =
-                    self.resolve_task_target(path, &dependency.target)?
-                {
+                if let TaskTargetResolution::Task { target, .. } = resolution {
                     if own_ref.as_ref() == Some(&target) {
                         diagnostics.push(Diagnostic {
                             code: "task.self-dependency",
@@ -2201,8 +2199,22 @@ impl Workspace {
         target: &TaskReferenceTarget,
         role: &str,
     ) -> Result<Option<Diagnostic>, WorkspaceQueryError> {
-        let (code, message) = match self.resolve_task_target(from, target)? {
-            TaskTargetResolution::Task { .. } => return Ok(None),
+        Ok(Self::task_resolution_diagnostic(
+            &self.resolve_task_target(from, target)?,
+            source,
+            range,
+            role,
+        ))
+    }
+
+    fn task_resolution_diagnostic(
+        resolution: &TaskTargetResolution,
+        source: &str,
+        range: &std::ops::Range<usize>,
+        role: &str,
+    ) -> Option<Diagnostic> {
+        let (code, message) = match resolution {
+            TaskTargetResolution::Task { .. } => return None,
             TaskTargetResolution::Invalid => (
                 "task.invalid-target",
                 format!("invalid task {role} target '{source}'"),
@@ -2224,13 +2236,13 @@ impl Workspace {
                 format!("anchor '#{id}' does not identify a task"),
             ),
         };
-        Ok(Some(Diagnostic {
+        Some(Diagnostic {
             code,
             severity: DiagnosticSeverity::Warning,
             message,
             range: range.clone(),
             related: Vec::new(),
-        }))
+        })
     }
 
     pub fn anchor_rename_target_at(
