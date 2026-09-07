@@ -57,7 +57,18 @@ fn labels_individual_metadata_entry_folds() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let ranges = response(&run_server(&messages), 2)["result"]
+    let mut session = LspTestSession::new();
+    session.send_all(&messages[..4]);
+    session.wait_for_response(&json!(2));
+    session.send_all(&messages[4..6]);
+    session.wait_for_response(&json!(3));
+    session.send_all(&messages[6..8]);
+    session.wait_for_response(&json!(4));
+    session.send_all(&messages[8..9]);
+    session.wait_for_response(&json!(5));
+    session.send_all(&messages[9..]);
+    let output = session.finish();
+    let ranges = response(&output, 2)["result"]
         .as_array()
         .unwrap()
         .to_vec();
@@ -68,13 +79,13 @@ fn labels_individual_metadata_entry_folds() {
         .iter()
         .any(|range| range["collapsedText"] == "created  2026-08-05T03:46:54+08:00"));
     assert!(ranges.iter().any(|range| range["collapsedText"] == "tags"));
-    let changed_range = response(&run_server(&messages), 3)["result"][0].clone();
+    let changed_range = response(&output, 3)["result"][0].clone();
     assert_eq!(changed_range["startLine"], 0);
     assert_eq!(changed_range["endLine"], 1);
     assert!(
         changed_range.get("collapsedText").is_none() || changed_range["collapsedText"] == "tags"
     );
-    assert!(response(&run_server(&messages), 4)["result"]
+    assert!(response(&output, 4)["result"]
         .as_array()
         .unwrap()
         .iter()
