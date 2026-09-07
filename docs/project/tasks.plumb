@@ -24,5 +24,8 @@
  `->{{performance checkpoint} ../history/performance/incremental-parsing-2026-09.plumb}；上面的数值是早期验收快照，
  不代表所有后续版本的最新结果。按需exported record delta API已实现，使用old/new snapshot各自的结构地址
  与borrowed typed views，支持Anchor、Link、Task、Event的added/removed及可证明对应的changed记录；重复id不合并，
- range shift仍报告变化。核心重建测试覆盖valid edits与fresh/incremental parity。workspace尚未消费该delta，
- 仍需接入跨文件失效与通知收敛，并验证invalid/valid transition及多个pending revisions的publication行为。
+ range shift仍报告变化。核心重建测试覆盖valid edits与fresh/incremental parity。workspace现消费与delta一致的
+ 轻量kind摘要：Anchor/Task未变且完整context可用时，只重新诊断edited document，避免Event/Link/title修改
+ 重发其它open documents的diagnostics；invalid/valid、stale/pending revisions与context丢失继续保守恢复。
+ 剩余工作是消费逐记录entries，按目标identity收敛真正受影响的dependent documents，以及分别细化CodeLens/
+ Folding refresh的依赖边界；目前Anchor/Task任意变化仍保守重新诊断所有open documents。

@@ -395,6 +395,7 @@ pub enum ExportedSemanticChange {
 pub struct DocumentAnalysisImpact {
     pub exported: ExportedSemanticChange,
     pub task_graph_changed: bool,
+    pub dependent_diagnostics_changed: bool,
 }
 
 #[derive(Debug, Clone)]

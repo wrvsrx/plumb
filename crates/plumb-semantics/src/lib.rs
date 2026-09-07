@@ -249,10 +249,10 @@ pub use citations::{analyze_citations, CitationOutput, CitationRecord, CitationR
 pub use document::{
     analyze_document, analyze_document_incremental, analyze_green_document,
     analyze_green_document_incremental, AnchorKind, AnchorRecord, DocumentChange, DocumentOutput,
-    EventLinkRange, ExportedSemanticDelta, ExportedSemanticSummary, FileRecord, FileRecordView,
-    FileTarget, ImageRecord, ImageRecordView, ImageTarget, LinkRecord, LinkRecordView,
-    LinkSpelling, LinkTarget, SemanticRecordAddress, SemanticRecordChange, SemanticRecordEntry,
-    SemanticRoot, SourceBacked,
+    EventLinkRange, ExportedSemanticChangeKinds, ExportedSemanticDelta, ExportedSemanticSummary,
+    FileRecord, FileRecordView, FileTarget, ImageRecord, ImageRecordView, ImageTarget, LinkRecord,
+    LinkRecordView, LinkSpelling, LinkTarget, SemanticRecordAddress, SemanticRecordChange,
+    SemanticRecordEntry, SemanticRoot, SourceBacked,
 };
 pub use events::{
     analyze_events, EventField, EventOutput, EventRecord, EventRecordView, EventRecords,

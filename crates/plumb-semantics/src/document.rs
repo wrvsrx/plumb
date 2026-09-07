@@ -255,7 +255,8 @@ pub struct ExportedSemanticSummary<'a> {
 
 mod delta;
 pub use delta::{
-    ExportedSemanticDelta, SemanticRecordAddress, SemanticRecordChange, SemanticRecordEntry,
+    ExportedSemanticChangeKinds, ExportedSemanticDelta, SemanticRecordAddress,
+    SemanticRecordChange, SemanticRecordEntry,
 };
 
 impl PartialEq for ExportedSemanticSummary<'_> {

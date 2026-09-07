@@ -17,6 +17,9 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
 `- `"semantic_store_queries_33512"：agenda、references、event title completion 与 selected-decode search。
 `- `"semantic_store_task_queries_1408"：CEL filters、relations、state、sort、cursor、candidate pushdown 和 selected TaskRecord hydration。
 `- `"workspace_diagnostic_round_8_of_176"：diagnostic dependency context reuse。
+  同组以176-document task fixture中的8个open task documents加一个edited event document，比较event-only
+  revision后全量与kind摘要选择性diagnostics publication；两条路径都包含event revision分析/安装和其自身诊断，
+  只改变是否重算其它open documents，不包含JSON传输或editor渲染。
 `- `"open_document_generation_33512"：didChange parse stage、background semantics 与 synchronous baseline。
   同组分别测量 document cache warm、edit 抢先时的 unwarmed fallback、warm green semantic revision，以及独立
   green event revision/materialization；不得把 background warm CPU time计入 event-loop latency。

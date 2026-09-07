@@ -554,6 +554,46 @@ fn benchmark_diagnostic_round(c: &mut Criterion) {
             }
         });
     });
+    for (name, selective) in [
+        ("event_edit_all_open", false),
+        ("event_edit_selective", true),
+    ] {
+        let mut workspace = sqlite.workspace.clone();
+        let event_path = PathBuf::from("event.plumb");
+        let event_source = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
+        workspace.open_document(&event_path, 1, event_source);
+        let context = workspace.diagnostic_context().unwrap();
+        let mut revision = 2;
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                let title = if revision % 2 == 0 { "New" } else { "Old" };
+                let prepared = workspace
+                    .begin_document_revision(
+                        &event_path,
+                        revision,
+                        event_source.replace("Old", title),
+                    )
+                    .unwrap()
+                    .analyze();
+                revision += 1;
+                let impact = workspace
+                    .install_document_analysis_with_impact(prepared)
+                    .unwrap();
+                assert_eq!(impact.exported, ExportedSemanticChange::Changed);
+                assert!(!impact.task_graph_changed && !impact.dependent_diagnostics_changed);
+                black_box(
+                    workspace
+                        .diagnostics_with_context(&event_path, &context)
+                        .unwrap(),
+                );
+                if !selective || impact.dependent_diagnostics_changed {
+                    for path in &open_paths {
+                        black_box(workspace.diagnostics_with_context(path, &context).unwrap());
+                    }
+                }
+            });
+        });
+    }
     group.finish();
 }
 

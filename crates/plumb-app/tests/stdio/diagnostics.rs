@@ -3,6 +3,96 @@ use serde_json::json;
 use crate::support::{diagnostic_counts, response, run_server, unique_temp_dir, LspTestSession};
 
 #[test]
+fn exported_record_delta_limits_diagnostic_publication_without_suppressing_refresh() {
+    fn settle_refreshes(session: &mut LspTestSession, initial: bool) {
+        for method in [
+            "workspace/codeLens/refresh",
+            "workspace/foldingRange/refresh",
+        ] {
+            let request = if initial {
+                session.wait_for(|message| message["method"] == method)
+            } else {
+                session.wait_for_next(|message| message["method"] == method)
+            };
+            session.send(&json!({"jsonrpc":"2.0","id":request["id"],"result":null}));
+        }
+    }
+    let initial = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
+    for (changed, dependent_publications) in [
+        (initial.replace("Old", "New"), 0),
+        (format!("{initial} `@ target\n"), 1),
+        ("`- Task\n `+ task\n".to_owned(), 1),
+    ] {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let uri = lsp_types::Url::from_file_path(root.join("event.plumb")).unwrap();
+        let other = lsp_types::Url::from_file_path(root.join("other.plumb")).unwrap();
+        let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+        let mut session = LspTestSession::new();
+        session.send(
+            &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                "processId":null,"rootUri":root_uri,"capabilities":{
+                    "workspace":{"codeLens":{"refreshSupport":true}},
+                    "experimental":{"plumb":{"foldingRangeRefreshSupport":true}}
+                }
+            }}),
+        );
+        session.wait_for_response(&json!(1));
+        session.send(&json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+        session.wait_for(|message| {
+            message["method"] == "$/progress" && message["params"]["value"]["kind"] == "end"
+        });
+        settle_refreshes(&mut session, true);
+        for (uri, text) in [(&uri, initial), (&other, "See `->{event.plumb#target}\n")] {
+            session.send(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":text}}}));
+            settle_refreshes(&mut session, false);
+        }
+        session.send(&json!({"jsonrpc":"2.0","id":10,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":uri}}}));
+        session.wait_for_response(&json!(10));
+        session.send(&json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":changed}]}}));
+        session.send(&json!({"jsonrpc":"2.0","id":11,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":uri}}}));
+        assert!(session.wait_for_response(&json!(11))["result"]["data"].is_array());
+        session.send(&json!({"jsonrpc":"2.0","id":99,"method":"shutdown","params":null}));
+        session.wait_for_response(&json!(99));
+        session.send(&json!({"jsonrpc":"2.0","method":"exit","params":null}));
+        let messages = session.finish();
+        let boundary = messages
+            .iter()
+            .position(|message| message["id"] == 10 && message.get("method").is_none())
+            .unwrap();
+        let after = &messages[boundary + 1..];
+        assert_eq!(
+            after
+                .iter()
+                .filter(
+                    |message| message["method"] == "textDocument/publishDiagnostics"
+                        && message["params"]["uri"] == other.as_str()
+                )
+                .count(),
+            dependent_publications
+        );
+        assert!(after.iter().any(
+            |message| message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"] == uri.as_str()
+                && message["params"]["version"] == 2
+        ));
+        for method in [
+            "workspace/codeLens/refresh",
+            "workspace/foldingRange/refresh",
+        ] {
+            assert_eq!(
+                after
+                    .iter()
+                    .filter(|message| message["method"] == method)
+                    .count(),
+                1
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn semantic_equal_edits_do_not_refresh_workspace_consumers() {
     fn refresh_counts(exported_change: bool) -> (usize, usize, usize) {
         let root = unique_temp_dir();

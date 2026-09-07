@@ -84,6 +84,13 @@ mod tests {
 
     fn verify(previous: &DocumentOutput, current: &DocumentOutput) {
         let delta = current.exported_semantic_delta(previous);
+        let kinds = current.exported_semantic_change_kinds(previous);
+        assert_eq!(kinds.is_empty(), delta.is_empty());
+        assert_eq!(kinds.title, delta.title_changed);
+        assert_eq!(kinds.anchors, !delta.anchors.is_empty());
+        assert_eq!(kinds.links, !delta.links.is_empty());
+        assert_eq!(kinds.tasks, !delta.tasks.is_empty());
+        assert_eq!(kinds.events, !delta.events.is_empty());
         assert_eq!(
             delta.is_empty(),
             current.exported_semantic_summary() == previous.exported_semantic_summary()
@@ -234,6 +241,21 @@ pub struct ExportedSemanticDelta<'a> {
     pub events: Vec<SemanticRecordChange<'a, EventRecord>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExportedSemanticChangeKinds {
+    pub title: bool,
+    pub anchors: bool,
+    pub links: bool,
+    pub tasks: bool,
+    pub events: bool,
+}
+
+impl ExportedSemanticChangeKinds {
+    pub fn is_empty(self) -> bool {
+        !self.title && !self.anchors && !self.links && !self.tasks && !self.events
+    }
+}
+
 impl ExportedSemanticDelta<'_> {
     pub fn is_empty(&self) -> bool {
         !self.title_changed
@@ -245,23 +267,28 @@ impl ExportedSemanticDelta<'_> {
 }
 
 impl DocumentOutput {
+    /// Classify changed collections without allocating individual record delta entries.
+    pub fn exported_semantic_change_kinds(&self, previous: &Self) -> ExportedSemanticChangeKinds {
+        if Arc::ptr_eq(&self.root, &previous.root) {
+            return ExportedSemanticChangeKinds::default();
+        }
+        ExportedSemanticChangeKinds {
+            title: document_title_fact(self.metadata()) != document_title_fact(previous.metadata()),
+            anchors: !self.anchors().absolute_eq(previous.anchors()),
+            links: !self.links().absolute_eq(previous.links()),
+            tasks: !self.tasks().tasks.absolute_eq(&previous.tasks().tasks),
+            events: !self.events().events.absolute_eq(&previous.events().events),
+        }
+    }
+
     /// Compare valid snapshots of the same document, borrowing both revisions' records.
     pub fn exported_semantic_delta<'a>(&'a self, previous: &'a Self) -> ExportedSemanticDelta<'a> {
-        if Arc::ptr_eq(&self.root, &previous.root) {
-            return ExportedSemanticDelta::default();
-        }
-        let changed = [
-            !self.anchors().absolute_eq(previous.anchors()),
-            !self.links().absolute_eq(previous.links()),
-            !self.tasks().tasks.absolute_eq(&previous.tasks().tasks),
-            !self.events().events.absolute_eq(&previous.events().events),
-        ];
+        let changed = self.exported_semantic_change_kinds(previous);
         let mut delta = ExportedSemanticDelta {
-            title_changed: document_title_fact(self.metadata())
-                != document_title_fact(previous.metadata()),
+            title_changed: changed.title,
             ..Default::default()
         };
-        if !changed.iter().any(|changed| *changed) {
+        if !changed.anchors && !changed.links && !changed.tasks && !changed.events {
             return delta;
         }
         let old = &previous.root.tree.nodes;
@@ -284,16 +311,16 @@ impl DocumentOutput {
                     return;
                 }
             }
-            if changed[0] {
+            if changed.anchors {
                 collect_records(old, new, |node| &node.records.anchors, &mut delta.anchors);
             }
-            if changed[1] {
+            if changed.links {
                 collect_records(old, new, |node| &node.records.links, &mut delta.links);
             }
-            if changed[2] {
+            if changed.tasks {
                 collect_records(old, new, |node| &node.tasks.tasks, &mut delta.tasks);
             }
-            if changed[3] {
+            if changed.events {
                 collect_records(old, new, |node| &node.events.events, &mut delta.events);
             }
         };

@@ -149,8 +149,8 @@ record index）及 borrowed typed view；地址只在对应 snapshot 和 record 
 不能证明对应的 replacement 保守地报告 removed/added，不按 title、explicit id 或 absolute start 猜测。
 duplicate id 仍是不同 source records，不能合并。absolute range 改变必须进入 delta；summary 相等时 delta
 为空。各 kind 的 old/new entries 分别保持 source order，consumer 应先移除全部 old entries 再安装 new entries。
-计算只在显式请求 delta 时发生，普通 revision installation 不额外构建 record diff。borrowed views 属于
-各自 snapshot，不 flatten/clone 整份输出。workspace 对 delta 的消费与细粒度通知收敛仍未实现。
+计算只在显式请求 delta 时发生。borrowed views 属于各自 snapshot，不 flatten/clone 整份输出。
+workspace publication 的消费规则见下文；按目标 identity 精确选择 dependent documents 仍未实现。
 
 tree replacement的验收 differential compare fresh/incremental semantic revisions，覆盖 metadata context change、
 duplicate id、nested task/event/table、link containment 与 file-start range shift，并证明 unchanged green identity
@@ -255,8 +255,8 @@ revision 的后续请求也立即失败，直到新的 revision 或显式 naviga
 LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的 `"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能改变跨文档 task dependency facts 的open-document/watched-file revision replacement都触发refresh。不声明support的client不接收未知request。
 
 valid open-document revision进入background analysis时，adapter只发布该document的current syntax diagnostics，不提前
-重算其它open documents或发送workspace CodeLens/Folding refresh。安装结果的exported summary变化时才发布所有open
-diagnostics并发送已协商的refresh；summary相等时只发布edited document的current diagnostics，并完成该 revision 的等待
+重算其它open documents或发送workspace CodeLens/Folding refresh。安装结果的exported summary变化时才发送已协商的
+refresh；diagnostics publication scope 按下文的 record delta 规则决定。summary相等时只发布edited document的current diagnostics，并完成该 revision 的等待
 请求。invalid revision与
 invalid/valid transition继续走workspace-changed路径，不能借用last-valid summary抑制恢复通知。
 
@@ -310,8 +310,19 @@ diagnostic context 构建时一次计算 task dependency graph 的强连通分�
 valid semantic installation 同时报告 exported facts 是否变化与 task dependency graph 输入是否变化。
 graph 输入比较包含 source-ordered anchor ids、有 id 的 task ids 与这些 task 的 dependency targets，保守地保留序列顺序；
 title、closure state、priority、source ranges 不属于图输入。只有输入相等才允许复用已有完整
-diagnostic context。event、link、task 展示字段或 document title 单独变化仍重新发布 open-document diagnostics 和相应 refresh，
-但不因此重建 task dependency graph。没有 previous valid output 或没有完整缓存时必须重新建立 context。
+diagnostic context。task 展示字段变化仍保守地重新发布全部 open-document diagnostics，但不因此重建 task
+dependency graph。没有 previous valid output 或没有完整缓存时必须重新建立 context。
+
+Delta-based diagnostic publication 已实现：valid installation 比较 old/new exported record delta，报告
+是否存在 Anchor 或 Task 的 added/removed/changed entries。该决策使用与完整 delta 一致的轻量 kind 摘要，
+不构造消费者未请求的逐记录 entries。没有这些 entries 时，Event、Link 或 document
+title 单独变化不影响其它 documents 的 diagnostics；已有完整 context 时只重新发布 edited document 的诊断。
+Anchor/Task collections 完全相等也足以证明 graph inputs 相等，不再重复执行 graph-input comparison。
+任一 Anchor/Task entry 变化仍保守发布全部 open documents，包括仅 range 变化；graph inputs 未变时复用
+context。没有 previous valid output（包括 invalid/valid transition）或没有完整 context 时继续全量 publication，
+不得省略 pending 期间可能缺失事实的恢复。stale revision 不安装、不发布；多个 pending revisions 仍遵守
+原 generation/provenance gate。CodeLens/Folding refresh 继续由完整 exported-summary change 决定，不能用
+diagnostic scope 替代其依赖边界。
 
 当任一有效文档的 semantic analysis 尚在 pending 时，diagnostic publication 可以使用当前可用 facts 构造临时
 context，但不得将该 context 缓存供后续 revision 复用。pending 文档完成后，即使 exported summary 未变化，

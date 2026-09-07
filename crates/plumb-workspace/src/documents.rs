@@ -206,17 +206,20 @@ impl Workspace {
         if entry.revision != analysis.revision || !Arc::ptr_eq(&entry.parsed, &analysis.parsed) {
             return None;
         }
-        let change = if analysis
+        let (change, dependent_diagnostics_changed) = analysis
             .previous_exported_output
             .as_ref()
-            .is_some_and(|previous| {
-                previous.exported_semantic_summary() == analysis.output.exported_semantic_summary()
-            }) {
-            ExportedSemanticChange::Unchanged
-        } else {
-            ExportedSemanticChange::Changed
-        };
+            .map_or((ExportedSemanticChange::Changed, true), |previous| {
+                let kinds = analysis.output.exported_semantic_change_kinds(previous);
+                let change = if kinds.is_empty() {
+                    ExportedSemanticChange::Unchanged
+                } else {
+                    ExportedSemanticChange::Changed
+                };
+                (change, kinds.anchors || kinds.tasks)
+            });
         let task_graph_changed = change == ExportedSemanticChange::Changed
+            && dependent_diagnostics_changed
             && !analysis
                 .previous_exported_output
                 .as_ref()
@@ -232,6 +235,7 @@ impl Workspace {
         Some(crate::DocumentAnalysisImpact {
             exported: change,
             task_graph_changed,
+            dependent_diagnostics_changed,
         })
     }
 

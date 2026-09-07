@@ -2657,6 +2657,73 @@ fn diagnoses_invalid_task_targets_self_dependencies_and_cycles() {
 }
 
 #[test]
+fn record_delta_limits_dependent_diagnostics_but_preserves_recovery_and_revision_gates() {
+    for (old, new, affected) in [
+        ("`= title Old\n", "`= title New\n", false),
+        ("`->{a.plumb}\n", "`->{b.plumb}\n", false),
+        (
+            "`= date 2026-09-05\n`= timezone Z\n\n`- 10:00 Event\n `+ event\n `@ event\n",
+            "`= date 2026-09-06\n`= timezone Z\n\n`- 10:00 Event\n `+ event\n `@ event\n",
+            false,
+        ),
+        ("`node\n `@ old\n", "`node\n `@ new\n", true),
+        ("Plain\n", "`- Task\n `+ task\n", true),
+        (
+            "`- Task\n `+ task\n",
+            "`- Task\n `+ task\n `= done 2026-09-07T00:00:00Z\n",
+            true,
+        ),
+        ("`node\n `@ id\n", "Prelude\n\n`node\n `@ id\n", true),
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.open_document("impact.plumb", 1, old);
+        workspace.open_document("other.plumb", 1, "See `->{impact.plumb#id}\n");
+        let before = workspace.diagnostics("other.plumb").unwrap().value;
+        let prepared = workspace
+            .begin_document_revision("impact.plumb", 2, new)
+            .unwrap()
+            .analyze();
+        let impact = workspace
+            .install_document_analysis_with_impact(prepared)
+            .unwrap();
+        assert_eq!(impact.dependent_diagnostics_changed, affected, "{new}");
+        if !affected {
+            assert_eq!(before, workspace.diagnostics("other.plumb").unwrap().value);
+        }
+    }
+    let mut workspace = Workspace::new();
+    let source = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
+    workspace.open_document("event.plumb", 1, source);
+    assert!(workspace
+        .begin_document_revision("event.plumb", 2, "{invalid\n")
+        .is_none());
+    let restored = workspace
+        .begin_document_revision("event.plumb", 3, source)
+        .unwrap()
+        .analyze();
+    let impact = workspace
+        .install_document_analysis_with_impact(restored)
+        .unwrap();
+    assert!(impact.dependent_diagnostics_changed);
+    let stale = workspace
+        .begin_document_revision("event.plumb", 4, "`node\n `@ temporary\n")
+        .unwrap()
+        .analyze();
+    let latest = workspace
+        .begin_document_revision("event.plumb", 5, source.replace("Old", "New"))
+        .unwrap()
+        .analyze();
+    assert!(workspace
+        .install_document_analysis_with_impact(stale)
+        .is_none());
+    let impact = workspace
+        .install_document_analysis_with_impact(latest)
+        .unwrap();
+    assert_eq!(impact.exported, ExportedSemanticChange::Changed);
+    assert!(!impact.dependent_diagnostics_changed);
+}
+
+#[test]
 fn analysis_impact_separates_event_and_title_changes_from_task_graph_inputs() {
     for (old, new, graph_changed) in [
         ("`= title Old\n", "`= title New\n", false),

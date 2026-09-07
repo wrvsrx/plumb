@@ -288,8 +288,11 @@ impl ServerState {
             ExportedSemanticChange::Changed => {
                 if impact.task_graph_changed {
                     self.publish_all_open_diagnostics();
-                } else {
+                } else if impact.dependent_diagnostics_changed || self.diagnostic_context.is_none()
+                {
                     self.publish_all_open_diagnostics_reusing_context();
+                } else {
+                    self.publish_open_document_diagnostics(&result.path);
                 }
                 self.refresh_code_lenses();
                 self.refresh_folding_ranges();
@@ -2879,6 +2882,83 @@ mod tests {
             .value
             .iter()
             .any(|diagnostic| diagnostic.code == "task.dependency-cycle"));
+    }
+
+    #[tokio::test]
+    async fn event_only_completion_republishes_all_documents_after_context_was_lost() {
+        use std::io::{BufRead, Read};
+        struct Run;
+        struct Stop;
+        let (server, client) = async_lsp::MainLoop::new_server(|client| {
+            let completion = client.clone();
+            let mut router = async_lsp::router::Router::new(ServerState::new(client));
+            router.event::<Run>(move |state, _| {
+                let path = PathBuf::from("/tmp/plumb-context-event.plumb");
+                let other = PathBuf::from("/tmp/plumb-context-other.plumb");
+                let source = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
+                for (path, text) in [(&path, source), (&other, "Other\n")] {
+                    state.workspace.open_document(path, 1, text);
+                    state
+                        .open_documents
+                        .insert(Url::from_file_path(path).unwrap(), path.clone());
+                }
+                state.publish_all_open_diagnostics();
+                assert!(state.diagnostic_context.is_some());
+                let (_, generation) = state.document_analysis_tokens.next(&path);
+                let pending = state
+                    .workspace
+                    .begin_document_revision(&path, 2, source.replace("Old", "New"))
+                    .unwrap();
+                state.publish_all_open_diagnostics();
+                assert!(state.diagnostic_context.is_none());
+                let result = state.finish_document_analysis(DocumentAnalysisResult {
+                    path,
+                    generation,
+                    analysis: Ok(pending.analyze()),
+                });
+                assert!(state.diagnostic_context.is_some());
+                completion.emit(Stop).unwrap();
+                result
+            });
+            router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+            router
+        });
+        client.emit(Run).unwrap();
+        let mut output = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            server.run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let mut input = std::io::Cursor::new(output);
+        let mut publications = 0;
+        while input.position() < input.get_ref().len() as u64 {
+            let mut header = String::new();
+            input.read_line(&mut header).unwrap();
+            let length: usize = header
+                .trim()
+                .strip_prefix("Content-Length: ")
+                .unwrap()
+                .parse()
+                .unwrap();
+            let mut separator = [0; 2];
+            input.read_exact(&mut separator).unwrap();
+            assert_eq!(&separator, b"\r\n");
+            let mut body = vec![0; length];
+            input.read_exact(&mut body).unwrap();
+            let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            if message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"] == "file:///tmp/plumb-context-other.plumb"
+            {
+                publications += 1;
+            }
+        }
+        assert_eq!(
+            publications, 3,
+            "initial, pending, and restored context each publish the other document"
+        );
     }
 
     #[test]
