@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::ops::ControlFlow;
@@ -1735,15 +1736,12 @@ impl LanguageServer for ServerState {
                 return Ok(None);
             };
             let mut lenses = Vec::new();
+            let mut location_cache = ReferenceLocationCache::new(&self.workspace);
             let locations = references
                 .document
                 .into_iter()
                 .filter_map(|reference| {
-                    location_for(
-                        &self.workspace,
-                        &reference.source_path,
-                        &reference.source_range,
-                    )
+                    location_cache.location(&reference.source_path, &reference.source_range)
                 })
                 .collect::<Vec<_>>();
             let count = locations.len();
@@ -1753,24 +1751,19 @@ impl LanguageServer for ServerState {
                 format!("{count} file references")
             };
             lenses.push(reference_code_lens(
-                entry.parsed.source(),
                 &uri,
-                &(0..0),
+                lsp_types::Range::default(),
                 title,
                 locations,
             ));
-            lenses.extend(output.output.anchors().iter().map(|anchor| {
+            lenses.extend(output.output.anchors().iter().filter_map(|anchor| {
                 let locations = references
                     .anchors
                     .remove(&anchor.id.value)
                     .unwrap_or_default()
                     .into_iter()
                     .filter_map(|reference| {
-                        location_for(
-                            &self.workspace,
-                            &reference.source_path,
-                            &reference.source_range,
-                        )
+                        location_cache.location(&reference.source_path, &reference.source_range)
                     })
                     .collect::<Vec<_>>();
                 let count = locations.len();
@@ -1784,7 +1777,8 @@ impl LanguageServer for ServerState {
                 } else {
                     anchor.range.start..anchor.range.start
                 };
-                reference_code_lens(entry.parsed.source(), &uri, &lens_range, title, locations)
+                let range = location_cache.location(&entry.path, &lens_range)?.range;
+                Some(reference_code_lens(&uri, range, title, locations))
             }));
             Ok(Some(lenses))
         })();
@@ -2549,14 +2543,48 @@ fn location_for(
     Some(Location::new(uri, byte_range_to_lsp(source, range)))
 }
 
+struct ReferenceLocationCache<'a> {
+    workspace: &'a Workspace,
+    documents: HashMap<PathBuf, Option<(Url, PositionIndex<'a>)>>,
+}
+
+impl<'a> ReferenceLocationCache<'a> {
+    fn new(workspace: &'a Workspace) -> Self {
+        Self {
+            workspace,
+            documents: HashMap::new(),
+        }
+    }
+
+    fn location(&mut self, path: &Path, range: &std::ops::Range<usize>) -> Option<Location> {
+        if !self.documents.contains_key(path) {
+            let cached = (|| {
+                let source = if let Some(entry) = self.workspace.get(path) {
+                    Cow::Borrowed(entry.parsed.source())
+                } else {
+                    Cow::Owned(fs::read_to_string(path).ok()?)
+                };
+                Some((
+                    Url::from_file_path(path).ok()?,
+                    PositionIndex::from_source(source),
+                ))
+            })();
+            self.documents.insert(path.to_path_buf(), cached);
+        }
+        let (uri, positions) = self.documents.get(path)?.as_ref()?;
+        Some(Location::new(
+            uri.clone(),
+            positions.byte_range_to_lsp(range),
+        ))
+    }
+}
+
 fn reference_code_lens(
-    source: &str,
     uri: &Url,
-    source_range: &std::ops::Range<usize>,
+    range: lsp_types::Range,
     title: String,
     locations: Vec<Location>,
 ) -> CodeLens {
-    let range = byte_range_to_lsp(source, source_range);
     CodeLens {
         range,
         command: Some(Command::new(
@@ -2805,6 +2833,64 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reference_location_cache_preserves_positions_and_request_local_source_precedence() {
+        let root = std::env::temp_dir().join(format!(
+            "plumb-lens-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("source.plumb");
+        let source = "Prelude \u{1f600}\r\nSecond \u{4e2d}\n";
+        fs::write(&path, "different disk bytes\n").unwrap();
+        let mut workspace = Workspace::new();
+        workspace.open_document(&path, 1, source);
+        let mut cache = ReferenceLocationCache::new(&workspace);
+        for offset in 0..source.len() + 3 {
+            assert_eq!(
+                cache.location(&path, &(offset..offset)),
+                location_for(&workspace, &path, &(offset..offset))
+            );
+        }
+        assert_eq!(cache.documents.len(), 1);
+        drop(cache);
+        workspace.open_document(&path, 2, "New revision\n");
+        assert_eq!(
+            ReferenceLocationCache::new(&workspace).location(&path, &(0..20)),
+            location_for(&workspace, &path, &(0..20))
+        );
+
+        let workspace = Workspace::new();
+        fs::write(&path, source).unwrap();
+        let mut cache = ReferenceLocationCache::new(&workspace);
+        let original = cache.location(&path, &(0..source.len()));
+        assert_eq!(
+            original,
+            location_for(&workspace, &path, &(0..source.len()))
+        );
+        fs::write(&path, "New disk bytes\n").unwrap();
+        assert_eq!(cache.location(&path, &(0..source.len())), original);
+        let mut next_request = ReferenceLocationCache::new(&workspace);
+        let refreshed = next_request.location(&path, &(0..source.len()));
+        assert_eq!(
+            refreshed,
+            location_for(&workspace, &path, &(0..source.len()))
+        );
+        assert_ne!(refreshed, original);
+        let missing = root.join("missing.plumb");
+        assert!(cache.location(&missing, &(0..0)).is_none());
+        fs::write(&missing, "Now present\n").unwrap();
+        assert!(cache.location(&missing, &(0..0)).is_none());
+        assert!(ReferenceLocationCache::new(&workspace)
+            .location(&missing, &(0..0))
+            .is_some());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn event_only_install_reuses_context_but_anchor_change_rebuilds_it() {
         let (_main, client) =
             async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
@@ -2959,6 +3045,77 @@ mod tests {
             publications, 3,
             "initial, pending, and restored context each publish the other document"
         );
+    }
+
+    #[test]
+    #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]
+    fn profile_code_lens_response() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let path = "/tmp/plumb-lens-target.plumb";
+        let mut target = String::new();
+        let mut references = String::new();
+        for index in 0..2_000 {
+            target.push_str(&format!("`# Heading {index}\n `@ id-{index}\n\n"));
+            references.push_str(&format!(
+                "See `->{{label plumb-lens-target.plumb#id-{index}}}\n"
+            ));
+        }
+        state.workspace.open_document(path, 1, target);
+        state
+            .workspace
+            .open_document("/tmp/plumb-lens-source.plumb", 1, references);
+        state.index_complete = true;
+        let params: CodeLensParams = serde_json::from_value(
+            serde_json::json!({"textDocument":{"uri":Url::from_file_path(path).unwrap()}}),
+        )
+        .unwrap();
+        let mut run = || {
+            let lenses = futures::FutureExt::now_or_never(state.code_lens(params.clone()))
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(lenses.len(), 2_001);
+            assert_eq!(
+                lenses[0]
+                    .command
+                    .as_ref()
+                    .unwrap()
+                    .arguments
+                    .as_ref()
+                    .unwrap()[2]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                2_000
+            );
+            assert!(lenses[1..].iter().all(|lens| lens
+                .command
+                .as_ref()
+                .unwrap()
+                .arguments
+                .as_ref()
+                .unwrap()[2]
+                .as_array()
+                .unwrap()
+                .len()
+                == 1));
+            serde_json::to_vec(&lenses).unwrap()
+        };
+        let expected = run();
+        for _ in 0..3 {
+            std::hint::black_box(run());
+        }
+        let mut samples = Vec::new();
+        for _ in 0..10 {
+            let start = std::time::Instant::now();
+            let bytes = run();
+            samples.push(start.elapsed());
+            assert_eq!(bytes, expected);
+        }
+        samples.sort();
+        eprintln!("code_lens_response: anchors=2000 references=2000 bytes={} warmup=3 samples=10 median={:?}; includes query/projection/json, excludes document analysis/transport/rendering", expected.len(), samples[5]);
     }
 
     #[test]

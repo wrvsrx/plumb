@@ -284,6 +284,12 @@ Open-document events 以 document granularity 替换 persistent rows。Rust 可�
 
 LSP adapter 将一个 revision 的 folding byte ranges 批量投影为 UTF-16 positions 时，必须复用由 source 一次线性扫描建立的 line-start index；单个 offset 只扫描它所在的 physical line。folding response 不得为 每个 range 从 document start 重复扫描 source。index 只属于 protocol projection，不进入 syntax/semantics output，也不得跨 source revision 复用。
 
+CodeLens position projection 已实现：同一 response 的 lens ranges 与 reference command locations 按
+source document 复用 source bytes、URI 与 line-start index。优先借用 workspace snapshot；未 materialize 的
+disk source 每次 request 最多读取一次，读取失败也只在本 request 内记忆。不得为每条 reference 重读同一
+文件或从 document start 重扫 UTF-16 positions。缓存不跨 request 保留，下次查询必须看到新的 workspace
+revision 或 disk bytes；query completeness、source ordering、reference counts 与失败时跳过 location 的行为不变。
+
 官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3。request 的可选 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative `"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item 还可包含 `"id"、resolved `"start"/`"end" 与 associated `"tasks"。增加 record kind 或改变 typed fields 必须提升 schema version；client 必须按 initialize capability 中声明的 version 接受或明确拒绝。
 
 `# 9. Operations and editing

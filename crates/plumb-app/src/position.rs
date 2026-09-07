@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use lsp_types::{Position, Range};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,13 +66,18 @@ impl LineIndex {
 }
 
 pub(crate) struct PositionIndex<'a> {
-    text: &'a str,
+    text: Cow<'a, str>,
     line_starts: Vec<usize>,
 }
 
 impl<'a> PositionIndex<'a> {
     pub(crate) fn new(text: &'a str) -> Self {
-        let line_starts = LineIndex::new(text).line_starts;
+        Self::from_source(text)
+    }
+
+    pub(crate) fn from_source(text: impl Into<Cow<'a, str>>) -> Self {
+        let text = text.into();
+        let line_starts = LineIndex::new(&text).line_starts;
         Self { text, line_starts }
     }
 
