@@ -100,10 +100,13 @@ incremental tree revision使用 green parser返回的 old/new shard-aligned repl
 线性 splice复用 nodes，不为每个 revision重建 identity hash table。metadata只有在 edit位于上一版最后一个 document
 declaration之后、上一版没有definition lists，且replacement递归不含definition或新的direct `"="/`"+"/`"@"
 block时共享；已有definition的body revision重新运行metadata/definition reducer，覆盖definition删除、修改与adjacency
-变化。empty heading output只有在replacement不引入nested heading时共享，其他情况回退完整reducer。
+变化。删除definition、插入separator分裂相邻组、移除separator合并组，都必须与fresh analysis相等；即使等宽marker
+替换保持local summaries与source geometry不变，definition reducer变化仍禁止document-level short-circuit。
+empty heading output只有在replacement不引入nested heading时共享，其他情况回退完整reducer。
 
-typed record projection保存 record-count topology；node index稳定、changed nodes各类 count不变且前后均无 semantic
-diagnostics时，projection spans直接重新绑定 current SemanticTree。稀疏或 query-hot collection使用 direct node
+typed record projection保存 record-count topology；node index稳定且changed nodes各类record count不变时，projection
+spans直接重新绑定 current SemanticTree，不要求diagnostics为空；diagnostic topology按自身count条件独立判断。
+稀疏或 query-hot collection使用 direct node
 segments，避免查询逐 node间接访问。segment topology只保存node indexes并由storage绑定current SemanticTree；stable
 topology rebind必须共享同一Arc segment array并仅替换tree Arc，不能逐segment clone offset或record Arc。projection、
 anchor-id与list topology delta在node construction loop中同时累计，不得为每种reducer重复扫描全部nodes。list reducer把
@@ -309,9 +312,9 @@ revision 的后续请求也立即失败，直到新的 revision 或显式 naviga
 LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的 `"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能改变跨文档 task dependency facts 的open-document/watched-file revision replacement都触发refresh。不声明support的client不接收未知request。
 
 valid open-document revision进入background analysis时，adapter只发布该document的current syntax diagnostics，不提前
-重算其它open documents或发送workspace CodeLens/Folding refresh。常规refresh由安装结果的exported summary变化触发，
-CodeLens/Folding的pending恢复请求不受summary相等限制；diagnostics publication scope 按下文的 record delta 规则决定。summary相等时只发布edited document的current diagnostics，并完成该 revision 的等待
-请求。invalid revision与
+重算其它open documents或发送workspace CodeLens/Folding refresh。安装后CodeLens按引用输入/source positions判断，
+Folding按structure/positions/label inputs独立判断；exported summary相等不能抑制这些consumer-specific变化或pending恢复。
+diagnostics publication scope按下文record delta与context恢复规则决定，并完成该revision的等待请求。invalid revision与
 invalid/valid transition继续走workspace-changed路径，不能借用last-valid summary抑制恢复通知。
 
 persistent workspace query 必须按需读取命中的 semantic rows，不得为了重建 process-local workspace model 而在启动时反序列化全部 document outputs。open-buffer precedence 的合并边界是 source document：persistent query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由 protocol-neutral workspace query layer 统一实现，adapter 不自行 merge 或 deduplicate records。

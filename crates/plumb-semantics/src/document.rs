@@ -2939,6 +2939,141 @@ mod tests {
     }
 
     #[test]
+    fn definition_reducer_handles_deletion_body_edits_and_adjacency_changes() {
+        for ending in ["\n", "\r\n"] {
+            for (name, source, needle, replacement, group_sizes, same_geometry) in [
+                (
+                    "delete middle",
+                    "`: first one\n`: second two\n`: third three\n",
+                    "`: second two\n",
+                    "",
+                    vec![2],
+                    false,
+                ),
+                (
+                    "delete last definition",
+                    "`: first one\n",
+                    "`: first one\n",
+                    "",
+                    vec![],
+                    false,
+                ),
+                (
+                    "split adjacency",
+                    "`: first one\n`: second two\n",
+                    "`: second",
+                    "`note separator\n`: second",
+                    vec![1, 1],
+                    false,
+                ),
+                (
+                    "merge adjacency",
+                    "`: first one\n`note separator\n`: second two\n",
+                    "`note separator\n",
+                    "",
+                    vec![2],
+                    false,
+                ),
+                (
+                    "equal-width merge",
+                    "`: first one\n`! middle body\n`: third three\n",
+                    "`!",
+                    "`:",
+                    vec![3],
+                    true,
+                ),
+                (
+                    "equal-width split",
+                    "`: first one\n`: middle body\n`: third three\n",
+                    "`: middle",
+                    "`! middle",
+                    vec![1, 1],
+                    true,
+                ),
+                (
+                    "equal-width body",
+                    "`: first old\n`: second two\n",
+                    "old",
+                    "new",
+                    vec![2],
+                    true,
+                ),
+            ] {
+                let source = format!("Prelude \u{1f600}\n\n{source}").replace('\n', ending);
+                let needle = needle.replace('\n', ending);
+                let replacement = replacement.replace('\n', ending);
+                let start = source.find(&needle).unwrap();
+                let mut changed = source.clone();
+                changed.replace_range(start..start + needle.len(), &replacement);
+                let old_syntax = Arc::new(plumb_syntax::GreenDocument::parse(&source));
+                let previous = analyze_green_document(
+                    old_syntax.valid_syntax().unwrap(),
+                    Arc::clone(&old_syntax),
+                )
+                .unwrap();
+                let green = old_syntax.reparse_from_change(
+                    &changed,
+                    plumb_syntax::SourceChange {
+                        old_range: start..start + needle.len(),
+                        new_range: start..start + replacement.len(),
+                    },
+                );
+                let change = DocumentChange {
+                    old_range: green.old_reparsed_range,
+                    new_range: green.reparsed_range,
+                };
+                let current_syntax = Arc::new(green.document);
+                let incremental = analyze_green_document_incremental(
+                    current_syntax.valid_syntax().unwrap(),
+                    Arc::clone(&current_syntax),
+                    &previous,
+                    &change,
+                )
+                .unwrap();
+                let parsed = parse(&changed);
+                let fresh = analyze_document(parsed.valid_syntax().unwrap());
+                assert_eq!(incremental, fresh, "{name}, ending={ending:?}");
+                assert_ne!(previous.metadata(), incremental.metadata(), "{name}");
+                assert_eq!(
+                    previous.exported_semantic_summary(),
+                    incremental.exported_semantic_summary(),
+                    "{name}"
+                );
+                assert!(!incremental.reused_document_reducers(), "{name}");
+                assert_eq!(
+                    incremental
+                        .metadata()
+                        .definition_lists
+                        .iter()
+                        .map(|group| group.definitions.len())
+                        .collect::<Vec<_>>(),
+                    group_sizes,
+                    "{name}"
+                );
+                if same_geometry {
+                    assert_eq!(source.len(), changed.len());
+                    assert_eq!(
+                        old_syntax
+                            .shards()
+                            .map(|shard| shard.range())
+                            .collect::<Vec<_>>(),
+                        current_syntax
+                            .shards()
+                            .map(|shard| shard.range())
+                            .collect::<Vec<_>>()
+                    );
+                    assert!(
+                        previous.root.tree.nodes.iter().zip(&incremental.root.tree.nodes)
+                            .all(|(old, new)| old.output == new.output
+                                && root_list_role(&old.syntax) == root_list_role(&new.syntax)),
+                        "all local facts and root roles, including changed definition nodes, remain equal for {name}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn semantic_changes_with_stable_geometry_do_not_reuse_document_reducers() {
         for (old, new) in [
             ("`# Heading\n", "`! Heading\n"),
