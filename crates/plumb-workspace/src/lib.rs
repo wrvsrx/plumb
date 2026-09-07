@@ -2036,6 +2036,7 @@ impl Workspace {
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
         let mut diagnostics = Vec::new();
         let tasks = &current.output.tasks().tasks;
+        let task_views = tasks.views().collect::<Vec<_>>();
         for (task_index, task) in tasks.iter().enumerate() {
             let own_ref = task.id.as_ref().map(|id| TaskRef {
                 path: path.to_path_buf(),
@@ -2124,16 +2125,16 @@ impl Workspace {
                     });
                 }
 
-                let open_descendants = tasks
+                let open_descendants = task_views[task_index + 1..]
                     .iter()
-                    .skip(task_index + 1)
-                    .take_while(|descendant| descendant.depth > task.depth)
+                    .copied()
+                    .take_while(|descendant| descendant.depth() > task.depth)
                     .filter(|descendant| descendant.state() == TaskState::Open)
                     .filter(|descendant| {
-                        descendant.id.as_ref().is_none_or(|id| {
+                        descendant.id_value().is_none_or(|id| {
                             !blocker_targets.contains(&TaskRef {
                                 path: path.to_path_buf(),
-                                id: id.value.clone(),
+                                id: id.to_owned(),
                             })
                         })
                     })
@@ -2159,7 +2160,7 @@ impl Workspace {
                             .clone(),
                         related: open_descendants
                             .iter()
-                            .map(|descendant| descendant.selection_range.clone())
+                            .map(|descendant| descendant.selection_range())
                             .collect(),
                     });
                 }
