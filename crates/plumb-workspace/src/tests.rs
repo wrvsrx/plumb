@@ -2667,6 +2667,12 @@ fn analysis_impact_separates_event_and_title_changes_from_task_graph_inputs() {
         ),
         ("`node\n `@ old\n", "`node\n `@ new\n", true),
         (
+            "`- Idless\n `+ task\n `= depends #a\n",
+            "`- Idless\n `+ task\n `= depends #b\n",
+            false,
+        ),
+        ("Plain\n", "`- Idless\n `+ task\n", false),
+        (
             "`- Task\n `+ task\n",
             "`- Task\n `+ task\n `= done 2026-09-07T10:00:00+08:00\n",
             false,
@@ -2886,7 +2892,9 @@ fn profile_open_task_target_resolution() {
             }
             let elapsed = start.elapsed();
             if iteration == 0 {
-                eprintln!("open_task_targets: count={count} cold_batch_including_index={elapsed:?}");
+                eprintln!(
+                    "open_task_targets: count={count} cold_batch_including_index={elapsed:?}"
+                );
             }
             if iteration >= 2 {
                 samples.push(elapsed);

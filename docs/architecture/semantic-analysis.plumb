@@ -291,7 +291,7 @@ diagnostic context 构建时一次计算 task dependency graph 的强连通分�
 不得重复遍历整图；分析使用显式栈，长依赖链不依赖调用栈深度。
 
 valid semantic installation 同时报告 exported facts 是否变化与 task dependency graph 输入是否变化。
-graph 输入比较包含 source-ordered anchor ids、task ids 与每个 task 的 dependency targets，保守地保留序列顺序；
+graph 输入比较包含 source-ordered anchor ids、有 id 的 task ids 与这些 task 的 dependency targets，保守地保留序列顺序；
 title、closure state、priority、source ranges 不属于图输入。只有输入相等才允许复用已有完整
 diagnostic context。event、link、task 展示字段或 document title 单独变化仍重新发布 open-document diagnostics 和相应 refresh，
 但不因此重建 task dependency graph。没有 previous valid output 或没有完整缓存时必须重新建立 context。

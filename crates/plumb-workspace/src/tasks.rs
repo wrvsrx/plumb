@@ -679,17 +679,27 @@ pub(super) fn task_graph_inputs_equal(
             .views()
             .map(|anchor| anchor.id_value())
             .eq(right.anchors().views().map(|anchor| anchor.id_value())))
-        && (left.tasks().tasks == right.tasks().tasks
-            || (left.tasks().tasks.len() == right.tasks().tasks.len()
-                && left
-                    .tasks()
-                    .tasks
-                    .views()
-                    .zip(right.tasks().tasks.views())
-                    .all(|(left, right)| {
-                        left.id_value() == right.id_value()
-                            && left.dependency_targets().eq(right.dependency_targets())
-                    })))
+        && (left.tasks().tasks == right.tasks().tasks || {
+            let mut left = left
+                .tasks()
+                .tasks
+                .views()
+                .filter(|task| task.id_value().is_some());
+            let mut right = right
+                .tasks()
+                .tasks
+                .views()
+                .filter(|task| task.id_value().is_some());
+            loop {
+                match (left.next(), right.next()) {
+                    (None, None) => break true,
+                    (Some(left), Some(right))
+                        if left.id_value() == right.id_value()
+                            && left.dependency_targets().eq(right.dependency_targets()) => {}
+                    _ => break false,
+                }
+            }
+        })
 }
 
 fn dependency_task_ref(source_path: &Path, target: &TaskReferenceTarget) -> Option<TaskRef> {
