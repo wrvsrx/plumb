@@ -2860,6 +2860,43 @@ fn cycle_query_handles_long_chains_and_excludes_nodes_only_leading_to_cycles() {
 }
 
 #[test]
+#[ignore = "manual release profile; measures all task targets in one open document"]
+fn profile_open_task_target_resolution() {
+    for count in [1_000, 2_000] {
+        let mut source = String::new();
+        for index in 0..count {
+            source.push_str(&format!("`- Task {index}\n `+ task\n `@ task-{index}\n\n"));
+        }
+        let mut workspace = Workspace::new();
+        workspace.open_document("tasks.plumb", 1, source);
+        let targets = (0..count)
+            .map(|index| TaskReferenceTarget::Internal {
+                id: format!("task-{index}"),
+            })
+            .collect::<Vec<_>>();
+        let mut samples = Vec::new();
+        for iteration in 0..12 {
+            let start = std::time::Instant::now();
+            for target in &targets {
+                let result = workspace
+                    .resolve_task_target(Path::new("tasks.plumb"), std::hint::black_box(target))
+                    .unwrap();
+                assert!(matches!(result, TaskTargetResolution::Task { .. }));
+                std::hint::black_box(result);
+            }
+            if iteration >= 2 {
+                samples.push(start.elapsed());
+            }
+        }
+        samples.sort();
+        eprintln!(
+            "open_task_targets: count={count} samples=10 median={:?}",
+            samples[5]
+        );
+    }
+}
+
+#[test]
 fn task_target_lookup_does_not_decode_unrelated_persistent_tasks() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store.clone());
