@@ -3550,8 +3550,9 @@ impl Workspace {
                 .current
                 .as_ref()
                 .into_iter()
-                .flat_map(|current| current.output.anchors())
-                .filter(|anchor| anchor.id.value == id)
+                .flat_map(|current| current.output.anchors().views())
+                .filter(|anchor| anchor.id_value() == id)
+                .map(|anchor| anchor.to_owned())
                 .collect());
         }
         self.disk_store

@@ -529,11 +529,22 @@ impl Workspace {
         if matching_anchors > 1 {
             return Ok(TaskTargetResolution::AmbiguousAnchor { path, id });
         }
-        let Some(task) = self
-            .tasks_for_path(&path)?
-            .into_iter()
-            .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
-        else {
+        let task = if let Some(entry) = self.documents.get(&path) {
+            entry.current.as_ref().and_then(|current| {
+                current
+                    .output
+                    .tasks()
+                    .tasks
+                    .views()
+                    .find(|task| task.id_value() == Some(id.as_str()))
+                    .map(|task| task.to_owned())
+            })
+        } else {
+            self.tasks_for_path(&path)?
+                .into_iter()
+                .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
+        };
+        let Some(task) = task else {
             return Ok(TaskTargetResolution::NotTask { path, id });
         };
         Ok(TaskTargetResolution::Task {
