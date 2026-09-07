@@ -2617,12 +2617,16 @@ fn workspace_edit_to_lsp(workspace: &Workspace, edit: WorkspaceEdit) -> Option<L
         let version = (document.expected_revision > 0)
             .then(|| i32::try_from(document.expected_revision).ok())
             .flatten();
+        let positions = (document.edits.len() > 1).then(|| PositionIndex::new(source));
         let edits = document
             .edits
             .into_iter()
             .map(|edit| {
                 OneOf::Left(LspTextEdit::new(
-                    byte_range_to_lsp(source, &edit.range),
+                    positions.as_ref().map_or_else(
+                        || byte_range_to_lsp(source, &edit.range),
+                        |positions| positions.byte_range_to_lsp(&edit.range),
+                    ),
                     edit.new_text,
                 ))
             })
@@ -2833,6 +2837,76 @@ mod tests {
     use plumb_workspace::StoreError;
 
     use super::*;
+
+    #[test]
+    fn indexed_workspace_edits_preserve_ranges_versions_and_resource_order() {
+        for ending in ["\n", "\r\n"] {
+            for count in [0, 1, 12] {
+                let path = PathBuf::from("/tmp/plumb-projection.plumb");
+                let mut source = format!("`# \u{1f600} Heading{ending} `@ target{ending}{ending}");
+                for _ in 0..count {
+                    source.push_str(&format!("\u{4e2d} `->{{label #target}}{ending}"));
+                }
+                let mut workspace = Workspace::new();
+                workspace.open_document(&path, 42, source.clone());
+                let target = workspace
+                    .anchor_rename_target_at(&path, source.find("target").unwrap())
+                    .unwrap();
+                let mut edit = workspace.rename_anchor(&target, "renamed").unwrap();
+                assert_eq!(edit.document_changes[0].edits.len(), count + 1);
+                let expected = edit.document_changes[0]
+                    .edits
+                    .iter()
+                    .map(|edit| {
+                        OneOf::Left(LspTextEdit::new(
+                            byte_range_to_lsp(&source, &edit.range),
+                            edit.new_text.clone(),
+                        ))
+                    })
+                    .collect::<Vec<_>>();
+                let converted = workspace_edit_to_lsp(&workspace, edit.clone()).unwrap();
+                let Some(DocumentChanges::Edits(documents)) = converted.document_changes else {
+                    panic!("text-only document changes");
+                };
+                assert_eq!(documents.len(), 1);
+                assert_eq!(documents[0].text_document.version, Some(42));
+                assert_eq!(
+                    documents[0].text_document.uri,
+                    Url::from_file_path(&path).unwrap()
+                );
+                assert_eq!(documents[0].edits, expected);
+                edit.resource_operations.push(ResourceOperation::Rename {
+                    old_path: path.clone(),
+                    new_path: PathBuf::from("/tmp/plumb-renamed.plumb"),
+                });
+                let converted = workspace_edit_to_lsp(&workspace, edit.clone()).unwrap();
+                let Some(DocumentChanges::Operations(operations)) = converted.document_changes
+                else {
+                    panic!("resource operations precede text changes");
+                };
+                assert_eq!(operations.len(), 2);
+                assert!(matches!(
+                    operations[0],
+                    DocumentChangeOperation::Op(ResourceOp::Rename(_))
+                ));
+                assert_eq!(
+                    operations[1],
+                    DocumentChangeOperation::Edit(documents[0].clone())
+                );
+                edit.resource_operations.clear();
+                edit.document_changes[0].edits.clear();
+                let Some(DocumentChanges::Edits(documents)) =
+                    workspace_edit_to_lsp(&workspace, edit)
+                        .unwrap()
+                        .document_changes
+                else {
+                    panic!("empty edit projection preserves document entry");
+                };
+                assert!(documents[0].edits.is_empty());
+                assert_eq!(documents[0].text_document.version, Some(42));
+            }
+        }
+    }
 
     #[test]
     fn cached_references_match_unindexed_positions_and_declaration_order() {
@@ -3121,6 +3195,37 @@ mod tests {
             publications, 3,
             "initial, pending, and restored context each publish the other document"
         );
+    }
+
+    #[test]
+    #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]
+    fn profile_workspace_edit_projection() {
+        let path = "/tmp/plumb-edit-profile.plumb";
+        let mut source = "`# Section\n `@ target\n\n".to_owned();
+        source.push_str(&"See `->{label #target}\n".repeat(2_000));
+        let offset = source.find("target").unwrap();
+        let mut workspace = Workspace::new();
+        workspace.open_document(path, 42, source);
+        let target = workspace.anchor_rename_target_at(path, offset).unwrap();
+        let edit = workspace.rename_anchor(&target, "renamed").unwrap();
+        assert_eq!(edit.document_changes.len(), 1);
+        assert_eq!(edit.document_changes[0].edits.len(), 2_001);
+        let run = || {
+            serde_json::to_vec(&workspace_edit_to_lsp(&workspace, edit.clone()).unwrap()).unwrap()
+        };
+        let expected = run();
+        for _ in 0..3 {
+            std::hint::black_box(run());
+        }
+        let mut samples = Vec::new();
+        for _ in 0..10 {
+            let start = std::time::Instant::now();
+            let bytes = run();
+            samples.push(start.elapsed());
+            assert_eq!(bytes, expected);
+        }
+        samples.sort();
+        eprintln!("workspace_edit_projection: edits=2001 bytes={} warmup=3 samples=10 median={:?}; includes input clone/projection/json, excludes rename planning/transport/application", expected.len(), samples[5]);
     }
 
     #[test]
