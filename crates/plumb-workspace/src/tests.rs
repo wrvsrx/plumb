@@ -2884,8 +2884,12 @@ fn profile_open_task_target_resolution() {
                 assert!(matches!(result, TaskTargetResolution::Task { .. }));
                 std::hint::black_box(result);
             }
+            let elapsed = start.elapsed();
+            if iteration == 0 {
+                eprintln!("open_task_targets: count={count} cold_batch_including_index={elapsed:?}");
+            }
             if iteration >= 2 {
-                samples.push(start.elapsed());
+                samples.push(elapsed);
             }
         }
         samples.sort();
