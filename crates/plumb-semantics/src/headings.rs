@@ -195,16 +195,17 @@ fn get_heading_children_mut<'a>(
     children
 }
 
-fn find_heading(headings: &[Heading], start: usize) -> Option<&Heading> {
-    for heading in headings {
+fn find_heading(mut headings: &[Heading], start: usize) -> Option<&Heading> {
+    loop {
+        let index = headings
+            .partition_point(|heading| heading.node_range.start <= start)
+            .checked_sub(1)?;
+        let heading = &headings[index];
         if heading.node_range.start == start {
             return Some(heading);
         }
-        if let Some(found) = find_heading(&heading.children, start) {
-            return Some(found);
-        }
+        headings = &heading.children;
     }
-    None
 }
 
 #[cfg(test)]
@@ -212,6 +213,28 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn exact_heading_lookup_matches_recursive_order_at_every_byte() {
+        let source = "Prelude\n\n`# One\n`### Deep\n`## Two\n\nBody\n\n`# Three\n`## Last\n";
+        let parsed = parse(source);
+        let output = analyze_headings(parsed.valid_syntax().unwrap());
+        fn scan(headings: &[Heading], start: usize) -> Option<&Heading> {
+            headings.iter().find_map(|heading| {
+                if heading.node_range.start == start {
+                    Some(heading)
+                } else {
+                    scan(&heading.children, start)
+                }
+            })
+        }
+        for start in 0..=source.len() {
+            assert_eq!(
+                output.heading_at_node_start(start),
+                scan(&output.headings, start)
+            );
+        }
+    }
 
     #[test]
     fn builds_heading_hierarchy() {

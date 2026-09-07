@@ -99,9 +99,12 @@ pub struct MetadataOutput {
 
 impl MetadataOutput {
     pub fn definition_list_at_node_start(&self, start: usize) -> Option<&DefinitionList> {
+        let index = self
+            .definition_lists
+            .partition_point(|definitions| definitions.range.start < start);
         self.definition_lists
-            .iter()
-            .find(|definitions| definitions.range.start == start)
+            .get(index)
+            .filter(|definitions| definitions.range.start == start)
     }
 
     pub fn document_title(&self) -> Option<String> {
