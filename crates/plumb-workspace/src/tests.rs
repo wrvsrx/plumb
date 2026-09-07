@@ -2761,6 +2761,52 @@ fn idless_dependencies_do_not_enter_cycle_graph_but_still_report_resolution_erro
 }
 
 #[test]
+#[ignore = "manual release profile; compares cycle algorithms including cache construction"]
+fn profile_cycle_membership_batch() {
+    let node = |index| TaskRef {
+        path: PathBuf::from("chain.plumb"),
+        id: format!("task-{index}"),
+    };
+    let graph = (0..2_000)
+        .map(|index| {
+            (
+                node(index),
+                if index < 1_999 {
+                    vec![node(index + 1)]
+                } else {
+                    Vec::new()
+                },
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    for cached in [false, true] {
+        let mut samples = Vec::new();
+        for iteration in 0..12 {
+            let start = std::time::Instant::now();
+            let count = if cached {
+                let members = dependency_cycle_members(std::hint::black_box(&graph));
+                graph.keys().filter(|node| members.contains(*node)).count()
+            } else {
+                graph
+                    .keys()
+                    .filter(|node| dependency_cycle_contains(std::hint::black_box(&graph), node))
+                    .count()
+            };
+            let elapsed = start.elapsed();
+            assert_eq!(count, 0);
+            if iteration >= 2 {
+                samples.push(elapsed);
+            }
+        }
+        samples.sort();
+        eprintln!(
+            "cycle_membership_batch: nodes=2000 cached={cached} samples=10 median={:?}",
+            samples[5]
+        );
+    }
+}
+
+#[test]
 fn cycle_members_match_individual_reachability_for_all_three_node_graphs() {
     let nodes = (0..3)
         .map(|index| TaskRef {
