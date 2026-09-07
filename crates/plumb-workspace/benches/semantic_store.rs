@@ -667,6 +667,31 @@ fn benchmark_open_document_generation(c: &mut Criterion) {
     group.bench_function("incremental_semantic_tree", |b| {
         b.iter(|| black_box(warm_pending.clone().analyze()))
     });
+    group.bench_function("first_incremental_analysis", |b| {
+        b.iter(|| black_box(incremental_pending.clone().analyze()))
+    });
+    group.bench_function("revision_install_only", |b| {
+        b.iter_batched(
+            || {
+                let mut workspace = previous_workspace.clone();
+                let prepared = workspace
+                    .begin_document_revision_with_change(
+                        "events.plumb",
+                        2,
+                        changed.clone(),
+                        Some(changed_source.clone()),
+                    )
+                    .unwrap()
+                    .analyze();
+                (workspace, prepared)
+            },
+            |(mut workspace, prepared)| {
+                let result = workspace.install_document_analysis_with_impact(prepared);
+                black_box((workspace, result))
+            },
+            BatchSize::LargeInput,
+        )
+    });
     group.bench_function("incremental_revision_pipeline", |b| {
         b.iter_batched(
             || {
