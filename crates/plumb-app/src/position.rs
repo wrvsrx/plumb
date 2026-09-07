@@ -110,6 +110,39 @@ pub(crate) fn byte_range_to_lsp(text: &str, range: &std::ops::Range<usize>) -> R
     )
 }
 
+/// A conservative lower bound: positions at or before it are unchanged.
+pub(crate) fn position_geometry_change_bound(
+    previous: &plumb_syntax::GreenDocument,
+    current: &plumb_syntax::GreenDocument,
+) -> Option<usize> {
+    let old = previous.shards();
+    let new = current.shards();
+    let same_count = old.len() == new.len();
+    let mut prefix = 0;
+    for (old, new) in old.zip(new) {
+        if old.offset() != new.offset() {
+            return Some(prefix);
+        }
+        let old_source = old.shard().parsed().source.as_str();
+        let new_source = new.shard().parsed().source.as_str();
+        if !std::sync::Arc::ptr_eq(old.shard(), new.shard()) && old_source != new_source {
+            let shape = |(offset, character): (usize, char)| {
+                (offset, character == '\n', character.len_utf16())
+            };
+            if old_source.len() != new_source.len()
+                || !old_source
+                    .char_indices()
+                    .map(shape)
+                    .eq(new_source.char_indices().map(shape))
+            {
+                return Some(prefix);
+            }
+        }
+        prefix = old.offset() + old_source.len();
+    }
+    (!same_count).then_some(prefix)
+}
+
 pub(crate) fn position_to_offset(text: &str, position: Position) -> usize {
     let mut line = 0;
     let mut character = 0;

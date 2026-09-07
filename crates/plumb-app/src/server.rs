@@ -73,6 +73,7 @@ use crate::symbols::{
     insert_all as insert_document_symbols, metadata as metadata_symbol, tasks as task_symbols,
 };
 
+mod code_lens;
 mod completion;
 mod decorations;
 
@@ -281,6 +282,15 @@ impl ServerState {
             self.fail_pending_document_reads(&result.path);
             return ControlFlow::Continue(());
         };
+        let previous = self
+            .supports_code_lens_refresh
+            .then(|| {
+                self.workspace
+                    .get(&result.path)
+                    .and_then(|entry| entry.last_valid.as_ref())
+                    .map(|previous| Arc::clone(&previous.output))
+            })
+            .flatten();
         let Some(impact) = self
             .workspace
             .install_document_analysis_with_impact(analysis)
@@ -288,6 +298,15 @@ impl ServerState {
             self.pending_document_reads.remove(&result.path);
             return ControlFlow::Continue(());
         };
+        if impact.exported == ExportedSemanticChange::Unchanged
+            && previous.as_ref().is_some_and(|previous| {
+                self.workspace.get(&result.path).is_some_and(|entry| {
+                    code_lens::positions_changed(previous, entry.parsed.green())
+                })
+            })
+        {
+            self.code_lens_refresh_pending = true;
+        }
         self.finish_pending_document_reads(&result.path);
         match impact.exported {
             ExportedSemanticChange::Changed => {
@@ -2885,6 +2904,80 @@ mod tests {
     use super::*;
 
     #[test]
+    fn semantic_equal_revisions_can_change_code_lens_reference_positions() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let target = "/tmp/plumb-geometry-target.plumb";
+        let source_path = "/tmp/plumb-geometry-source.plumb";
+        state
+            .workspace
+            .open_document(target, 1, "`# Target\n `@ target\n");
+        let old = "AA\nBB\n\nSee `->{label plumb-geometry-target.plumb#target}\n";
+        let new = "ABCDEF\nSee `->{label plumb-geometry-target.plumb#target}\n";
+        assert_eq!(old.len(), new.len());
+        state.workspace.open_document(source_path, 1, old);
+        state.index_complete = true;
+        let previous = Arc::clone(
+            &state
+                .workspace
+                .get(source_path)
+                .unwrap()
+                .current
+                .as_ref()
+                .unwrap()
+                .output,
+        );
+        let params: CodeLensParams = serde_json::from_value(
+            serde_json::json!({"textDocument":{"uri":Url::from_file_path(target).unwrap()}}),
+        )
+        .unwrap();
+        let before = futures::FutureExt::now_or_never(state.code_lens(params.clone()))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let prepared = state
+            .workspace
+            .begin_document_revision(source_path, 2, new)
+            .unwrap()
+            .analyze();
+        let impact = state
+            .workspace
+            .install_document_analysis_with_impact(prepared)
+            .unwrap();
+        assert_eq!(impact.exported, ExportedSemanticChange::Unchanged);
+        let current = &state
+            .workspace
+            .get(source_path)
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output;
+        assert_eq!(
+            previous.exported_semantic_summary(),
+            current.exported_semantic_summary()
+        );
+        let after = futures::FutureExt::now_or_never(state.code_lens(params))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let references = |lenses: &[CodeLens]| {
+            lenses[0]
+                .command
+                .as_ref()
+                .unwrap()
+                .arguments
+                .as_ref()
+                .unwrap()[2]
+                .clone()
+        };
+        assert_eq!(references(&before)[0]["range"]["start"]["line"], 3);
+        assert_eq!(references(&after)[0]["range"]["start"]["line"], 1);
+        assert_ne!(before, after);
+    }
+
+    #[test]
     fn formatting_projections_match_edit_layer_with_utf8_and_crlf() {
         for ending in ["\n", "\r\n"] {
             let (_main, client) =
@@ -3388,6 +3481,76 @@ mod tests {
                         "own_pending={own_pending} finish={finish} supported={supported}"
                     );
                 }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn code_lenses_refresh_for_equal_semantics_with_changed_positions() {
+        for supported in [true, false] {
+            for (prefix, expected) in [("ABCDEF\n", true), ("CC\nDD\n\n", false)] {
+                struct Stop;
+                let (server, client) = async_lsp::MainLoop::new_server(|_| {
+                    let mut router = async_lsp::router::Router::new(());
+                    router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
+                    router
+                });
+                let mut state = ServerState::new(client.clone());
+                state.index_complete = true;
+                state.supports_code_lens_refresh = supported;
+                let path = PathBuf::from("/tmp/plumb-geometry-refresh.plumb");
+                let suffix = "See `->{label target.plumb#target}\n";
+                state
+                    .workspace
+                    .open_document(&path, 1, format!("AA\nBB\n\n{suffix}"));
+                let old = Arc::clone(
+                    &state
+                        .workspace
+                        .get(&path)
+                        .unwrap()
+                        .current
+                        .as_ref()
+                        .unwrap()
+                        .output,
+                );
+                let (_, generation) = state.document_analysis_tokens.next(&path);
+                let analysis = state
+                    .workspace
+                    .begin_document_revision(&path, 2, format!("{prefix}{suffix}"))
+                    .unwrap()
+                    .analyze();
+                // No request or refresh occurs while pending: geometry alone must invalidate.
+                assert!(!state.code_lens_refresh_pending);
+                let _ = state.finish_document_analysis(DocumentAnalysisResult {
+                    path: path.clone(),
+                    generation,
+                    analysis: Ok(analysis),
+                });
+                assert_eq!(
+                    old.exported_semantic_summary(),
+                    state
+                        .workspace
+                        .get(&path)
+                        .unwrap()
+                        .current
+                        .as_ref()
+                        .unwrap()
+                        .output
+                        .exported_semantic_summary()
+                );
+                assert!(!state.code_lens_refresh_pending);
+                tokio::task::yield_now().await;
+                client.emit(Stop).unwrap();
+                let mut output = Vec::new();
+                server
+                    .run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output)
+                    .await
+                    .unwrap();
+                let wire = String::from_utf8(output).unwrap();
+                assert_eq!(
+                    wire.matches("workspace/codeLens/refresh").count(),
+                    usize::from(supported && expected)
+                );
             }
         }
     }

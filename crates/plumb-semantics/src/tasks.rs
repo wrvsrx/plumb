@@ -89,6 +89,24 @@ impl TaskRecord {
 }
 
 impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
+    pub fn reference_ranges(self) -> impl Iterator<Item = Range<usize>> + 'a {
+        let offset = self.offset;
+        self.record
+            .prev
+            .iter()
+            .map(|field| &field.range)
+            .chain(
+                self.record
+                    .depends
+                    .iter()
+                    .map(|dependency| &dependency.range),
+            )
+            .map(move |range| {
+                range.start.checked_add_signed(offset).unwrap()
+                    ..range.end.checked_add_signed(offset).unwrap()
+            })
+    }
+
     pub fn previous_value(self) -> Option<&'a str> {
         self.record.prev.as_ref().map(|field| field.value.as_str())
     }

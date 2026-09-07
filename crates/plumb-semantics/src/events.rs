@@ -99,6 +99,14 @@ pub type EventRecords = SemanticRecords<EventRecord>;
 pub type EventRecordView<'a> = SemanticRecordView<'a, EventRecord>;
 
 impl<'a> EventRecordView<'a> {
+    pub fn task_reference_ranges(self) -> impl Iterator<Item = Range<usize>> + 'a {
+        let offset = self.offset;
+        self.record
+            .tasks
+            .iter()
+            .map(move |task| shifted_range(&task.range, offset))
+    }
+
     pub fn task_targets(self) -> impl Iterator<Item = &'a crate::TaskReferenceTarget> {
         self.record.tasks.iter().map(|task| &task.target)
     }

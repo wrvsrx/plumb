@@ -76,6 +76,18 @@ impl RelativeSemanticRecord for AnchorRecord {
 }
 
 impl<'a> crate::SemanticRecordView<'a, AnchorRecord> {
+    pub fn kind(self) -> AnchorKind {
+        self.record.kind
+    }
+
+    pub fn owner_range(self) -> Range<usize> {
+        shifted_range(&self.record.range, self.offset)
+    }
+
+    pub fn id_range(self) -> Range<usize> {
+        shifted_range(&self.record.id.range, self.offset)
+    }
+
     pub fn id_value(self) -> &'a str {
         &self.record.id.value
     }
@@ -123,6 +135,14 @@ pub struct LinkRecord {
 pub type LinkRecordView<'a> = crate::SemanticRecordView<'a, LinkRecord>;
 
 impl<'a> LinkRecordView<'a> {
+    pub fn selection_range(self) -> Range<usize> {
+        shifted_range(&self.record.selection_range, self.offset)
+    }
+
+    pub fn target_source_range(self) -> Range<usize> {
+        shifted_range(&self.record.target.range, self.offset)
+    }
+
     pub fn target_kind(self) -> &'a LinkTarget {
         &self.record.target_kind
     }
@@ -491,6 +511,11 @@ pub struct DocumentChange {
 }
 
 impl DocumentOutput {
+    /// The immutable syntax snapshot that owns these semantic records.
+    pub fn syntax(&self) -> &plumb_syntax::GreenDocument {
+        &self.root.tree.syntax
+    }
+
     pub fn exported_semantic_summary(&self) -> ExportedSemanticSummary<'_> {
         ExportedSemanticSummary { output: self }
     }

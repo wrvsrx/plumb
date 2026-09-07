@@ -244,6 +244,14 @@ CodeLens pending recovery 已实现：请求因本文件或其它文件的有效
 完成后发送一次 refresh，即使 exported summary 相等；正常完成、同步 navigation 完成或关闭最后一个 pending
 document 都必须让恢复继续。unsupported clients 不接收请求，store errors 不作为 pending 处理。
 
+CodeLens position invalidation 已实现：exported byte ranges 相等不保证 UTF-16 locations 相等。valid analysis
+安装后，若summary相等但CodeLens的anchor位置或reference locations投影改变，仍需已协商的CodeLens refresh。
+该检查属于LSP adapter，借用old/current source snapshots，不改变semantic equality、不重新parse。相同green shard
+或相同character-position shape可跳过；没有相关ranges或相关位置未变时不刷新。相关ranges包括anchor lens位置、
+Link selection与target source、task prev/depends与event tasks。Link target保守覆盖implicit event-task association，
+不为精确过滤潜在引用而执行workspace resolution；因此允许潜在引用位置改变但最终无可见引用时refresh。
+pending恢复的合并规则继续适用。
+
 current-valid semantic output pending 时，`"textDocument/semanticTokens/full" 异步等待同一 document revision 已在运行的
 analysis 安装，再返回该 revision 的 tokens；不能把暂时 pending 投影为 `"null" 或空 tokens。客户端需要
 `"collapsedText" 时，`"textDocument/foldingRange" 使用同一等待边界，再一次返回 structural ranges 与可确定的
