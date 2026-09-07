@@ -229,6 +229,10 @@ LSP initial workspace indexing 不得阻塞 current open-document lifecycle 或�
 
 `"textDocument/foldingRange" 是上述 open-document exception：structural ranges 与 current-document labels 不得因 task workspace facts incomplete 而整体失败。adapter 对 task state 使用保守的 local determination， 无法证明唯一状态时只省略该 task 的 `"collapsedText"。不支持 `"workspace/foldingRange/refresh" 的 client 保留这份 response，直到 document lifecycle 或 client 自身触发下一次 folding request；不得为了等待完整 workspace index 补齐跨文件 label 而延迟 response。
 
+Task fold completeness 已实现：initial index complete 不代表 workspace query complete。workflow query
+为 partial 时，必须回到上述 locally determined state 规则；pending 目标暂时缺失不能被当成 ready。
+closed/future-wait/no-dependency states、已知 open blocker 和全部已解析 closed dependencies 仍可提供 label。
+
 CodeLens pending recovery 已实现：请求因本文件或其它文件的有效 semantic analysis pending 而返回
 `"null" 时，为支持 CodeLens refresh 的 client 记录一次恢复需求。pending 期间的多个需求及正常 refresh
 合并，不发送已知仍只能得到 partial result 的重查请求。initial index complete 且所有有效 pending analyses

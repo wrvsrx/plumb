@@ -129,9 +129,10 @@ fn task_label_state(
     index_complete: bool,
 ) -> Result<Option<TaskWorkflowState>, WorkspaceQueryError> {
     if index_complete {
-        return Ok(Some(
-            workspace.task_workflow_state(path, task, now)?.value.0,
-        ));
+        let state = workspace.task_workflow_state(path, task, now)?;
+        if state.is_complete() {
+            return Ok(Some(state.value.0));
+        }
     }
 
     Ok(match task.state() {
@@ -660,6 +661,66 @@ mod tests {
                 expected,
             );
         }
+    }
+
+    #[test]
+    fn partial_workspace_keeps_locally_determined_task_labels() {
+        let mut workspace = plumb_workspace::Workspace::new();
+        let path = std::path::Path::new("labels.plumb");
+        workspace.open_document(path, 1, "`- Ready\n `+ task\n\n`- Waiting\n `+ task\n `= wait 2099-01-01T00:00:00Z\n `= depends b.plumb#b\n\n`- Done\n `+ task\n `= done 2026-09-07T00:00:00Z\n\n`- Canceled\n `+ task\n `= canceled 2026-09-07T00:00:00Z\n\n`- Conflicted\n `+ task\n `= done 2026-09-07T00:00:00Z\n `= canceled 2026-09-07T00:00:00Z\n\n`- Blocked\n `+ task\n `= depends b.plumb#b c.plumb#c\n\n`- Closed dependency\n `+ task\n `= depends d.plumb#d\n\n`- Unknown\n `+ task\n `= depends b.plumb#b\n");
+        workspace.open_document("c.plumb", 1, "`- C\n `+ task\n `@ c\n");
+        workspace.open_document(
+            "d.plumb",
+            1,
+            "`- D\n `+ task\n `@ d\n `= done 2026-09-07T00:00:00Z\n",
+        );
+        let _pending = workspace
+            .begin_document_revision("b.plumb", 1, "`- B\n `+ task\n `@ b\n")
+            .unwrap();
+        let mut expected = vec![
+            "`- [ ]  Ready",
+            "`- [~]  Waiting",
+            "`- [o]  Done",
+            "`- [x]  Canceled",
+            "`- [ox] Conflicted",
+            "`- [=]  Blocked",
+            "`- [ ]  Closed dependency",
+        ];
+        expected.sort();
+        for index_complete in [false, true] {
+            let labels = super::task_labels(
+                &workspace,
+                path,
+                workspace.get(path).unwrap(),
+                index_complete,
+            );
+            let mut actual = labels
+                .values()
+                .map(|label| label.text.as_str())
+                .collect::<Vec<_>>();
+            actual.sort();
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn pending_dependency_does_not_become_a_ready_fold_label() {
+        let mut workspace = plumb_workspace::Workspace::new();
+        let path = std::path::Path::new("a.plumb");
+        workspace.open_document(path, 1, "`- A\n `+ task\n `= depends b.plumb#b\n");
+        let dependency = "`- B\n `+ task\n `@ b\n";
+        workspace.open_document("b.plumb", 1, dependency);
+        let labels = super::task_labels(&workspace, path, workspace.get(path).unwrap(), true);
+        assert_eq!(labels.values().next().unwrap().text, "`- [=]  A");
+        let pending = workspace
+            .begin_document_revision("b.plumb", 2, dependency)
+            .unwrap();
+        assert!(
+            super::task_labels(&workspace, path, workspace.get(path).unwrap(), true).is_empty()
+        );
+        assert!(workspace.install_document_analysis(pending.analyze()));
+        let labels = super::task_labels(&workspace, path, workspace.get(path).unwrap(), true);
+        assert_eq!(labels.values().next().unwrap().text, "`- [=]  A");
     }
 
     #[test]
