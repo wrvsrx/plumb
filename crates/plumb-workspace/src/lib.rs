@@ -2447,14 +2447,19 @@ impl Workspace {
         offset: usize,
     ) -> Result<PathRenameTarget, WorkspaceOperationError<RenameError>> {
         let path = normalize(path.as_ref());
-        if offset == 0 && self.current_output(&path).is_some() {
+        let metadata = self
+            .document_metadata(&path)
+            .ok_or(RenameError::NotRenameable)?;
+        let in_declaration_opener = metadata.range.start <= offset
+            && offset < metadata.selection_range.end;
+        if in_declaration_opener {
             return Ok(PathRenameTarget {
                 old_path: path,
                 range: 0..0,
                 input: PathRenameInput::FileStem,
             });
         }
-        self.path_rename_target_at(path, offset)
+        Err(RenameError::NotRenameable.into())
     }
 
     pub fn rename_document(

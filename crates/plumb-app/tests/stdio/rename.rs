@@ -568,6 +568,77 @@ fn document_start_renames_the_current_document_without_changing_title() {
 }
 
 #[test]
+fn document_rename_is_only_offered_at_the_declaration_opener() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let current = root.join("current.plumb");
+    let plain = root.join("plain.plumb");
+    let current_source = "`= title Stable\n\n`= tags one\n\nBody\n";
+    std::fs::write(&current, current_source).unwrap();
+    std::fs::write(&plain, "Body only\n").unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let current_uri = lsp_types::Url::from_file_path(&current).unwrap();
+    let plain_uri = lsp_types::Url::from_file_path(&plain).unwrap();
+    let (title_line, title_character) = source_position(current_source, "Stable", 0);
+    let (entry_line, entry_character) = source_position(current_source, "tags", 0);
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": { "workspace": { "workspaceEdit": {
+                    "documentChanges": true, "resourceOperations": ["rename"]
+                } } }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": current_uri, "languageId": "plumb", "version": 1,
+                "text": current_source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": plain_uri, "languageId": "plumb", "version": 1,
+                "text": "Body only\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/prepareRename",
+            "params": { "textDocument": { "uri": current_uri },
+                "position": { "line": 0, "character": 0 } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "textDocument/prepareRename",
+            "params": { "textDocument": { "uri": current_uri },
+                "position": { "line": title_line, "character": title_character } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/prepareRename",
+            "params": { "textDocument": { "uri": current_uri },
+                "position": { "line": entry_line, "character": entry_character } }
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/prepareRename",
+            "params": { "textDocument": { "uri": plain_uri },
+                "position": { "line": 0, "character": 0 } }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server_after_initial_index(&messages);
+    assert!(response(&output, 2)["result"].is_object());
+    assert!(response(&output, 3)["result"].is_null());
+    assert!(response(&output, 4)["result"].is_null());
+    assert!(response(&output, 5)["result"].is_null());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn path_rename_watcher_confirms_a_successful_filesystem_rename() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();

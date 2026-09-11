@@ -2439,7 +2439,23 @@ impl LanguageServer for ServerState {
                         (target.range, placeholder)
                     }
                     Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => {
-                        return Ok(None);
+                        match self.workspace.path_rename_target_at(&path, offset) {
+                            Ok(target) => {
+                                let placeholder = target
+                                    .old_path
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("document.plumb")
+                                    .to_string();
+                                (target.range, placeholder)
+                            }
+                            Err(WorkspaceOperationError::Operation(
+                                RenameError::NotRenameable,
+                            )) => return Ok(None),
+                            Err(error) => {
+                                return Err(rename_operation_error("path rename", error));
+                            }
+                        }
                     }
                     Err(error) => {
                         return Err(rename_operation_error("document rename", error));
@@ -2507,7 +2523,13 @@ impl LanguageServer for ServerState {
             let target = match self.workspace.document_rename_target_at(&path, offset) {
                 Ok(target) => target,
                 Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => {
-                    return Ok(None);
+                    match self.workspace.path_rename_target_at(&path, offset) {
+                        Ok(target) => target,
+                        Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => {
+                            return Ok(None);
+                        }
+                        Err(error) => return Err(rename_operation_error("path rename", error)),
+                    }
                 }
                 Err(error) => return Err(rename_operation_error("document rename", error)),
             };

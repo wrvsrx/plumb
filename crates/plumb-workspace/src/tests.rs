@@ -1409,6 +1409,33 @@ fn document_start_targets_the_current_document_without_editing_title() {
 }
 
 #[test]
+fn document_rename_requires_the_document_declaration_opener() {
+    let source = "`= title Stable\n\n`= tags one\n\nBody\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("current.plumb", 1, source);
+
+    let opener = source.find("`= title").unwrap();
+    let title = source.find("Stable").unwrap();
+    let second_entry = source.find("`= tags").unwrap();
+    let target = workspace
+        .document_rename_target_at("current.plumb", opener)
+        .unwrap();
+    assert_eq!(target.input, PathRenameInput::FileStem);
+    assert_eq!(target.range, 0..0);
+    assert!(workspace
+        .document_rename_target_at("current.plumb", title)
+        .is_err());
+    assert!(workspace
+        .document_rename_target_at("current.plumb", second_entry)
+        .is_err());
+
+    workspace.insert("plain.plumb", 2, "Body only\n");
+    assert!(workspace
+        .document_rename_target_at("plain.plumb", 0)
+        .is_err());
+}
+
+#[test]
 fn rename_updates_declaration_and_cross_file_fragments() {
     let mut workspace = Workspace::new();
     workspace.insert("a.plumb", 4, "`# Target\n  `@ target\n");
