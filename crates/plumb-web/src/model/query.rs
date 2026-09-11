@@ -71,6 +71,10 @@ impl WebWorkspace {
 
     fn web_task(&self, item: WorkspaceTask) -> Option<WebTask> {
         let document_id = self.document_id(&item.path)?.to_string();
+        // The task page may be backed by a semantic index whose fact revision
+        // predates the live document snapshot. Mutations are guarded against
+        // that live snapshot, so expose the same revision token here.
+        let revision = self.documents.get(&item.path)?.revision;
         let task = item.task;
         let id = task.id.as_ref().map(|field| field.value.clone());
         let key = id.as_ref().map_or_else(
@@ -88,7 +92,7 @@ impl WebWorkspace {
             document_id,
             title: task.title.clone(),
             path: display_path(&self.root, &item.path),
-            revision: item.revision.to_string(),
+            revision: revision.to_string(),
             id,
             locator,
             state: item.state.as_str().to_string(),

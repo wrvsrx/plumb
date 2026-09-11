@@ -2118,6 +2118,46 @@ mod tests {
     }
 
     #[test]
+    fn paged_task_rows_project_the_live_document_revision() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = normalize(&root.join("tasks.plumb"));
+        let source = "`- Current\n\n `+ task\n\n `@ current\n";
+        std::fs::write(&path, source).unwrap();
+
+        // Keep the persistent task fact at an old revision while exposing a
+        // newer live document snapshot through the Web workspace.
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut index = Workspace::with_sqlite_store(store.clone());
+        index.insert_disk(&path, 1, source).unwrap();
+        let documents = [(
+            path.clone(),
+            Arc::new(LazyDocument {
+                revision: 9,
+                source: Arc::from(source),
+                entry: OnceLock::new(),
+                generation_reused: false,
+            }),
+        )]
+        .into_iter()
+        .collect();
+        let workspace = WebWorkspace::from_snapshot(
+            &root,
+            Workspace::with_sqlite_store(store.readonly_snapshot().unwrap()),
+            None,
+            documents,
+            1,
+        )
+        .unwrap();
+
+        let page = workspace.query_tasks(&WebQuery::default()).unwrap();
+        assert_eq!(page.tasks.len(), 1);
+        assert_eq!(page.tasks[0].revision, "9");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn task_snapshots_expose_workspace_facts_and_status_edits() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
