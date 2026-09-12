@@ -62,8 +62,6 @@ pub(crate) struct ServeConfig {
     /// Public HTTP(S) origin used to validate browser mutations behind a proxy.
     #[arg(long, value_name = "ORIGIN")]
     public_origin: Option<PublicOrigin>,
-    listen_addr: SocketAddr,
-
     /// Hide notes whose CEL predicate evaluates to true.
     #[arg(long, value_name = "EXPR")]
     exclude: Option<String>,
@@ -132,6 +130,12 @@ async fn run(config: ServeConfig) -> Result<(), String> {
         };
         workspace.document_id(path).map(str::to_string)
     });
+    let listener = tokio::net::TcpListener::bind(SocketAddr::new(config.host, config.port))
+        .await
+        .map_err(|error| format!("cannot bind server: {error}"))?;
+    let listen_addr = listener
+        .local_addr()
+        .map_err(|error| format!("cannot read server address: {error}"))?;
     let (changes, _) = broadcast::channel(32);
     let state = AppState {
         workspace: Arc::new(RwLock::new(Arc::new(workspace))),
@@ -141,20 +145,14 @@ async fn run(config: ServeConfig) -> Result<(), String> {
         exclude: config.exclude.map(Arc::from),
         allow_mutations: mutations_enabled(config.host, config.allow_mutations),
         public_origin: config.public_origin,
-        listen_addr: SocketAddr::new(config.host, config.port),
+        listen_addr,
     };
     if !config.no_watch {
         spawn_watcher(state.clone());
     }
     let mutations_enabled = state.allow_mutations;
     let router = router(state);
-    let listener = tokio::net::TcpListener::bind(SocketAddr::new(config.host, config.port))
-        .await
-        .map_err(|error| format!("cannot bind server: {error}"))?;
-    let address = listener
-        .local_addr()
-        .map_err(|error| format!("cannot read server address: {error}"))?;
-    let url = format!("http://{address}/");
+    let url = format!("http://{listen_addr}/");
     println!("{url}");
     eprintln!(
         "plumb site serve: listening on {url} (task mutations {})",
