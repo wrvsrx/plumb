@@ -1,8 +1,7 @@
 `= title plumb syntax guide
 
 本文介绍 current recursive-owner syntax。精确 validity/recovery 以
-`->{{core syntax reference} ../reference/core-syntax.plumb} 为准；旧 brackets/pipe epoch 只由 migration reader
-处理。
+`->{{core syntax reference} ../reference/core-syntax.plumb} 为准。旧 brackets/pipe spelling 属于普通文本。
 
 `# Blocks and indentation
 
@@ -99,8 +98,7 @@ own-line quote opener 进入 indentation-terminated raw。anonymous/marked forms
  `rust"
   fn main() {}
 
-payload 每行携带 opener indentation 加一 structural space；只 strip 这一格，其余 bytes 完整保留。raw blank
-line 也必须携带 margin。没有 closing fence、quote-count margin 或 raw tail。
+payload 每行携带 opener indentation 加一 structural space；只 strip 这一格，其余 bytes 完整保留。raw block 中间的空行可以省略 margin；最后的空行必须携带 margin 才属于 payload。没有 closing fence 或 quote-count margin。
 
 verbatim block 不能拥有 parsed children。需要 id/properties 时使用 ordinary wrapper 与 marked raw child：
 

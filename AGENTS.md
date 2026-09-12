@@ -177,7 +177,7 @@ semantics can be shared by more than one tool:
   heading, list, quote, declaration, or semantic marker spellings. Braces are
   ordinary parsed text. Quote runs strengthen inline verbatim delimiters;
   anonymous block raw starts with an introducer and quote, while a marked owner
-  enters one terminal indented raw tail after a bare quote boundary. Contains
+  enters one terminal indented raw payload after a bare quote boundary. Contains
   **no** anchors, references, metadata, tasks, outline, or resolution logic.
 - **`plumb-semantics`** — the official semantic profile, implemented as a fixed
   protocol-neutral Rust analysis pipeline over typed syntax views: outline,

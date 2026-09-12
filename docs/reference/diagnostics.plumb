@@ -27,8 +27,7 @@ brackets 与 pipe 是 ordinary text，不发布 delimiter diagnostics。bare bra
 introducer escape。block raw 缺 structural margin 的 line 正常结束 payload，不是 error；该 line 随后按普通
 block grammar 诊断。
 
-legacy member-envelope validity/migration failure 只由 isolated legacy parser/converter 报告，不混入 current
-document diagnostics。
+历史 member-envelope 的迁移说明只保留在 history 文档中；current document diagnostics 不处理历史格式。
 
 `# 4. Precedence and recovery
 
