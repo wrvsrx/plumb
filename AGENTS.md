@@ -308,6 +308,8 @@ cherry-picking their commits) and fast-forwarding, never with merge commits.
 
 ## Release workflow
 
+For the concrete version update sequence, see [`docs/versioning.md`](docs/versioning.md).
+
 Semantic-ish `0.x.y` while pre-1.0: release `0.x.(y+1)` when the release
 contains only fixes; release `0.(x+1).y` when it includes features or behavior
 changes. Until the Cargo workspace exists, `tree-sitter-plumb/tree-sitter.json`
