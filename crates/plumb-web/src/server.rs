@@ -62,6 +62,7 @@ pub(crate) struct ServeConfig {
     /// Public HTTP(S) origin used to validate browser mutations behind a proxy.
     #[arg(long, value_name = "ORIGIN")]
     public_origin: Option<PublicOrigin>,
+    listen_addr: SocketAddr,
 
     /// Hide notes whose CEL predicate evaluates to true.
     #[arg(long, value_name = "EXPR")]
@@ -77,6 +78,7 @@ struct AppState {
     exclude: Option<Arc<str>>,
     allow_mutations: bool,
     public_origin: Option<PublicOrigin>,
+    listen_addr: SocketAddr,
 }
 
 #[derive(Clone, Debug)]
@@ -139,6 +141,7 @@ async fn run(config: ServeConfig) -> Result<(), String> {
         exclude: config.exclude.map(Arc::from),
         allow_mutations: mutations_enabled(config.host, config.allow_mutations),
         public_origin: config.public_origin,
+        listen_addr: SocketAddr::new(config.host, config.port),
     };
     if !config.no_watch {
         spawn_watcher(state.clone());
@@ -332,7 +335,7 @@ async fn update_task(
         )
             .into_response();
     }
-    if !same_origin(&headers, state.public_origin.as_ref()) {
+    if !same_origin(&headers, state.public_origin.as_ref(), Some(state.listen_addr)) {
         return (
             StatusCode::FORBIDDEN,
             "cross-origin task mutations are forbidden",
@@ -441,7 +444,7 @@ async fn update_event(
         )
             .into_response();
     }
-    if !same_origin(&headers, state.public_origin.as_ref()) {
+    if !same_origin(&headers, state.public_origin.as_ref(), Some(state.listen_addr)) {
         return (
             StatusCode::FORBIDDEN,
             "cross-origin event mutations are forbidden",
@@ -508,7 +511,7 @@ async fn update_event(
     ([("x-plumb-revision", revision.to_string())], Json(events)).into_response()
 }
 
-fn same_origin(headers: &HeaderMap, public_origin: Option<&PublicOrigin>) -> bool {
+fn same_origin(headers: &HeaderMap, public_origin: Option<&PublicOrigin>, listen_addr: Option<SocketAddr>) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else {
         return public_origin.is_none();
     };
@@ -522,6 +525,15 @@ fn same_origin(headers: &HeaderMap, public_origin: Option<&PublicOrigin>) -> boo
     };
     if let Some(public_origin) = public_origin {
         return origin.0 == public_origin.0;
+    }
+    if let Some(addr) = listen_addr {
+        if addr.ip().is_loopback()
+            && origin.0.scheme() == "http"
+            && origin.0.port_or_known_default() == Some(addr.port())
+            && matches!(origin.0.host_str(), Some("localhost" | "127.0.0.1"))
+        {
+            return true;
+        }
     }
     let Some(host) = headers
         .get(header::HOST)
@@ -901,17 +913,17 @@ mod tests {
     fn task_mutations_reject_cross_origin_browser_requests() {
         let mut headers = HeaderMap::new();
         headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:4242"));
-        assert!(same_origin(&headers, None));
+        assert!(same_origin(&headers, None, Some("127.0.0.1:4242".parse().unwrap())));
         headers.insert(
             header::ORIGIN,
             HeaderValue::from_static("http://127.0.0.1:4242"),
         );
-        assert!(same_origin(&headers, None));
+        assert!(same_origin(&headers, None, Some("127.0.0.1:4242".parse().unwrap())));
         headers.insert(
             header::ORIGIN,
             HeaderValue::from_static("https://example.test"),
         );
-        assert!(!same_origin(&headers, None));
+        assert!(!same_origin(&headers, None, Some("127.0.0.1:4242".parse().unwrap())));
         assert!(mutations_enabled(IpAddr::V4(Ipv4Addr::LOCALHOST), false));
         assert!(!mutations_enabled(IpAddr::V4(Ipv4Addr::UNSPECIFIED), false));
         assert!(mutations_enabled(IpAddr::V4(Ipv4Addr::UNSPECIFIED), true));
@@ -922,18 +934,18 @@ mod tests {
         let public = PublicOrigin::from_str("https://Example.test:443").unwrap();
         let mut headers = HeaderMap::new();
         headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
-        assert!(!same_origin(&headers, Some(&public)));
+        assert!(!same_origin(&headers, Some(&public), None));
 
         headers.insert(
             header::ORIGIN,
             HeaderValue::from_static("https://example.test"),
         );
-        assert!(same_origin(&headers, Some(&public)));
+        assert!(same_origin(&headers, Some(&public), None));
         headers.insert(
             header::ORIGIN,
             HeaderValue::from_static("https://example.test:9162"),
         );
-        assert!(!same_origin(&headers, Some(&public)));
+        assert!(!same_origin(&headers, Some(&public), None));
 
         assert!(PublicOrigin::from_str("https://example.test:9162").is_ok());
         for invalid in [
@@ -989,6 +1001,7 @@ mod tests {
             exclude: None,
             allow_mutations: true,
             public_origin: None,
+            listen_addr: "127.0.0.1:3000".parse().unwrap(),
         };
         let app = router(state);
 
