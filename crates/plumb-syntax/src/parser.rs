@@ -707,11 +707,23 @@ impl<'a> Parser<'a> {
         while index < self.lines.len() {
             let line = &self.lines[index];
             let prefix_end = line.start.saturating_add(margin);
-            if prefix_end > line.content_end
-                || !self.source[line.start..prefix_end]
-                    .bytes()
-                    .all(|byte| byte == b' ')
-            {
+            let has_margin = prefix_end <= line.content_end
+                && self.source[line.start..prefix_end].bytes().all(|byte| byte == b' ');
+            if !has_margin {
+                // An unindented blank line is payload only when followed by
+                // another margined line; a final blank line ends the payload.
+                if !(line.blank && index + 1 < self.lines.len()) {
+                    break;
+                }
+                let next = &self.lines[index + 1];
+                let next_end = next.start.saturating_add(margin);
+                if next_end > next.content_end || !self.source.is_char_boundary(next_end)
+                    || !self.source[next.start..next_end].bytes().all(|byte| byte == b' ')
+                {
+                    break;
+                }
+            }
+            if line.blank && !has_margin && index + 1 >= self.lines.len() {
                 break;
             }
             if !has_payload {
@@ -866,11 +878,11 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                b'\t' | 0x00..=0x1f | 0x7f => {
+                b'\t' => {
                     let width = self.source[cursor..].chars().next().unwrap().len_utf8();
                     self.error(
                         "syntax.invalid-inline-dispatch",
-                        "tabs and control characters are invalid in parsed inline content",
+                        "tabs are invalid in parsed inline content",
                         cursor..cursor + width,
                     );
                     frames.last_mut().unwrap().items.push(Inline::Text {
@@ -1142,7 +1154,6 @@ fn scan_marker(source: &str, mut cursor: usize, end: usize) -> usize {
     while cursor < end {
         let character = source[cursor..].chars().next().unwrap();
         if character.is_whitespace()
-            || character.is_control()
             || matches!(character, '`' | '"' | '{' | '}')
         {
             break;

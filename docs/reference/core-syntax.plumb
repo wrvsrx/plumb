@@ -22,9 +22,8 @@ backslash processing。document 是 implicit root owner，保存 source-ordered 
 brackets、pipe 和 ordinary double quote 是 ordinary parsed text。introducer 开始但不能完成 escape、marker、
 group 或 verbatim entry 时发布 syntax error，不 fallback 为 literal text。
 
-marker 是 nonempty、case-sensitive Unicode scalar run，不能包含 whitespace、control、backtick、double
-quote 或 braces。ASCII space 是唯一 parsed separator；tab、其他 control 与 non-ASCII structural whitespace
-在 parsed source 中非法，只能出现在 verbatim payload。
+marker 是 nonempty、case-sensitive Unicode scalar run，不能包含 whitespace、backtick、double quote 或 braces。
+ASCII space 是唯一 parsed separator；Unicode control 可作为普通文本。tab 与其他 whitespace 不能作为结构分隔符。
 
 `# 3. Block dispatch
 
@@ -157,7 +156,7 @@ block raw opener 必须独占 physical line。anonymous/marked forms：
 
 每条 payload line 先匹配 opener indentation，再匹配一个 structural ASCII space；parser 只 strip 该额外
 space，保留其后所有 bytes，包括更多 leading spaces、tabs 与 original line ending。raw blank line 同样
-必须带 margin。第一条缺 margin 的 physical line 结束 payload并重新进入 ordinary block dispatch。
+中间 blank line 可以不带 margin；末尾 blank line 必须带 margin，否则结束 payload 并重新进入 ordinary block dispatch。
 
 empty payload、EOF 和 payload 中任意 syntax-like bytes 合法。没有 closing fence、quote-count block margin
 或 marked raw tail。需要 declarations 时使用 ordinary wrapper 与 marked raw child：
