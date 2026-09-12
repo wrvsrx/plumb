@@ -521,9 +521,6 @@ fn same_origin(headers: &HeaderMap, public_origin: Option<&PublicOrigin>, listen
     else {
         return false;
     };
-    if let Some(public_origin) = public_origin {
-        return origin.0 == public_origin.0;
-    }
     if let Some(addr) = listen_addr {
         if addr.ip().is_loopback()
             && origin.0.scheme() == "http"
@@ -532,6 +529,9 @@ fn same_origin(headers: &HeaderMap, public_origin: Option<&PublicOrigin>, listen
         {
             return true;
         }
+    }
+    if let Some(public_origin) = public_origin {
+        return origin.0 == public_origin.0;
     }
     let Some(host) = headers
         .get(header::HOST)
