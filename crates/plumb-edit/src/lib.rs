@@ -154,10 +154,9 @@ pub fn align_block_arguments(
 
     let mut edits = Vec::new();
     for block in blocks {
-        let elements = block.content.positional_elements().collect::<Vec<_>>();
+        let elements = alignment_ranges(block, marker);
         for (column, width) in widths.iter().enumerate() {
-            let separator =
-                inline_range(elements[column]).end..inline_range(elements[column + 1]).start;
+            let separator = elements[column].end..elements[column + 1].start;
             let spaces = *width - argument_alignment_width(&parsed.source, block, column) + 1;
             push_changed_padding_edit(parsed, &mut edits, separator, spaces)?;
         }
@@ -255,11 +254,10 @@ pub fn align_green_block_arguments(
         let Block::Parsed(block) = candidate.block else {
             unreachable!("alignment shape accepts only parsed blocks")
         };
-        let elements = block.content.positional_elements().collect::<Vec<_>>();
+        let elements = alignment_ranges(block, &marker);
         let mut local = Vec::new();
         for (column, width) in widths.iter().enumerate() {
-            let separator =
-                inline_range(elements[column]).end..inline_range(elements[column + 1]).start;
+            let separator = elements[column].end..elements[column + 1].start;
             let spaces =
                 *width - argument_alignment_width(&candidate.parsed.source, block, column) + 1;
             push_changed_padding_edit(candidate.parsed, &mut local, separator, spaces)?;
@@ -2277,7 +2275,11 @@ fn alignment_shape<'a>(source: &str, block: &'a Block) -> Option<(&'a str, usize
         return None;
     };
     let marker = block.mark.as_ref()?.marker.as_str();
-    let argument_count = block.content.positional_elements().count();
+    let argument_count = if marker == "=" {
+        block.content.positional_elements().next().map(|_| 2).unwrap_or(0)
+    } else {
+        block.content.positional_elements().count()
+    };
     let head = &source[block.content.range.clone()];
     (block.children.is_empty()
         && argument_count >= 2
@@ -2286,13 +2288,25 @@ fn alignment_shape<'a>(source: &str, block: &'a Block) -> Option<(&'a str, usize
     .then_some((marker, argument_count))
 }
 
-fn argument_alignment_width(source: &str, block: &ParsedBlock, column: usize) -> usize {
-    let element = block
+fn alignment_ranges(block: &ParsedBlock, marker: &str) -> Vec<Range<usize>> {
+    let elements = block
         .content
         .positional_elements()
+        .map(|element| inline_range(element).clone())
+        .collect::<Vec<_>>();
+    if marker == "=" && elements.len() >= 2 {
+        vec![elements[0].clone(), elements[1].start..elements.last().unwrap().end]
+    } else {
+        elements
+    }
+}
+
+fn argument_alignment_width(source: &str, block: &ParsedBlock, column: usize) -> usize {
+    let marker = block.mark.as_ref().map(|mark| mark.marker.as_str()).unwrap_or_default();
+    let raw = alignment_ranges(block, marker)
+        .into_iter()
         .nth(column)
         .expect("alignment column exists");
-    let raw = inline_range(element);
     if column == 0 {
         let line_start = source[..block.range.start]
             .rfind('\n')
@@ -3393,6 +3407,19 @@ mod tests {
         assert_eq!(
             formatted,
             "`= title   Project Guide\n`= created 2026-08-26T00:00:00+08:00\n"
+        );
+    }
+
+    #[test]
+    fn aligns_first_rest_associations_with_multiword_values() {
+        let source = "`= title My Note\n`= created 2026-08-26T00:00:00+08:00\n";
+        let parsed = plumb_syntax::parse(source);
+        let offset = source.find("title").unwrap();
+        let edits = align_block_arguments(&parsed, offset).unwrap();
+        let aligned = apply_text_edits(source.to_string(), edits).unwrap();
+        assert_eq!(
+            aligned,
+            "`= title   My Note\n`= created 2026-08-26T00:00:00+08:00\n"
         );
     }
 
