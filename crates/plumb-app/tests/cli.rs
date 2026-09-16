@@ -535,7 +535,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "`= title Alpha\n\nSee `->{Beta b.plumb#beta}.\n\n`img{icon `={src assets/icon.png}}\n\n`- Ship release\n `+ task\n `= created 2026-07-25T10:00:00+08:00\n",
+        "`= title Alpha\n\nSee `->{Beta b.plumb#beta}.\n\n{icon `\"assets/icon.png\" `+{img}}\n\n`- Ship release\n `+ task\n `= created 2026-07-25T10:00:00+08:00\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`# Beta\n `@ beta\n").unwrap();

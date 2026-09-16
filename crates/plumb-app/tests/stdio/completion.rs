@@ -457,7 +457,7 @@ fn completes_and_navigates_relative_verbatim_links_files_and_images() {
     let unicode_target = root.join("中文笔记 [草稿].plumb");
     let image = static_dir.join("image one.PNG");
     let attachment = static_dir.join("manual draft.pdf");
-    let source = "`->\"tar\"\n`->\"target note.plumb#an\"\n`img{Query `={src static/im}}\n`img{Missing `={src static/missing.png}}\n`->\"target note.plumb\"\n`img{Result `={src {static/image one.PNG}}}\n`->\"中文\"\n`->\"static/manual draft.pdf\"\n`->{manual {static/manual draft.pdf}}\n`->\"static/missing guide.pdf\"\n";
+    let source = "`->\"tar\"\n`->\"target note.plumb#an\"\n{Query `\"static/im\" `+{img}}\n{Missing `\"static/missing.png\" `+{img}}\n`->\"target note.plumb\"\n{Result `\"static/image one.PNG\" `+{img}}\n`->\"中文\"\n`->\"static/manual draft.pdf\"\n`->{manual {static/manual draft.pdf}}\n`->\"static/missing guide.pdf\"\n";
     std::fs::write(&current, source).unwrap();
     std::fs::write(&target, "`= title Target note\n\n`# Anchor\n\n `@ anchor\n").unwrap();
     std::fs::write(&unicode_target, "`# 中文笔记\n").unwrap();
@@ -600,7 +600,7 @@ fn completes_and_navigates_relative_verbatim_links_files_and_images() {
     assert_eq!(image_completion["kind"], 17);
     assert_eq!(
         image_completion["textEdit"]["newText"],
-        "static/image one.PNG"
+        "{static/image one.PNG}"
     );
 
     assert!(response(&output, 5)["result"]["contents"]["value"]
@@ -1007,12 +1007,12 @@ fn narrows_link_constructs_from_the_shared_marker_prefix() {
 }
 
 #[test]
-fn completes_attributes_with_protocol_ranges_and_snippets() {
+fn completes_current_attributes_without_obsolete_resource_src() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("attributes.plumb");
     let source =
-        "`- Work\n\n `+ task\n\n `= created now\n `= pr\n\n`img{Alt `={s}} `${\"x\" `={language t}}\n";
+        "`- Work\n\n `+ task\n\n `= created now\n `= pr\n\n{Alt path.png `+{img} `={s}} `${\"x\" `={language t}}\n";
     let lines = source.lines().collect::<Vec<_>>();
     let priority_line = 5;
     let resource_line = 7;
@@ -1068,9 +1068,7 @@ fn completes_attributes_with_protocol_ranges_and_snippets() {
     assert_eq!(priority["textEdit"]["newText"], "`= priority ${1:0}");
     assert_eq!(priority["textEdit"]["range"]["start"]["character"], 1);
     assert_eq!(priority["insertTextFormat"], 2);
-    let image = &response(&output, 3)["result"][0];
-    assert_eq!(image["label"], "src");
-    assert_eq!(image["textEdit"]["newText"], "`={src ${1}}");
+    assert!(response(&output, 3)["result"].is_null(), "src is not a resource target property");
     let language = &response(&output, 4)["result"][0];
     assert_eq!(language["label"], "tex");
     assert_eq!(language["textEdit"]["newText"], "tex");

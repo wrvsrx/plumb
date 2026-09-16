@@ -962,7 +962,7 @@ mod tests {
         let bytes = b"0123456789abcdefghijklmnopqrstuvwxyz";
         let file = root.join("media.mp4");
         std::fs::write(&file, bytes).unwrap();
-        std::fs::write(root.join("note.plumb"), "`file{Media `={src media.mp4}}\n").unwrap();
+        std::fs::write(root.join("note.plumb"), "{Media `\"media.mp4\" `+{file}}\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let record = workspace.resource_for_path(&file).unwrap().unwrap();
         let uri = format!("/resource/{}/{}", record.id, record.name);

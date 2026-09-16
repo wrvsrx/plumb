@@ -3336,7 +3336,7 @@ mod tests {
         std::fs::write(target.join("static/image.jpg"), b"image").unwrap();
         std::fs::write(
             target.join("note.plumb"),
-            "`img{`={src static/image.jpg}}\n",
+            "{{} `\"static/image.jpg\" `+{img}}\n",
         )
         .unwrap();
         symlink(&target, &root).unwrap();

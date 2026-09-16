@@ -548,9 +548,14 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
             Inline::Code(attrs, text) => output.push_str(&render_verbatim(text, attrs)?),
             Inline::Link(attrs, label, target) => {
                 let mut attrs = attrs.clone();
-                if attr_pair(&attrs, "data-plumb-marker") == Some("file") {
-                    set_semantic_pair(&mut attrs, "src", &target.url)?;
-                    output.push_str(&render_element("file", &attrs, label)?);
+                if attr_pair(&attrs, "data-plumb-facet") == Some("file") {
+                    attrs.attributes.retain(|pair| pair.0 != "data-plumb-facet");
+                    output.push_str(&render_resource_reference(
+                        "file",
+                        &attrs,
+                        label,
+                        &target.url,
+                    )?);
                 } else {
                     output.push_str(&format!(
                         "`->{{{{{}}} {}{}}}",
@@ -561,9 +566,7 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                 }
             }
             Inline::Image(attrs, alt, target) => {
-                let mut attrs = attrs.clone();
-                set_semantic_pair(&mut attrs, "src", &target.url)?;
-                output.push_str(&render_element("img", &attrs, alt)?);
+                output.push_str(&render_resource_reference("img", attrs, alt, &target.url)?);
             }
             Inline::Math(MathType::InlineMath, text) => {
                 let mut attrs = Attr::default();
@@ -864,18 +867,48 @@ fn without_first_class(attrs: &Attr, class: &str) -> Option<Attr> {
     Some(attrs)
 }
 
-fn set_semantic_pair(attrs: &mut Attr, key: &str, value: &str) -> Result<(), String> {
-    if let Some(existing) = attr_pair(attrs, key) {
-        return if existing == value {
-            Ok(())
-        } else {
-            Err(format!(
-                "Pandoc {key} attribute {existing:?} conflicts with target {value:?}"
-            ))
-        };
+fn render_resource_reference(
+    facet: &str,
+    attrs: &Attr,
+    label: &[Inline],
+    target: &str,
+) -> Result<String, String> {
+    if !plumb_semantics::resource_target_is_valid(target) {
+        return Err("invalid resource target".into());
     }
-    attrs.attributes.push((key.into(), value.into()));
-    Ok(())
+    if attr_pair(attrs, "src").is_some() {
+        return Err(
+            "resource target is positional; Pandoc src attribute conflicts with resource binding"
+                .into(),
+        );
+    }
+    let mut attrs = attrs.clone();
+    if attrs
+        .classes
+        .iter()
+        .any(|class| matches!(class.as_str(), "img" | "file") && class != facet)
+    {
+        return Err("conflicting resource facets".into());
+    }
+    if !attrs.classes.iter().any(|class| class == facet) {
+        attrs.classes.push(facet.into());
+    }
+    let marker = attr_pair(&attrs, "data-plumb-marker").unwrap_or("");
+    if !plumb_semantics::resource_owner_kind_is_valid(marker) {
+        return Err("incompatible resource owner kind".into());
+    }
+    let prefix = if marker.is_empty() {
+        String::new()
+    } else {
+        require_marker(marker)?;
+        format!("`{marker}")
+    };
+    Ok(format!(
+        "{prefix}{{{{{}}} {}{}}}",
+        render_inlines(label, true)?,
+        render_verbatim_argument(target),
+        render_inline_children(&attrs, Some("data-plumb-marker"))?
+    ))
 }
 
 fn require_marker(marker: &str) -> Result<(), String> {
@@ -1000,7 +1033,7 @@ mod tests {
                     {"t": "Space"},
                     {"t": "Link", "c": [["", [], []], [{"t": "Str", "c": "target"}], ["other.plumb#id", ""]]},
                     {"t": "Space"},
-                    {"t": "Link", "c": [["demo", ["wide"], [["download", "yes"], ["data-plumb-marker", "file"]]], [{"t": "Str", "c": "video"}], ["static/demo.mp4", ""]]}
+                    {"t": "Link", "c": [["demo", ["wide"], [["download", "yes"], ["data-plumb-facet", "file"]]], [{"t": "Str", "c": "video"}], ["static/demo.mp4", ""]]}
                 ]},
                 {"t": "BlockQuote", "c": [{"t": "Para", "c": [{"t": "Str", "c": "quoted"}]}]},
                 {"t": "BulletList", "c": [[{"t": "Para", "c": [{"t": "Str", "c": "item"}]}]]},
@@ -1023,7 +1056,7 @@ mod tests {
         );
         assert!(
             source.contains(
-                "`file{video `@{demo} `+{wide} `={download `\"yes\"} `={src `\"static/demo.mp4\"}}\n"
+                "{{video} `\"static/demo.mp4\" `@{demo} `+{wide} `+{file} `={download `\"yes\"}}\n"
             ),
             "{source}"
         );

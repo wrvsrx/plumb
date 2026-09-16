@@ -1881,6 +1881,8 @@ version = "0.40.7-dev"
 dependencies = [
  "pandoc_types",
  "plumb-edit",
+ "plumb-export",
+ "plumb-semantics",
  "plumb-syntax",
  "serde_json",
 ]

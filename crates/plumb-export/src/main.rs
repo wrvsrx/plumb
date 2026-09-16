@@ -518,12 +518,22 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 mark,
                 content,
             } => {
-                let Some(mark) = mark else {
+                if mark.is_none()
+                    && analysis.image_at_node_start(range.start).is_none()
+                    && analysis.file_at_node_start(range.start).is_none()
+                {
                     output.extend(lower_inlines(content, analysis));
                     continue;
+                }
+                let kind = mark.as_ref().map_or("", |mark| mark.marker.as_str());
+                let anonymous_attrs;
+                let attrs = if let Some(mark) = mark {
+                    &mark.attrs
+                } else {
+                    anonymous_attrs =
+                        plumb_syntax::attributes_from_inlines(analysis.syntax().source(), content);
+                    &anonymous_attrs
                 };
-                let kind = mark.marker.as_str();
-                let attrs = &mark.attrs;
                 if let Some(style) = analysis.inline_styles().style_at_node_start(range.start) {
                     let content = lower_group_content(content, analysis);
                     if style.kind() == InlineStyleKind::Mark {
@@ -559,12 +569,12 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 } else if let Some(image) = analysis.image_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Image",
-                        "c": [lower_image_attrs(attrs), lower_first_argument(content, analysis), [image.source_value(), ""]],
+                        "c": [lower_image_attrs(attrs, kind), lower_first_argument(content, analysis), [image.source_value(), ""]],
                     }));
                 } else if let Some(file) = analysis.file_at_node_start(range.start) {
                     output.push(json!({
                         "t": "Link",
-                        "c": [lower_file_attrs(attrs), lower_first_argument(content, analysis), [file.source_value(), ""]],
+                        "c": [lower_file_attrs(attrs, kind), lower_first_argument(content, analysis), [file.source_value(), ""]],
                     }));
                 } else if let Some(link) = analysis.link_at_node_start(range.start) {
                     let label = if matches!(link.spelling(), LinkSpelling::Verbatim { .. }) {
@@ -671,12 +681,31 @@ fn lower_verbatim_link_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "->", |_| false)
 }
 
-fn lower_image_attrs(attrs: &Attributes) -> Value {
-    lower_attrs_filtered(attrs, None, |_| false, |key| key == "src")
+fn resource_marker(kind: &str) -> Option<&str> {
+    (!matches!(kind, "" | "()" | "->")).then_some(kind)
 }
 
-fn lower_file_attrs(attrs: &Attributes) -> Value {
-    lower_attrs_filtered(attrs, Some("file"), |_| false, |key| key == "src")
+fn lower_image_attrs(attrs: &Attributes, kind: &str) -> Value {
+    lower_attrs_filtered(
+        attrs,
+        resource_marker(kind),
+        |class| class == "img",
+        |_| false,
+    )
+}
+
+fn lower_file_attrs(attrs: &Attributes, kind: &str) -> Value {
+    let mut value = lower_attrs_filtered(
+        attrs,
+        resource_marker(kind),
+        |class| class == "file",
+        |_| false,
+    );
+    value[2]
+        .as_array_mut()
+        .unwrap()
+        .push(json!(["data-plumb-facet", "file"]));
+    value
 }
 
 fn lower_link_attrs(attrs: &Attributes) -> Value {
@@ -991,7 +1020,7 @@ mod tests {
 
     #[test]
     fn exports_standard_images_in_body_and_metadata() {
-        let source = "`= cover `img{Cover `={src static/cover.png}}\n\nBefore `img{{Rich `!{alt}} `={src `\"static/a b.webp\"} `@{image} `+{wide} `={loading lazy}} after.\n\n`img{`={src https://example.test/decorative.svg}}\n";
+        let source = "`= cover {Cover `\"static/cover.png\" `+{img}}\n\nBefore {{Rich `!{alt}} `\"static/a b.webp\" `@{image} `+{wide} `={loading lazy} `+{img}} after.\n\n{{} `\"https://example.test/decorative.svg\" `+{img}}\n";
         let document = export(source).unwrap();
 
         let metadata_image = &document["meta"]["cover"]["c"][0];
@@ -1030,7 +1059,7 @@ mod tests {
     #[test]
     fn exports_file_attachments_as_portable_links_with_fallback_content() {
         let document = export(
-            "Watch `file{{Demo `!{video}} `={src `\"static/demo video.mp4\"} `@{demo} `+{wide} `={download yes}}.\n",
+            "Watch {{Demo `!{video}} `\"static/demo video.mp4\" `@{demo} `+{wide} `={download yes} `+{file}}.\n",
         )
         .unwrap();
         let file = &document["blocks"][0]["c"][2];
@@ -1040,7 +1069,7 @@ mod tests {
             json!([
                 "demo",
                 ["wide"],
-                [["download", "yes"], ["data-plumb-marker", "file"]]
+                [["download", "yes"], ["data-plumb-facet", "file"]]
             ])
         );
         assert_eq!(file["c"][1][0]["c"], "Demo");
