@@ -87,6 +87,49 @@ pub(crate) fn element_selection_range(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResourceFacet {
+    Image,
+    File,
+    Conflicted,
+}
+
+pub fn resource_facet(content: &plumb_syntax::InlineContent) -> Option<ResourceFacet> {
+    let mut image = false;
+    let mut file = false;
+    for inline in &content.items {
+        let plumb_syntax::Inline::Group {
+            mark: Some(mark),
+            content,
+            ..
+        } = inline
+        else {
+            continue;
+        };
+        if mark.marker != "+" {
+            continue;
+        }
+        let view = owner_semantic_view(content);
+        let Some(arguments) = view.split_first() else {
+            continue;
+        };
+        if !arguments.rest.is_empty() {
+            continue;
+        }
+        match plumb_syntax::plain_scalar(arguments.first).as_deref() {
+            Some("img") => image = true,
+            Some("file") => file = true,
+            _ => {}
+        }
+    }
+    match (image, file) {
+        (true, false) => Some(ResourceFacet::Image),
+        (false, true) => Some(ResourceFacet::File),
+        (true, true) => Some(ResourceFacet::Conflicted),
+        _ => None,
+    }
+}
+
 pub struct OwnerSemanticView<'a> {
     content: &'a plumb_syntax::InlineContent,
     pub positional: Vec<plumb_syntax::InlineContent>,
@@ -254,9 +297,10 @@ pub use definitions::{
 };
 pub use document::{
     analyze_document, analyze_document_incremental, analyze_green_document,
-    analyze_green_document_incremental, AnchorKind, AnchorRecord, DocumentChange, DocumentOutput,
-    EventLinkRange, ExportedSemanticChangeKinds, ExportedSemanticDelta, ExportedSemanticSummary,
-    FileRecord, FileRecordView, FileTarget, ImageRecord, ImageRecordView, ImageTarget, LinkRecord,
+    analyze_green_document_incremental, resource_owner_kind_is_valid, resource_target_is_valid,
+    AnchorKind, AnchorRecord, DocumentChange, DocumentOutput, EventLinkRange,
+    ExportedSemanticChangeKinds, ExportedSemanticDelta, ExportedSemanticSummary, FileRecord,
+    FileRecordView, FileTarget, ImageRecord, ImageRecordView, ImageTarget, LinkRecord,
     LinkRecordView, LinkSpelling, LinkTarget, SemanticRecordAddress, SemanticRecordChange,
     SemanticRecordEntry, SemanticRoot, SourceBacked,
 };

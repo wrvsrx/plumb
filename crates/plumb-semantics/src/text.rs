@@ -20,7 +20,9 @@ fn append_inline(inline: &Inline, output: &mut String) {
         Inline::Text { text, .. } | Inline::Verbatim { text, .. } => output.push_str(text),
         Inline::Space { .. } | Inline::SoftBreak { .. } => output.push(' '),
         Inline::Group { mark, content, .. } => {
-            if mark.as_ref().is_some_and(|mark| mark.marker == "->") {
+            if mark.as_ref().is_some_and(|mark| mark.marker == "->")
+                || crate::resource_facet(content).is_some()
+            {
                 let view = crate::owner_semantic_view(content);
                 if let Some(arguments) = view.split_first() {
                     append_content(arguments.first, output);

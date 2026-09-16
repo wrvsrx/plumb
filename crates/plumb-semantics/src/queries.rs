@@ -430,13 +430,6 @@ fn inline_member_attribute_context(
         }
         let query = &source[key_range.start..offset];
         let candidate = match owner_kind {
-            "img" | "file" if attrs.value("src").is_none() && "src".starts_with(query) => {
-                AttributeCompletion {
-                    label: "src",
-                    new_text: "`={src {}}".to_string(),
-                    detail: "resource source",
-                }
-            }
             "$" if attrs.value("language").is_none() && "language".starts_with(query) => {
                 AttributeCompletion {
                     label: "language",
@@ -759,6 +752,14 @@ pub fn link_completion_context(
         return None;
     }
     let (_, content) = find_marked_group(&document.syntax.blocks, offset, "->")?;
+    positional_link_completion_context(source, content, offset)
+}
+
+fn positional_target(
+    source: &str,
+    content: &InlineContent,
+    offset: usize,
+) -> Option<(InlineContent, bool)> {
     let view = crate::owner_semantic_view(content);
     if offset < content.range.start || offset > content.range.end {
         return None;
@@ -768,7 +769,7 @@ pub fn link_completion_context(
     }) {
         return None;
     }
-    let (mut target, mut single_argument) = match view.split_first() {
+    Some(match view.split_first() {
         None => (InlineContent::from_items(offset..offset, vec![]), true),
         Some(arguments) if arguments.rest.is_empty() => {
             if offset > arguments.first.range.end {
@@ -789,7 +790,15 @@ pub fn link_completion_context(
             }
             (arguments.rest_content()?, false)
         }
-    };
+    })
+}
+
+fn positional_link_completion_context(
+    source: &str,
+    content: &InlineContent,
+    offset: usize,
+) -> Option<LinkCompletionContext> {
+    let (mut target, mut single_argument) = positional_target(source, content, offset)?;
     while let [Inline::Group {
         mark: None,
         content: inner,
@@ -917,7 +926,16 @@ fn find_marked_group_in_content<'a>(
             continue;
         };
         if range.start <= offset && offset <= range.end {
-            if mark.as_ref().is_some_and(|mark| mark.marker == marker) {
+            let matches = match marker {
+                "img" => crate::resource_facet(content) == Some(crate::ResourceFacet::Image),
+                "file" => crate::resource_facet(content) == Some(crate::ResourceFacet::File),
+                "->" => {
+                    mark.as_ref().is_some_and(|mark| mark.marker == marker)
+                        && crate::resource_facet(content).is_none()
+                }
+                _ => mark.as_ref().is_some_and(|mark| mark.marker == marker),
+            };
+            if matches {
                 return Some((range.clone(), content));
             }
             if let Some(found) = find_marked_group_in_content(content, offset, marker) {
@@ -926,26 +944,6 @@ fn find_marked_group_in_content<'a>(
         }
     }
     None
-}
-
-fn editable_element_range(content: &InlineContent) -> (usize, usize) {
-    if let [Inline::Group {
-        mark: None,
-        content,
-        ..
-    }] = content.items.as_slice()
-    {
-        return (content.range.start, content.range.end);
-    }
-    if let [Inline::Verbatim {
-        mark: None,
-        text_range,
-        ..
-    }] = content.items.as_slice()
-    {
-        return (text_range.start, text_range.end);
-    }
-    (content.range.start, content.range.end)
 }
 
 pub fn image_completion_context(
@@ -1013,43 +1011,20 @@ fn resource_completion_context(
     kind: &str,
 ) -> Option<ImageCompletionContext> {
     let source = &document.source;
-    if offset > source.len() || !source.is_char_boundary(offset) || verbatim_at(document, offset) {
+    if offset > source.len() || !source.is_char_boundary(offset) {
         return None;
     }
     let (_, owner) = find_marked_group(&document.syntax.blocks, offset, kind)?;
-    let property = owner.items.iter().find_map(|inline| {
-        let Inline::Group {
-            range,
-            mark: Some(mark),
-            content,
-        } = inline
-        else {
-            return None;
-        };
-        (mark.marker == "=" && range.start <= offset && offset <= range.end).then_some(content)
-    })?;
-    let view = crate::owner_semantic_view(property);
-    let arguments = view.split_first()?;
-    let key = arguments.first;
-    if key.plain_text() != "src" {
+    let (target, _) = positional_target(source, owner, offset)?;
+    if offset < target.range.start || offset > target.range.end {
         return None;
     }
-    let (value_start, value_end) = if let Some(value) = arguments.rest_content() {
-        if offset < value.range.start || offset > value.range.end {
-            return None;
-        }
-        editable_element_range(&value)
-    } else {
-        if offset < key.range.end
-            || !source[key.range.end..offset]
-                .chars()
-                .all(|character| character == ' ')
-        {
-            return None;
-        }
-        (offset, offset)
-    };
-    let query = &source[value_start..offset];
+    let decoded = crate::document::stringify_target(source, &target);
+    let prefix_end = decoded
+        .as_ref()
+        .map_or(0, |value| value.decoded_offset(offset));
+    let value = decoded.as_ref().map_or("", |value| value.value.as_str());
+    let query = value.get(..prefix_end)?;
     if query
         .chars()
         .any(|character| character.is_control() || character == '\\')
@@ -1059,7 +1034,7 @@ fn resource_completion_context(
         return None;
     }
     Some(ImageCompletionContext {
-        replace: value_start..value_end,
+        replace: target.range.clone(),
         query: query.to_string(),
     })
 }
@@ -1632,8 +1607,8 @@ mod tests {
     }
 
     #[test]
-    fn completes_image_source_values_in_valid_and_recovered_documents() {
-        let (valid, cursor) = strip_cursor("`img{Alt `={src static/im|age.png}}\n");
+    fn completes_image_positional_targets_in_valid_and_recovered_documents() {
+        let (valid, cursor) = strip_cursor("{Alt static/im|age.png `+{img}}\n");
         let value_start = valid.find("static/image.png").unwrap();
         assert_eq!(
             image_completion(&valid, cursor),
@@ -1643,7 +1618,7 @@ mod tests {
             })
         );
 
-        let (recovered, cursor) = strip_cursor("`img{Alt `={src static/im|");
+        let (recovered, cursor) = strip_cursor("{`+{img} Alt static/im|");
         assert_eq!(
             image_completion(&recovered, cursor),
             Some(ImageCompletionContext {
@@ -1652,10 +1627,10 @@ mod tests {
             })
         );
 
-        let (external, cursor) = strip_cursor("`img{Alt `={src https:|//example.test/a.png}}\n");
+        let (external, cursor) = strip_cursor("{Alt `\"https:|//example.test/a.png\" `+{img}}\n");
         assert_eq!(image_completion(&external, cursor), None);
 
-        let (literal_path, cursor) = strip_cursor("`img{Alt `={src static/a#b?quote\"|}}\n");
+        let (literal_path, cursor) = strip_cursor("{Alt static/a#b?quote\"| `+{img}}\n");
         let value_start = literal_path.find("static/a#b?quote\"").unwrap();
         assert_eq!(
             image_completion(&literal_path, cursor),
@@ -1667,8 +1642,8 @@ mod tests {
     }
 
     #[test]
-    fn completes_file_source_values_without_confusing_images() {
-        let (file, cursor) = strip_cursor("`file{Demo `={src static/de|mo.mp4}}\n");
+    fn completes_file_positional_targets_without_confusing_images() {
+        let (file, cursor) = strip_cursor("{Demo static/de|mo.mp4 `+{file}}\n");
         let value_start = file.find("static/demo.mp4").unwrap();
         assert_eq!(
             file_completion_context(&parse(&file), cursor),
@@ -1686,8 +1661,8 @@ mod tests {
             "Prelude\n\nSee `cite{pap|}.\n",
             "Prelude\n\n`-|\n",
             "Prelude\n\nSee `->{guide guide.pl|umb}.\n",
-            "Prelude\n\n`img{Alt `={src static/i|mg.png}}\n",
-            "Prelude\n\n`file{Demo `={src static/d|emo.mp4}}\n",
+            "Prelude\n\n{Alt `\"static/i|mg.png\" `+{img}}\n",
+            "Prelude\n\n{Demo `\"static/d|emo.mp4\" `+{file}}\n",
             "Prelude\n\n`- Task\n `+ task\n `= depends Project.plumb#ta|rget\n",
             "Prelude\n\n`- 2026-09-05T09:00:00Z Event ti|tle\n `+ event\n",
             "Prelude\n\n`- Task\n `+ task\n `= pri|\n",

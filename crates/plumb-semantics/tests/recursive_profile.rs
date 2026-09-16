@@ -194,7 +194,7 @@ fn current_recovered_completion_contexts_follow_brace_data() {
             if path == "doc.plumb" && query == "ta"
     ));
 
-    let image = parse("`img{Alt `={src static/im");
+    let image = parse("{`+{img} Alt static/im");
     assert_eq!(
         image_completion_context(&image, image.source.len())
             .unwrap()

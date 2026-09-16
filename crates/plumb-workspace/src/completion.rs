@@ -4,8 +4,8 @@ use std::path::Path;
 use plumb_semantics::{EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext};
 
 use crate::{
-    escape_parsed_text, fuzzy_match, is_image_path, normalize, CompletionCandidate, QueryResult,
-    Workspace, WorkspaceQueryError,
+    fuzzy_match, is_image_path, normalize, CompletionCandidate, QueryResult, Workspace,
+    WorkspaceQueryError,
 };
 
 const EVENT_TITLE_COMPLETION_LIMIT: usize = 50;
@@ -142,7 +142,7 @@ impl Workspace {
                 {
                     return None;
                 }
-                let new_text = escape_parsed_text(&path);
+                let new_text = plumb_edit::render_authored_text_arguments(&[path.as_str()]);
                 Some(CompletionCandidate {
                     label: path,
                     detail: detail.to_string(),

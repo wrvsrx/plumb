@@ -1834,7 +1834,7 @@ fn completes_and_resolves_relative_image_files() {
     std::fs::write(static_dir.join("literal%20name.txt"), b"text").unwrap();
     std::fs::write(static_dir.join("ignored.txt"), b"text").unwrap();
     let source_path = root.join("current.plumb");
-    let source = "`->\"static/image one.PNG\" `img{Result `={src {static/image one.PNG}}} `img{{Literal percent} `={src static/literal%20name.PNG}} `->\"static/literal%20name.txt\"\n";
+    let source = "`->\"static/image one.PNG\" {Result `\"static/image one.PNG\" `+{img}} {{Literal percent} `\"static/literal%20name.PNG\" `+{img}} `->\"static/literal%20name.txt\"\n";
     let mut workspace = Workspace::new();
     workspace.insert(&source_path, 3, source);
 
@@ -1849,7 +1849,7 @@ fn completes_and_resolves_relative_image_files() {
         .iter()
         .find(|candidate| candidate.label == "static/image one.PNG")
         .unwrap();
-    assert_eq!(image_with_space.new_text, "static/image one.PNG");
+    assert_eq!(image_with_space.new_text, "{static/image one.PNG}");
     assert_eq!(image_with_space.detail, "image file");
     assert_eq!(image_with_space.replace, 18..25);
 
@@ -1862,7 +1862,7 @@ fn completes_and_resolves_relative_image_files() {
     );
     assert_eq!(unicode.len(), 1);
     assert_eq!(unicode[0].label, "static/图 像(100%).PNG");
-    assert_eq!(unicode[0].new_text, "static/图 像(100%).PNG");
+    assert_eq!(unicode[0].new_text, "{static/图 像(100%).PNG}");
 
     let quoted = workspace.complete_image_path(
         &source_path,
@@ -1891,7 +1891,7 @@ fn completes_and_resolves_relative_image_files() {
             .next()
             .unwrap_or_else(|| panic!("missing completion for {query}"));
         assert_eq!(candidate.new_text, expected);
-        let completed = format!("`img{{alt `={{src {}}}}}\n", candidate.new_text);
+        let completed = format!("{{alt {} `+{{img}}}}\n", candidate.new_text);
         let parsed = parse(&completed);
         assert!(parsed.is_valid(), "{completed}\n{:?}", parsed.diagnostics);
         assert_eq!(
@@ -2006,7 +2006,8 @@ fn resolves_file_attachments_and_reports_missing_targets() {
     std::fs::write(root.join("static/demo.mp4"), b"video").unwrap();
     std::fs::write(root.join("static/manual.pdf"), b"pdf").unwrap();
     let source_path = root.join("note.plumb");
-    let source = "`file{Demo `={src static/demo.mp4}} `file{Missing `={src static/missing.pdf}}\n";
+    let source =
+        "{Demo `\"static/demo.mp4\" `+{file}} {Missing `\"static/missing.pdf\" `+{file}}\n";
     let mut workspace = Workspace::new();
     workspace.insert(&source_path, 1, source);
 

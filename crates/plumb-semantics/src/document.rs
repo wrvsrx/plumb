@@ -2001,24 +2001,81 @@ fn collect_inlines(
                         first_ids,
                         output,
                     );
-                    match mark.marker.as_str() {
-                        "->" => collect_link(source, range.clone(), content, output),
-                        "img" => collect_image(
+                }
+                if let Some(facet) = crate::resource_facet(content) {
+                    let attrs = plumb_syntax::attributes_from_inlines(source, content);
+                    if mark.is_none() {
+                        collect_anchor(
                             source,
+                            &attrs,
+                            AnchorKind::Inline,
                             range.clone(),
                             selection_range.clone(),
-                            &mark.attrs,
+                            first_ids,
                             output,
-                        ),
-                        "file" => collect_file(
-                            source,
-                            range.clone(),
-                            selection_range,
-                            &mark.attrs,
-                            output,
-                        ),
-                        _ => {}
+                        );
                     }
+                    let invalid_owner = mark
+                        .as_ref()
+                        .is_some_and(|mark| !resource_owner_kind_is_valid(&mark.marker));
+                    if facet == crate::ResourceFacet::Conflicted || invalid_owner {
+                        output.diagnostics.push(Diagnostic {
+                            code: if invalid_owner {
+                                "resource.invalid-owner"
+                            } else {
+                                "resource.conflicting-facets"
+                            },
+                            severity: DiagnosticSeverity::Warning,
+                            message: "resource facets must select one compatible inline owner kind"
+                                .into(),
+                            range: if invalid_owner {
+                                mark.as_ref().unwrap().marker_range.clone()
+                            } else {
+                                attrs.items.iter().rev().find_map(|item| match item {
+                                    AttrItem::Class { value, value_range, .. } if matches!(value.as_str(), "img" | "file") => Some(value_range.clone()),
+                                    _ => None,
+                                }).unwrap_or_else(|| range.clone())
+                            },
+                            related: Vec::new(),
+                        });
+                    } else if let Some(AttrItem::Pair {
+                        range: property_range,
+                        ..
+                    }) = attrs
+                        .items
+                        .iter()
+                        .find(|item| matches!(item, AttrItem::Pair { key, .. } if key == "src"))
+                    {
+                        output.diagnostics.push(Diagnostic {
+                            code: "resource.unexpected-source",
+                            severity: DiagnosticSeverity::Warning,
+                            message:
+                                "resource target is positional; 'src' is not a second target source"
+                                    .into(),
+                            range: property_range.clone(),
+                            related: Vec::new(),
+                        });
+                    } else {
+                        match facet {
+                            crate::ResourceFacet::Image => collect_image(
+                                source,
+                                range.clone(),
+                                selection_range,
+                                content,
+                                output,
+                            ),
+                            crate::ResourceFacet::File => collect_file(
+                                source,
+                                range.clone(),
+                                selection_range,
+                                content,
+                                output,
+                            ),
+                            crate::ResourceFacet::Conflicted => unreachable!(),
+                        }
+                    }
+                } else if mark.as_ref().is_some_and(|mark| mark.marker == "->") {
+                    collect_link(source, range.clone(), content, output);
                 }
                 collect_inlines(source, content, first_ids, output);
             }
@@ -2180,6 +2237,21 @@ fn valid_derived_link_target(target: &str) -> bool {
     true
 }
 
+pub fn resource_owner_kind_is_valid(kind: &str) -> bool {
+    !matches!(
+        kind,
+        "*" | "!" | "==" | "~" | "^" | "_" | "cite" | "@" | "+" | "="
+    )
+}
+
+pub fn resource_target_is_valid(target: &str) -> bool {
+    if has_uri_scheme(target) || target.starts_with("//") {
+        valid_uri_reference(target)
+    } else {
+        valid_relative_file_path(target)
+    }
+}
+
 fn valid_relative_file_path(target: &str) -> bool {
     !target.is_empty()
         && !Path::new(target).is_absolute()
@@ -2192,40 +2264,21 @@ fn collect_image(
     source: &str,
     range: Range<usize>,
     selection_range: Range<usize>,
-    attrs: &Attributes,
+    content: &InlineContent,
     output: &mut RecordOutput,
 ) {
-    let Some(value) = attrs.items.iter().find_map(|item| match item {
-        AttrItem::Pair { key, value, .. } if key == "src" => Some(value),
-        _ => None,
-    }) else {
-        output.diagnostics.push(Diagnostic {
-            code: "image.missing-source",
-            severity: DiagnosticSeverity::Warning,
-            message: "image requires a nonempty 'src' target".to_string(),
-            range,
-            related: Vec::new(),
-        });
+    let Some(source_value) =
+        resource_source(source, content, &range, "image.missing-source", output)
+    else {
         return;
     };
-    let source_value = attr_source_backed(source, value);
-    if source_value.value.is_empty() {
-        output.diagnostics.push(Diagnostic {
-            code: "image.missing-source",
-            severity: DiagnosticSeverity::Warning,
-            message: "image requires a nonempty 'src' target".to_string(),
-            range: source_value.range,
-            related: Vec::new(),
-        });
-        return;
-    }
     let target_kind = if has_uri_scheme(&source_value.value) || source_value.value.starts_with("//")
     {
         if !valid_uri_reference(&source_value.value) {
             output.diagnostics.push(Diagnostic {
                 code: "image.invalid-source",
                 severity: DiagnosticSeverity::Warning,
-                message: "absolute image 'src' must be a valid URI reference".to_string(),
+                message: "absolute image target must be a valid URI reference".to_string(),
                 range: source_value.range,
                 related: Vec::new(),
             });
@@ -2237,7 +2290,7 @@ fn collect_image(
             output.diagnostics.push(Diagnostic {
                 code: "image.invalid-source",
                 severity: DiagnosticSeverity::Warning,
-                message: "relative image 'src' must be a valid raw file path".to_string(),
+                message: "relative image target must be a valid raw file path".to_string(),
                 range: source_value.range,
                 related: Vec::new(),
             });
@@ -2259,40 +2312,21 @@ fn collect_file(
     source: &str,
     range: Range<usize>,
     selection_range: Range<usize>,
-    attrs: &Attributes,
+    content: &InlineContent,
     output: &mut RecordOutput,
 ) {
-    let Some(value) = attrs.items.iter().find_map(|item| match item {
-        AttrItem::Pair { key, value, .. } if key == "src" => Some(value),
-        _ => None,
-    }) else {
-        output.diagnostics.push(Diagnostic {
-            code: "file.missing-source",
-            severity: DiagnosticSeverity::Warning,
-            message: "file requires a nonempty 'src' target".to_string(),
-            range,
-            related: Vec::new(),
-        });
+    let Some(source_value) =
+        resource_source(source, content, &range, "file.missing-source", output)
+    else {
         return;
     };
-    let source_value = attr_source_backed(source, value);
-    if source_value.value.is_empty() {
-        output.diagnostics.push(Diagnostic {
-            code: "file.missing-source",
-            severity: DiagnosticSeverity::Warning,
-            message: "file requires a nonempty 'src' target".to_string(),
-            range: source_value.range,
-            related: Vec::new(),
-        });
-        return;
-    }
     let target_kind = if has_uri_scheme(&source_value.value) || source_value.value.starts_with("//")
     {
         if !valid_uri_reference(&source_value.value) {
             output.diagnostics.push(Diagnostic {
                 code: "file.invalid-source",
                 severity: DiagnosticSeverity::Warning,
-                message: "absolute file 'src' must be a valid URI reference".to_string(),
+                message: "absolute attachment target must be a valid URI reference".to_string(),
                 range: source_value.range,
                 related: Vec::new(),
             });
@@ -2304,7 +2338,7 @@ fn collect_file(
             output.diagnostics.push(Diagnostic {
                 code: "file.invalid-source",
                 severity: DiagnosticSeverity::Warning,
-                message: "relative file 'src' must be a valid raw file path".to_string(),
+                message: "relative attachment target must be a valid raw file path".to_string(),
                 range: source_value.range,
                 related: Vec::new(),
             });
@@ -2320,6 +2354,38 @@ fn collect_file(
         source: source_value,
         target_kind,
     });
+}
+
+fn resource_source(
+    source: &str,
+    content: &InlineContent,
+    range: &Range<usize>,
+    code: &'static str,
+    output: &mut RecordOutput,
+) -> Option<SourceBacked<String>> {
+    let view = crate::owner_semantic_view(content);
+    let arguments = view.split_first();
+    let missing_range = arguments.as_ref().map_or_else(|| range.clone(), |arguments| {
+        arguments.rest_range().unwrap_or_else(|| arguments.first.range.clone())
+    });
+    let target = arguments.and_then(|arguments| {
+        let content = if arguments.rest.is_empty() {
+            Some(arguments.first.clone())
+        } else {
+            arguments.rest_content()
+        }?;
+        stringify_target(source, &content)
+    });
+    if target.is_none() {
+        output.diagnostics.push(Diagnostic {
+            code,
+            severity: DiagnosticSeverity::Warning,
+            message: "resource requires a nonempty positional target".into(),
+            range: missing_range,
+            related: Vec::new(),
+        });
+    }
+    target
 }
 
 fn collect_anchor(
@@ -2815,10 +2881,10 @@ mod tests {
 
     #[test]
     fn incremental_document_records_rebase_suffix_and_rebuild_global_diagnostics() {
-        let old = "`node First\n `@ same\n\nSee `->{one first.plumb#target}.\n\n`node Middle\n\n `img{old `={src old.png}}\n\n`node Last\n `@ same\n\n `file{manual `={src docs/manual.pdf}}\n";
+        let old = "`node First\n `@ same\n\nSee `->{one first.plumb#target}.\n\n`node Middle\n\n {old `\"old.png\" `+{img}}\n\n`node Last\n `@ same\n\n {manual `\"docs/manual.pdf\" `+{file}}\n";
         let new = old.replace(
-            "`node Middle\n\n `img{old `={src old.png}}",
-            "`node Changed middle owner\n\n `img{new `={src images/new.png}}",
+            "`node Middle\n\n {old `\"old.png\" `+{img}}",
+            "`node Changed middle owner\n\n {new `\"images/new.png\" `+{img}}",
         );
         let previous = parse(old);
         let previous_output = analyze_document(previous.valid_syntax().unwrap());
@@ -2846,7 +2912,7 @@ mod tests {
 
     #[test]
     fn semantic_tree_reuses_relative_nodes_across_a_file_start_shift() {
-        let old = "`# Heading\n `@ heading\n\n`- Task `->{guide guide.plumb}\n `+ task\n `@ task\n `img{icon `={src icon.png}}\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n\n`table\n `- name age\n\n`> Quote `cite{paper} `!{strong} `$\"x\"\n";
+        let old = "`# Heading\n `@ heading\n\n`- Task `->{guide guide.plumb}\n `+ task\n `@ task\n {icon `\"icon.png\" `+{img}}\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n\n`table\n `- name age\n\n`> Quote `cite{paper} `!{strong} `$\"x\"\n";
         let prefix = "Prelude\n\n";
         let new = format!("{prefix}{old}");
         let previous = parse(old);
@@ -3394,7 +3460,7 @@ mod tests {
 
     #[test]
     fn exact_start_views_project_later_shard_ranges_without_ownership() {
-        let source = "Prelude\n\n`> Quoted\n\nSee `!{strong}, `$\"x\", `cite{smith}, and `->{guide guide.plumb}.\n\n`img{status `={src status.png}}\n\n`file{manual `={src manual.pdf}}\n";
+        let source = "Prelude\n\n`> Quoted\n\nSee `!{strong}, `$\"x\", `cite{smith}, and `->{guide guide.plumb}.\n\n{status `\"status.png\" `+{img}}\n\n{manual `\"manual.pdf\" `+{file}}\n";
         let parsed = parse(source);
         let output = analyze_document(parsed.valid_syntax().unwrap());
         let quote_start = source.find("`> Quoted").unwrap();
@@ -3402,8 +3468,8 @@ mod tests {
         let math_start = source.find("`$\"x\"").unwrap();
         let citation_start = source.find("`cite{smith}").unwrap();
         let link_start = source.find("`->{guide").unwrap();
-        let image_start = source.find("`img{").unwrap();
-        let file_start = source.find("`file{").unwrap();
+        let image_start = source.find("{status").unwrap();
+        let file_start = source.find("{manual").unwrap();
 
         assert_eq!(
             output
@@ -3858,7 +3924,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_images_and_diagnoses_invalid_sources() {
-        let source = "`img{{Alt `*{text}} `={src `\"static/图 像(100%).png\"} `@{figure} `+{wide} `={loading lazy}}\n`img{`={src https://example.test/a.png}}\n`img{Missing}\n`img{Empty `={src {}}}\n`img{{Invalid URI} `={src `\"https://example.test/bad path.png\"}}\n`img{{Invalid path} `={src bad\\path.png}}\n";
+        let source = "{{Alt `*{text}} `\"static/图 像(100%).png\" `@{figure} `+{wide} `={loading lazy} `+{img}}\n{{} `\"https://example.test/a.png\" `+{img}}\n{`+{img}}\n{Empty `\"\" `+{img}}\n{{Invalid URI} `\"https://example.test/bad path.png\" `+{img}}\n{{Invalid path} `\"bad\\path.png\" `+{img}}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -3899,7 +3965,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_files_and_diagnoses_invalid_sources() {
-        let source = "`file{Demo `={src `\"static/demo video.mp4\"} `@{demo} `+{wide}}\n`file{Remote `={src https://example.test/demo.mp4}}\n`file{Missing}\n`file{Empty `={src {}}}\n`file{{Invalid URI} `={src `\"https://example.test/bad path.mp4\"}}\n`file{{Invalid path} `={src bad\\path.mp4}}\n";
+        let source = "{Demo `\"static/demo video.mp4\" `@{demo} `+{wide} `+{file}}\n{Remote `\"https://example.test/demo.mp4\" `+{file}}\n{`+{file}}\n{Empty `\"\" `+{file}}\n{{Invalid URI} `\"https://example.test/bad path.mp4\" `+{file}}\n{{Invalid path} `\"bad\\path.mp4\" `+{file}}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 

@@ -104,7 +104,7 @@ sequence；filename stem 中的 spaces 不引入 anonymous Group。例如 `"Proj
 
 `# 6. Links
 
-唯一 standard Link kind 是 `"->"。direct declaration与 whitespace不占 positional index。一个 non-declaration
+未带 resource facets 的 `"->" group 与 compact marked Verbatim 使用本节 navigation Link projection；resource-faceted Group 由第 7 节消费，但共享 positional binding。唯一 standard Link kind 是 `"->"。direct declaration与 whitespace不占 positional index。一个 non-declaration
 element产生 derived-label Link：原 element是 rich label，其递归 Stringify value 是 target。两个或更多 elements
 产生 explicit-label Link：first 是 rich label，所有 remaining source-ordered elements共同形成 target，保留其间
 internal whitespace后递归 Stringify。两种 arity 都是同一种 Link semantic record；zero positional elements invalid：
@@ -144,15 +144,20 @@ completion 在 explicit-label Link target、derived-label Link element 与 compa
 
 `# 7. Images and file attachments
 
-`"img"/`"file" marked groups 的 visible positional content 是 alt/fallback label；required direct `"src" property
-提供 URI/raw relative file target：
+任意 parsed inline Group（anonymous、`"()"、`"->" 或 generic marker）可通过 direct `"+ img" 或 `"+ file" facet 成为图片或附件引用。两种 resource facets 互斥；与其它已识别的 inline semantic kind（style、citation 或 declaration）组合发布 resource.invalid-owner，不进行 resource projection。block owner 或 Verbatim 不从这些 facets 获得 resource semantics。`"img"/`"file" marker 本身不再产生图片或附件，`"src" 不再是 resource target property；resource owner 上存在 src 发布 resource.unexpected-source，不在两个 target 来源中选择优先级。
+
+目标绑定沿用 Link 的 first/rest 规则：一个 positional element 同时提供 derived label 与 target；两个或更多 elements 的 first 是 alt/fallback label，remaining source-ordered elements Stringify 为唯一 target。direct declarations 不占 positional index，rich/multiword label 通过 anonymous Group 保持一个 element。zero elements 或 empty target 分别发布 image/file.missing-source；非法 URI/raw path 发布 image/file.invalid-source。目标与 label ranges/decoded source mapping 必须 source-backed，不由 adapter 推测。
 
 `plumb"
- `img{status icon `={src static/status.png}}
- `file{{Demo video} `={src static/demo.mp4}}
+ {{status icon} static/status.png `+{img}}
+ {{Demo video} static/demo.mp4 `+{file}}
+ {static/status.png `+{img}}
+ {{} static/decorative.png `+{img}}
+ `->{{Demo video} static/demo.mp4 `+{file}}
 
-empty image alt 合法，src 必须 nonempty。image export 为 Pandoc Image；file export 为 Pandoc Link，Web viewer
-可按 indexed MIME enhancement video，但 portable fallback 始终保留。不存在独立 block-image spelling。
+empty explicit image alt 合法，target 必须 nonempty。Enclosing plain-text projection 只贡献 label，不包含 target 或 declarations。image/file 分别产生 typed ImageRecord/FileRecord，resource-faceted `"->" 不再产生 navigation LinkRecord 或 document graph edge。resource target 继续使用 URI/raw relative file path constraints，不从 filename 或 MIME 推测 reference intent。
+
+image export 为 Pandoc Image；file export 为 Pandoc Link，并通过 data-plumb-facet=file 保存附件意图。recognized resource facet 从普通 Pandoc classes 消费，其余 id、facets、properties 与 generic marker 保留。Importer 从 Image 或 file intent 生成 canonical anonymous resource group 与 explicit label/target（空 label 用 empty Group）；不能重新生成 src spelling。Web viewer 可按 indexed MIME enhancement video，但 portable fallback 始终保留。不存在独立 block-image spelling。completion 使用共同的 positional target boundary；anonymous 与 marked resource owners 都可查询，image/file targets 不提供 document anchor completion。
 
 `# 8. Citations
 
