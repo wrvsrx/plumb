@@ -113,6 +113,8 @@ Web graph 的 fuzzy search 是基础图的 visibility projection，不建立独�
 
 当前 scope 的 query、清空搜索和 workspace revision 更新完成后，camera center 与 zoom 必须保持更新前的值；不能让 graph library 按 result node count 隐式缩放。首次打开和切换 global/local scope 可以 fit 或恢复该 scope 的既有 camera。显式 Fit 只计算 visible nodes 的边界，其结果在后续搜索和清空时继续保留。
 
+Web resource endpoint 只为已索引的 workspace-contained resource identity 与匹配的 filename 提供文件；未知 identity、filename 不匹配或文件不可用继续返回 404。已验证的文件通过成熟的 asynchronous streaming file service 提供，不能在 async request handler 中同步读取整个文件到内存。普通 GET 返回 200、正确 MIME、Content-Length 与 Accept-Ranges: bytes；有效 single byte Range 返回 206、精确 byte body、Content-Length 与 Content-Range。至少支持 closed、open-ended 和 suffix byte ranges；不满足文件长度的 range 返回 416 与 Content-Range: bytes */LENGTH。HEAD 返回对应文件 headers 且没有 body。nosniff 和 no-cache policy 在完整与 partial responses 中保持。该 HTTP contract 适用于视频和其他 indexed attachments，浏览器支持且具备有效索引的视频可通过 byte-range requests 跳转到尚未缓冲的位置。
+
 `# 7. Tree-sitter boundary
 
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义 validity，也不能迫使语言设计适应 CFG。

@@ -22,6 +22,7 @@ use serde_json::json;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
+use tower_http::services::ServeFile;
 
 use crate::presentation::{
     render_backlinks, render_index, render_note_page, AGENDA_STATE_JS, APP_JS, FORCE_GRAPH_JS,
@@ -670,6 +671,7 @@ async fn cached_html(
 async fn resource(
     State(state): State<AppState>,
     AxumPath((id, name)): AxumPath<(String, String)>,
+    request: Request,
 ) -> Response {
     let record = match state.workspace.read().await.resource(&id) {
         Ok(record) => record.cloned(),
@@ -681,26 +683,18 @@ async fn resource(
     if name != record.name {
         return (StatusCode::NOT_FOUND, "unknown resource").into_response();
     }
-    let bytes = match std::fs::read(&record.path) {
-        Ok(bytes) => bytes,
+    let mut response = match ServeFile::new(&record.path).try_call(request).await {
+        Ok(response) => response.into_response(),
         Err(_) => return (StatusCode::NOT_FOUND, "resource is unavailable").into_response(),
     };
-    let mime = mime_guess::from_path(&record.path).first_or_octet_stream();
-    (
-        [
-            (
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(mime.as_ref()).unwrap(),
-            ),
-            (
-                header::X_CONTENT_TYPE_OPTIONS,
-                HeaderValue::from_static("nosniff"),
-            ),
-            (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
-        ],
-        bytes,
-    )
-        .into_response()
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
 }
 
 async fn events(
@@ -959,6 +953,139 @@ mod tests {
         ] {
             assert!(PublicOrigin::from_str(invalid).is_err(), "{invalid}");
         }
+    }
+
+    #[tokio::test]
+    async fn indexed_resources_stream_full_partial_and_head_responses() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let bytes = b"0123456789abcdefghijklmnopqrstuvwxyz";
+        let file = root.join("media.mp4");
+        std::fs::write(&file, bytes).unwrap();
+        std::fs::write(root.join("note.plumb"), "`file{Media `={src media.mp4}}\n").unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let record = workspace.resource_for_path(&file).unwrap().unwrap();
+        let uri = format!("/resource/{}/{}", record.id, record.name);
+        let (changes, _) = broadcast::channel(2);
+        let app = router(AppState {
+            workspace: Arc::new(RwLock::new(Arc::new(workspace))),
+            html_cache: Arc::new(Mutex::new(HashMap::new())),
+            changes,
+            current: None,
+            exclude: None,
+            allow_mutations: true,
+            public_origin: None,
+            listen_addr: "127.0.0.1:3000".parse().unwrap(),
+        });
+
+        for (range, status, content_range, expected) in [
+            (None, StatusCode::OK, None, bytes.as_slice()),
+            (
+                Some("bytes=3-7"),
+                StatusCode::PARTIAL_CONTENT,
+                Some("bytes 3-7/36"),
+                &bytes[3..8],
+            ),
+            (
+                Some("bytes=30-"),
+                StatusCode::PARTIAL_CONTENT,
+                Some("bytes 30-35/36"),
+                &bytes[30..],
+            ),
+            (
+                Some("bytes=-4"),
+                StatusCode::PARTIAL_CONTENT,
+                Some("bytes 32-35/36"),
+                &bytes[32..],
+            ),
+        ] {
+            let mut request = Request::get(&uri);
+            if let Some(range) = range {
+                request = request.header(header::RANGE, range);
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status);
+            assert_eq!(response.headers()[header::CONTENT_TYPE], "video/mp4");
+            assert_eq!(response.headers()[header::ACCEPT_RANGES], "bytes");
+            assert_eq!(
+                response.headers()[header::CONTENT_LENGTH],
+                expected.len().to_string()
+            );
+            assert_eq!(
+                response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+                "nosniff"
+            );
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::CONTENT_RANGE)
+                    .map(|value| value.to_str().unwrap()),
+                content_range
+            );
+            assert_eq!(
+                to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+                expected
+            );
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(&uri)
+                    .header(header::RANGE, "bytes=36-")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes */36");
+        assert_eq!(response.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+        assert!(to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let response = app
+            .clone()
+            .oneshot(Request::head(&uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "video/mp4");
+        assert_eq!(response.headers()[header::CONTENT_LENGTH], "36");
+        assert_eq!(response.headers()[header::ACCEPT_RANGES], "bytes");
+        assert_eq!(response.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+        assert!(to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap()
+            .is_empty());
+
+        for unavailable in [
+            "/resource/unknown/media.mp4".to_string(),
+            uri.replace("media.mp4", "wrong.mp4"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::get(unavailable).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+        std::fs::remove_file(&file).unwrap();
+        let response = app
+            .oneshot(Request::get(&uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

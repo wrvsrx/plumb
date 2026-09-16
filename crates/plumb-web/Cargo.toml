@@ -20,6 +20,7 @@ serde_json.workspace = true
 sha2.workspace = true
 tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.6", features = ["fs"] }
 url.workspace = true
 
 [dev-dependencies]
