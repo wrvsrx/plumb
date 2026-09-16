@@ -233,6 +233,56 @@ impl WebWorkspace {
         Ok(graph)
     }
 
+    /// `graph_revision` acknowledges an installed basis with identical traversal
+    /// and filter options; callers must omit it when those options change.
+    pub fn query_graph_presentation(
+        &self,
+        query: &WebQuery,
+        excluded: Option<&str>,
+    ) -> Result<GraphPresentation, QueryFailure> {
+        let mut basis_query = query.clone();
+        basis_query.query.clear();
+        basis_query.sort = vec![QuerySort::Source];
+        basis_query.limit = query.traversal.limit;
+        let graph = self.query_graph(&basis_query, excluded)?;
+        let mut matches = graph
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                search_score(
+                    &query.query,
+                    &[&node.title, node.path.as_deref().unwrap_or_default()],
+                )
+                .map(|score| (node, score))
+            })
+            .collect::<Vec<_>>();
+        matches.sort_by(|(left, left_score), (right, right_score)| {
+            if query.sort.first() == Some(&QuerySort::Relevance) && !query.query.is_empty() {
+                right_score
+                    .cmp(left_score)
+                    .then_with(|| graph_source_order(left, right))
+            } else {
+                graph_source_order(left, right)
+            }
+        });
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_GRAPH_LIMIT)
+            .min(MAX_GRAPH_LIMIT);
+        let complete = graph.complete && matches.len() <= limit;
+        let visible_nodes = matches
+            .into_iter()
+            .take(limit)
+            .map(|(node, _)| node.id.clone())
+            .collect();
+        Ok(GraphPresentation {
+            revision: graph.revision,
+            graph: (query.graph_revision != Some(graph.revision)).then_some(graph),
+            visible_nodes,
+            complete,
+        })
+    }
+
     fn graph_metrics(&self, graph: &GraphSnapshot) -> Result<HashMap<String, GraphMetric>, String> {
         let mut metrics = graph
             .nodes

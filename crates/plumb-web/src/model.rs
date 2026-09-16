@@ -73,6 +73,15 @@ pub struct GraphSnapshot {
     pub complete: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphPresentation {
+    pub revision: u64,
+    pub graph: Option<GraphSnapshot>,
+    pub visible_nodes: Vec<String>,
+    pub complete: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum GraphDirection {
@@ -291,6 +300,7 @@ pub struct WebQuery {
     pub sort: Vec<QuerySort>,
     pub limit: Option<usize>,
     pub cursor: Option<String>,
+    pub graph_revision: Option<u64>,
     #[serde(default)]
     pub traversal: GraphQuery,
 }
@@ -3163,6 +3173,136 @@ mod tests {
             .unwrap();
         assert_eq!(orphans.nodes.len(), 1);
         assert_eq!(orphans.nodes[0].path.as_deref(), Some("orphan.plumb"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn graph_search_projects_visibility_over_a_revision_bound_basis() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.plumb"), "`= title Alpha\n\n`->{b.plumb}\n").unwrap();
+        std::fs::write(root.join("b.plumb"), "`= title Beta\n\n`->{c.plumb}\n").unwrap();
+        std::fs::write(root.join("c.plumb"), "`= title Gamma\n").unwrap();
+        let mut workspace = WebWorkspace::load(&root).unwrap();
+        let query = WebQuery {
+            query: "Beta".into(),
+            ..WebQuery::default()
+        };
+        let first = workspace.query_graph_presentation(&query, None).unwrap();
+        let basis = first.graph.as_ref().unwrap();
+        assert_eq!(
+            basis.nodes.len(),
+            3,
+            "initial fuzzy search installs the full basis"
+        );
+        assert_eq!(basis.edges.len(), 2, "hidden endpoints remain in the basis");
+        assert_eq!(
+            first.visible_nodes,
+            [workspace.document_id(root.join("b.plumb")).unwrap()]
+        );
+        assert!(first.complete);
+
+        for text in ["Alpha", "", "zzzznonexistent"] {
+            let projection = workspace
+                .query_graph_presentation(
+                    &WebQuery {
+                        query: text.into(),
+                        graph_revision: Some(first.revision),
+                        ..WebQuery::default()
+                    },
+                    None,
+                )
+                .unwrap();
+            assert!(
+                projection.graph.is_none(),
+                "same revision only transfers identities"
+            );
+            assert_eq!(projection.revision, first.revision);
+            assert_eq!(
+                projection.visible_nodes.len(),
+                if text.is_empty() {
+                    3
+                } else if text == "Alpha" {
+                    1
+                } else {
+                    0
+                }
+            );
+            assert!(projection.complete);
+        }
+        let stale = workspace
+            .query_graph_presentation(
+                &WebQuery {
+                    graph_revision: Some(first.revision.wrapping_add(1)),
+                    ..WebQuery::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            stale.graph.as_ref(),
+            Some(basis),
+            "stale revision receives the current basis"
+        );
+
+        let limited = workspace
+            .query_graph_presentation(
+                &WebQuery {
+                    limit: Some(1),
+                    ..WebQuery::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            limited.graph.as_ref(),
+            Some(basis),
+            "result limit does not change the basis"
+        );
+        assert_eq!(limited.visible_nodes.len(), 1);
+        assert!(!limited.complete);
+
+        let truncated = workspace
+            .query_graph_presentation(
+                &WebQuery {
+                    query: "Beta".into(),
+                    traversal: GraphQuery {
+                        limit: Some(1),
+                        ..GraphQuery::default()
+                    },
+                    ..WebQuery::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(truncated.graph.as_ref().unwrap().nodes.len(), 1);
+        assert!(
+            truncated.visible_nodes.is_empty(),
+            "search only filters the installed basis"
+        );
+        assert!(!truncated.complete);
+        std::fs::write(root.join("b.plumb"), "`= title Changed\n\n`->{c.plumb}\n").unwrap();
+        workspace
+            .refresh_document(root.join("b.plumb"), first.revision + 1)
+            .unwrap();
+        let updated = workspace
+            .query_graph_presentation(
+                &WebQuery {
+                    query: "Changed".into(),
+                    graph_revision: Some(first.revision),
+                    ..WebQuery::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(updated.revision, first.revision + 1);
+        assert_eq!(updated.visible_nodes.len(), 1);
+        let updated_basis = updated.graph.unwrap();
+        assert_eq!(updated_basis.revision, updated.revision);
+        assert!(updated_basis
+            .nodes
+            .iter()
+            .any(|node| node.title == "Changed"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
