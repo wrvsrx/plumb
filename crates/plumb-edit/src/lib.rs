@@ -1586,6 +1586,78 @@ fn prepend_owner_attribute(
     }
 }
 
+pub fn replace_owned_inline(
+    parsed: &ParsedDocument,
+    range: Range<usize>,
+    inline: &OwnedInline,
+) -> Result<TextEdit, EditError> {
+    if !parsed.is_valid() || !has_inline_owner(&parsed.syntax.blocks, &range) {
+        return Err(EditError::InvalidRange);
+    }
+    let mut rendered = String::new();
+    render_owned_inlines(std::slice::from_ref(inline), false, 0, &mut rendered);
+    let replacement_range = range.start..range.start + rendered.len();
+    let edit = TextEdit::replace(parsed, range, rendered)?;
+    let next = plumb_syntax::parse(&apply_text_edits(
+        parsed.source.clone(),
+        vec![edit.clone()],
+    )?);
+    if !next.is_valid() || !has_inline_owner(&next.syntax.blocks, &replacement_range) {
+        return Err(EditError::GeneratedInvalid);
+    }
+    Ok(edit)
+}
+
+pub fn replace_green_inline(
+    document: &GreenDocument,
+    range: Range<usize>,
+    inline: &OwnedInline,
+) -> Result<TextEdit, EditError> {
+    document.valid_syntax().ok_or(EditError::InvalidRange)?;
+    let shard = document
+        .shard_at(range.start)
+        .ok_or(EditError::InvalidRange)?;
+    let offset = shard.offset();
+    let end = range
+        .end
+        .checked_sub(offset)
+        .ok_or(EditError::InvalidRange)?;
+    rebase_edit(
+        replace_owned_inline(shard.shard().parsed(), range.start - offset..end, inline)?,
+        offset,
+    )
+}
+
+fn has_inline_owner(blocks: &[Block], range: &Range<usize>) -> bool {
+    let mut blocks = blocks.iter().collect::<Vec<_>>();
+    let mut contents = Vec::new();
+    while let Some(block) = blocks.pop() {
+        if let Block::Parsed(block) = block {
+            blocks.extend(&block.children);
+            contents.push(&block.content);
+        }
+    }
+    while let Some(content) = contents.pop() {
+        for inline in &content.items {
+            match inline {
+                Inline::Group {
+                    range: current,
+                    content,
+                    ..
+                } => {
+                    if current == range {
+                        return true;
+                    }
+                    contents.push(content);
+                }
+                Inline::Verbatim { range: current, .. } if current == range => return true,
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
 pub fn remove_block(parsed: &ParsedDocument, range: Range<usize>) -> Result<TextEdit, EditError> {
     if !has_block_range(&parsed.syntax.blocks, &range) {
         return Err(EditError::InvalidRange);
@@ -1604,6 +1676,47 @@ pub fn remove_green_block(
 }
 
 impl OwnedInline {
+    pub fn with_arguments(
+        kind: impl Into<String>,
+        arguments: Vec<Vec<OwnedInline>>,
+        children: Vec<OwnedInline>,
+    ) -> Self {
+        let arguments = arguments
+            .into_iter()
+            .map(|argument| {
+                let argument = argument
+                    .into_iter()
+                    .flat_map(|inline| match inline {
+                        OwnedInline::Text(text) => owned_authored_text(&text),
+                        inline => vec![inline],
+                    })
+                    .collect::<Vec<_>>();
+                if argument.is_empty() {
+                    vec![OwnedInline::Element {
+                        kind: String::new(),
+                        members: vec![],
+                    }]
+                } else {
+                    argument
+                }
+            })
+            .collect();
+        let head = padded_owned_arguments(arguments);
+        let mut members = Vec::new();
+        if !head.is_empty() {
+            members.push(OwnedInlineMember::ParsedArgument(head));
+        }
+        members.extend(
+            children
+                .into_iter()
+                .map(|child| OwnedInlineMember::Child(Box::new(child))),
+        );
+        Self::Element {
+            kind: kind.into(),
+            members,
+        }
+    }
+
     pub fn from_syntax(inline: &Inline) -> Self {
         match inline {
             Inline::Text { text, .. } => Self::Text(text.clone()),

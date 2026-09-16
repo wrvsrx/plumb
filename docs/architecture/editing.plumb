@@ -21,6 +21,8 @@ positional arguments 由 structured API 构造：caller 传 ordered element argu
 anonymous Group与 empty Group。caller 不在 flat sequence 中手工插 delimiter。property/definition helper 按
 first element + remaining sequence生成 current shape。
 
+OwnedInline::with_arguments 接受 marker、完整 positional argument vectors 与 direct children，由 edit layer 的既有 argument binding helper 为 multi-element 或 empty argument 添加必要 Group，caller 不手工拼 envelope。
+
 generic declarations仍可由 OwnedAttribute convenience 转成 direct `"@"/`"+"/`"=" owners；meaning 不进入 edit
 layer。Owned conversion from syntax直接保持 InlineContent elements与 SpaceRun，使 property retain/remove/update
 能识别 first/rest boundaries；不得重建 hidden datum descriptors。
@@ -103,6 +105,10 @@ selection conversion由plumb-edit逐green top-level root返回一次ownership、
 Task/Event/metadata operations 先在 semantics/workspace 解析 intent，再调用 generic owned mutations。status field
 update 要 retain opaque declarations/body，property remove/add后重新 align 受影响的 direct property run，并格式化
 完整 task subtree。
+
+`## 6.1 Inline owner replacement
+
+plumb-edit 的 replace_owned_inline 与 replace_green_inline 接受已有 valid revision、完整 Group/Verbatim owner range 与一个 OwnedInline。edit layer 验证原 owner 存在、渲染 replacement、验证新 revision 的 syntax validity 与 replacement 完整 owner boundary，然后返回唯一 byte edit。green 入口在 owning shard 内验证并 rebase，consumer 不手算 envelope 或 CST replacement。嵌套 replacements 必须通过一次 owned 外层修改或不重叠 batch 完成。其它 source bytes 保持不变，不能为了局部 inline mutation 重写整个 block。这一通用能力可服务 source spelling 转换，但不建立 legacy parser 或 migration CLI。
 
 `# 7. Alignment
 

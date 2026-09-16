@@ -75,6 +75,8 @@ projected declaration item 同时保存 full direct-owner range 与 precise key/
 range；rename/selection/reference 使用 value range。consumer 不得用 `"full_start + constant" 猜测 token
 boundary。
 
+inline declaration projection 对 anonymous 与 marked Group 使用相同规则；standalone attributes_from_inlines(source, content) 与 plain_scalar(content) 暴露 parser 已使用的 semantics-neutral projection，不重新 parse source。调用者必须传 owning revision 的 bytes 与 typed content。generic attributes 不引入资源或其它 semantic kind。
+
 `# 6. Recovered and valid views
 
 lossless tokens 与 typed recovered Document 始终存在。recovered_syntax 返回同一次 parse 的 recovered tree；

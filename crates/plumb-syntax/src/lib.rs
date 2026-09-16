@@ -5,7 +5,8 @@ mod syntax;
 
 pub use green::{GreenDocument, GreenParse, GreenShard, GreenShardView, ValidGreenDocument};
 pub use parser::{
-    parse, parse_incremental, parse_incremental_from_change, IncrementalParse, SourceChange,
+    attributes_from_inlines, parse, parse_incremental, parse_incremental_from_change, plain_scalar,
+    IncrementalParse, SourceChange,
 };
 pub use syntax::{
     inline_range, AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document,

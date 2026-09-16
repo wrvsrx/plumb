@@ -1204,7 +1204,7 @@ fn attributes_from_blocks(source: &str, blocks: &[Block]) -> Attributes {
     }))
 }
 
-fn attributes_from_inlines(source: &str, content: &InlineContent) -> Attributes {
+pub fn attributes_from_inlines(source: &str, content: &InlineContent) -> Attributes {
     attributes_from_items(content.items.iter().filter_map(|inline| {
         let Inline::Group {
             range,
@@ -1319,7 +1319,7 @@ fn content_from_elements(content: &InlineContent, elements: &[(usize, &Inline)])
     InlineContent::from_items(range, items)
 }
 
-fn plain_scalar(content: &InlineContent) -> Option<String> {
+pub fn plain_scalar(content: &InlineContent) -> Option<String> {
     let content = content.trim_boundary_padding();
     if let [Inline::Group {
         mark: None,
