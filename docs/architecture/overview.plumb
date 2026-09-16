@@ -105,7 +105,13 @@ Web mutation 的 CSRF boundary 使用 browser `"Origin" header。未配置 publi
 
 Task authoring 不得为 parent、previous 或 dependency controls 一次创建完整 workspace option DOM。candidate endpoint 按 document scope 或 fuzzy query 返回有界 compact identities；browser 保留已选 locator，并在输入变化 时替换候选 page。Parent/position 只查询目标 document，cross-document previous/dependency 使用显式搜索。
 
-Web graph 的 fuzzy search 是当前 graph scope 的过滤条件，不建立独立视图或搜索前状态。当前 scope 的 query、清空搜索和 workspace revision 更新完成后，camera center 与 zoom 必须保持更新前的值；不能让 graph library 按 result node count 隐式缩放。首次打开和切换 global/local scope 可以 fit 或恢复该 scope 的既有 camera。显式 Fit 作用于当前可见 nodes，其结果在后续搜索和清空时继续保留。例如 29 nodes 过滤为 9 nodes 再清空回到 29 nodes，若期间没有 camera command，center 与 zoom 必须相等；若在 9 nodes 上执行 Fit，清空后必须保留该 Fit 的 camera。
+Web graph 的 fuzzy search 是基础图的 visibility projection，不建立独立视图或搜索前快照。基础图由 workspace revision、global/local scope、traversal、edge kinds、CEL/presets 与基础图 hard limit 决定；fuzzy query、result sort 和 result limit 只决定有序 visible node identities。基础图超过 hard limit 时，搜索只过滤当前基础图，response 必须继续报告 incomplete。CEL/presets 对整个基础图候选集合验证和求值，不由 fuzzy match 隐藏 evaluation failure。
+
+基础图与 visible identities 必须来自同一 immutable workspace revision。browser 只有在基础图条件不变时才可携带已安装的 graph revision；server 在 revision 相等时只返回 visible identities、revision 与 completeness，否则同时返回该 revision 的基础图。首次请求即使带 fuzzy query 也必须安装完整基础图。browser 对 response 使用 request generation gate，stale request 不能覆盖较新的基础图或 visibility。
+
+同一基础图内，搜索和清空只能改变 node/link visibility，不得重新调用 graphData、重启 force layout、重新计算 sizing degree 或丢弃隐藏节点的位置。degree 从基础图 edges 计算，hidden nodes 不绘制 label、不参与 pointer interaction，只有两端 visible 的 edge 可见。结果数量和 overview 按 visible projection 统计；node sizing degree 继续表示基础图连接数。例如 29 nodes 过滤为 9 nodes 再清空回到 29 nodes，节点 allocation、position 和 sizing degree 必须保持。用户主动 drag 或 camera command 的效果正常保留，不属于搜索引起的变动。
+
+当前 scope 的 query、清空搜索和 workspace revision 更新完成后，camera center 与 zoom 必须保持更新前的值；不能让 graph library 按 result node count 隐式缩放。首次打开和切换 global/local scope 可以 fit 或恢复该 scope 的既有 camera。显式 Fit 只计算 visible nodes 的边界，其结果在后续搜索和清空时继续保留。
 
 `# 7. Tree-sitter boundary
 

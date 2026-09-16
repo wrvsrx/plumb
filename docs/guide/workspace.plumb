@@ -51,7 +51,7 @@ task output 默认是 nested table；`"--flat" 省略 nesting indentation，`"--
 
 浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、pan、 zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。 unresolved document targets 显示为独立 node。
 
-Graph 的 fuzzy search 过滤当前图，搜索和清空输入都保持 camera center 与 zoom。Fit 调整当前可见 nodes 的视角，其效果在清空搜索后继续保留；清空不会恢复搜索前的视角。
+Graph 的 fuzzy search 只隐藏当前基础图中未匹配的 nodes 和相关 edges，不重新布局。搜索和清空输入都保持节点位置、按基础图连接数计算的大小，以及 camera center 与 zoom；隐藏节点不能点击。初始 URL 带搜索词时同样保留完整基础图，清空即可显示全部节点。结果数量只统计可见 nodes/edges。Fit 调整当前可见 nodes 的视角，其效果在清空搜索后继续保留；清空不会恢复搜索前的视角。基础图达到节点上限时，搜索只过滤当前已加载的图，并继续显示 truncated 提示。
 
 `"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、 selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。 Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。每个 document 是 task forest 的 虚拟结构节点。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时 默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后， Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task 不会参与这些聚合；详情显示 derived state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示， 切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。 点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
 
