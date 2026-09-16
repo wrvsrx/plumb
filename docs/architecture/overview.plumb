@@ -105,6 +105,8 @@ Web mutation 的 CSRF boundary 使用 browser `"Origin" header。未配置 publi
 
 Task authoring 不得为 parent、previous 或 dependency controls 一次创建完整 workspace option DOM。candidate endpoint 按 document scope 或 fuzzy query 返回有界 compact identities；browser 保留已选 locator，并在输入变化 时替换候选 page。Parent/position 只查询目标 document，cross-document previous/dependency 使用显式搜索。
 
+Web graph 的 fuzzy search 是当前 graph scope 的过滤条件，不建立独立视图或搜索前状态。当前 scope 的 query、清空搜索和 workspace revision 更新完成后，camera center 与 zoom 必须保持更新前的值；不能让 graph library 按 result node count 隐式缩放。首次打开和切换 global/local scope 可以 fit 或恢复该 scope 的既有 camera。显式 Fit 作用于当前可见 nodes，其结果在后续搜索和清空时继续保留。例如 29 nodes 过滤为 9 nodes 再清空回到 29 nodes，若期间没有 camera command，center 与 zoom 必须相等；若在 9 nodes 上执行 Fit，清空后必须保留该 Fit 的 camera。
+
 `# 7. Tree-sitter boundary
 
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义 validity，也不能迫使语言设计适应 CFG。

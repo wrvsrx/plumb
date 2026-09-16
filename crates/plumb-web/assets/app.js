@@ -560,6 +560,18 @@ import {
     const warmup = initial ? (nodes.length > 500 ? 100 : 260) : 0;
     const fitRevision = ++state.graphFitRevision;
     let shouldFitScope = fitScope;
+    let cameraToPreserve = !fitScope ? {
+      ...state.graphView.centerAt(),
+      zoom: state.graphView.zoom(),
+    } : null;
+    const preserveCamera = () => {
+      if (!cameraToPreserve) return;
+      // ForceGraph may autoscale asynchronously when installing new graph data.
+      const camera = cameraToPreserve;
+      cameraToPreserve = null;
+      state.graphView.centerAt(camera.x, camera.y, 0);
+      state.graphView.zoom(camera.zoom, 0);
+    };
     state.graphView
       .width(graphElement.clientWidth)
       .height(graphElement.clientHeight)
@@ -578,7 +590,9 @@ import {
       .linkDirectionalArrowLength((link) => link.kind === 'task-depends' ? 4 : 3)
       .linkDirectionalArrowRelPos(0.68)
       .linkDirectionalArrowColor(linkColor)
+      .onEngineTick(preserveCamera)
       .onEngineStop(() => {
+        preserveCamera();
         if (!shouldFitScope || fitRevision !== state.graphFitRevision) return;
         shouldFitScope = false;
         if (savedCamera) {
