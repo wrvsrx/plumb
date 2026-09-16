@@ -33,6 +33,9 @@ import {
   const initialView = viewFromPath(location.pathname);
   const state = {
     graph: null,
+    graphBasisKey: null,
+    graphResultComplete: false,
+    visibleNodes: new Set(),
     graphView: null,
     graphConfigured: false,
     graphScope: null,
@@ -404,7 +407,7 @@ import {
   }
 
   function queryRequest(view, cursor = null) {
-    return {
+    const request = {
       view,
       query: state.query[view],
       presets: state.presets[view],
@@ -420,14 +423,26 @@ import {
         limit: null,
       } : {},
     };
+    if (view === 'graph' && state.graphBasisKey === graphBasisKey(request)) {
+      request.graphRevision = state.graph?.revision;
+    }
+    return request;
   }
 
-  async function executeQuery(view, cursor = null) {
+  function graphBasisKey(request) {
+    return JSON.stringify({
+      presets: request.presets,
+      filters: request.filters,
+      traversal: request.traversal,
+    });
+  }
+
+  async function executeQuery(view, cursor = null, request = queryRequest(view, cursor)) {
     const response = await fetch(config.queryUrl, {
       method: 'POST',
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(queryRequest(view, cursor)),
+      body: JSON.stringify(request),
     });
     if (!response.ok) {
       let failure;
@@ -443,13 +458,22 @@ import {
   async function loadGraph() {
     const loadRevision = ++state.graphLoadRevision;
     const graphScope = currentGraphScope();
+    const request = queryRequest('graph');
+    const basisKey = graphBasisKey(request);
     try {
-      const result = await executeQuery('graph');
+      const result = await executeQuery('graph', null, request);
       if (loadRevision !== state.graphLoadRevision) return;
-      observeRevision(state.workspaceRevision, result.graph.revision);
-      state.graph = result.graph;
+      observeRevision(state.workspaceRevision, result.revision);
+      state.visibleNodes = new Set(result.visibleNodes);
+      state.graphResultComplete = result.complete;
       setQueryError('graph', null);
-      renderGraph(graphScope);
+      if (result.graph) {
+        state.graph = result.graph;
+        state.graphBasisKey = basisKey;
+        renderGraph(graphScope);
+      } else {
+        updateGraphPresentation();
+      }
     } catch (error) {
       if (loadRevision !== state.graphLoadRevision) return;
       setQueryError('graph', error);
@@ -473,13 +497,6 @@ import {
       byId.get(endpointId(edge.target)).degree += 1;
     });
     nodes.sort((left, right) => right.degree - left.degree || left.title.localeCompare(right.title));
-    const hubs = nodes
-      .slice()
-      .sort((left, right) => right.degree - left.degree || left.title.localeCompare(right.title))
-      .slice(0, 5);
-
-    empty.hidden = nodes.length > 0;
-    summary.textContent = `${nodes.length} notes, ${edges.length} connections${state.graph.complete ? '' : ' (truncated)'}`;
     state.renderedNodes = nodes;
     state.renderedEdges = edges;
     state.graphScope = graphScope;
@@ -489,7 +506,29 @@ import {
     } else {
       refreshStyles();
     }
-    renderOverview(hubs);
+    updateGraphPresentation();
+  }
+
+  function isNodeVisible(node) {
+    return state.visibleNodes.has(node.id);
+  }
+
+  function isLinkVisible(link) {
+    return state.visibleNodes.has(endpointId(link.source)) && state.visibleNodes.has(endpointId(link.target));
+  }
+
+  function updateGraphPresentation() {
+    if (state.hovered && !state.visibleNodes.has(state.hovered)) state.hovered = null;
+    const nodes = state.renderedNodes.filter(isNodeVisible);
+    const edges = state.renderedEdges.filter(isLinkVisible);
+    empty.hidden = nodes.length > 0;
+    summary.textContent = `${nodes.length} notes, ${edges.length} connections${state.graphResultComplete ? '' : ' (truncated)'}`;
+    refreshStyles();
+    renderOverview(nodes.slice(0, 5), nodes.length, edges.length);
+  }
+
+  function fitVisibleGraph() {
+    state.graphView?.zoomToFit(0, 48, isNodeVisible);
   }
 
   function edgeTopologyKey(edge) {
@@ -547,7 +586,7 @@ import {
       .linkTarget('target')
       .minZoom(0.1)
       .maxZoom(8)
-      .onNodeClick((node) => selectNode(node))
+      .onNodeClick((node) => { if (isNodeVisible(node)) selectNode(node); })
       .onNodeHover(handleNodeHover)
       .onBackgroundClick(() => handleNodeHover(null));
     window.plumbGraph = state.graphView;
@@ -599,7 +638,7 @@ import {
           state.graphView.centerAt(savedCamera.x, savedCamera.y, 0);
           state.graphView.zoom(savedCamera.zoom, 0);
         } else {
-          state.graphView.zoomToFit(0, 48);
+          fitVisibleGraph();
         }
       })
       .graphData({ nodes, links: edges });
@@ -654,6 +693,7 @@ import {
   }
 
   function drawNodeLabel(node, context, globalScale) {
+    if (!isNodeVisible(node)) return;
     if (!(allLabels.checked || state.query.graph || node.id === state.current || node.id === state.hovered)) return;
     const fontSize = 13 / globalScale;
     const padding = 4 / globalScale;
@@ -684,6 +724,8 @@ import {
   function refreshStyles() {
     if (!state.graphView) return;
     state.graphView
+      .nodeVisibility(isNodeVisible)
+      .linkVisibility(isLinkVisible)
       .nodeColor(nodeColor)
       .nodeCanvasObject(drawNodeLabel)
       .linkColor(linkColor)
@@ -692,14 +734,14 @@ import {
   }
 
   function handleNodeHover(node) {
-    state.hovered = node ? node.id : null;
+    state.hovered = node && isNodeVisible(node) ? node.id : null;
     refreshStyles();
   }
 
-  function renderOverview(hubs) {
+  function renderOverview(hubs, nodeCount, edgeCount) {
     if (state.current) return;
     panel.innerHTML = '<div class="note-empty"><h1>Workspace graph</h1><p></p><h2>Most connected</h2><ol class="hub-list"></ol></div>';
-    panel.querySelector('p').textContent = `${state.graph.nodes.length} notes and ${state.graph.edges.length} connections`;
+    panel.querySelector('p').textContent = `${nodeCount} notes and ${edgeCount} connections`;
     const list = panel.querySelector('.hub-list');
     hubs.forEach((node) => {
       const item = document.createElement('li');
@@ -764,7 +806,7 @@ import {
   }
 
   async function selectDocument(documentId, fragment) {
-    let node = state.renderedNodes.find((candidate) => candidate.id === documentId);
+    let node = state.renderedNodes.find((candidate) => candidate.id === documentId && isNodeVisible(candidate));
     if (!node && state.query.graph) {
       state.query.graph = '';
       search.value = '';
@@ -1734,7 +1776,7 @@ import {
   direction.addEventListener('change', () => { updateUrl(); loadGraph(); });
   globalMode.addEventListener('click', () => setLocal(false));
   localMode.addEventListener('click', () => setLocal(true));
-  document.getElementById('fit').addEventListener('click', () => state.graphView && state.graphView.zoomToFit(0, 48));
+  document.getElementById('fit').addEventListener('click', fitVisibleGraph);
   panel.addEventListener('click', (event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const link = event.target.closest('.note-content a[data-plumb-document]');

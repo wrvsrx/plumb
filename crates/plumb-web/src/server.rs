@@ -295,8 +295,12 @@ async fn query(State(state): State<AppState>, Json(query): Json<WebQuery>) -> Re
     let workspace = state.workspace.read().await;
     let result = match query.view {
         WebView::Graph => workspace
-            .query_graph(&query, state.exclude.as_deref())
-            .map(|snapshot| json!({ "view": "graph", "graph": snapshot })),
+            .query_graph_presentation(&query, state.exclude.as_deref())
+            .map(|snapshot| {
+                json!({ "view": "graph", "graph": snapshot.graph,
+                "revision": snapshot.revision, "visibleNodes": snapshot.visible_nodes,
+                "complete": snapshot.complete })
+            }),
         WebView::Tasks => workspace
             .query_tasks(&query)
             .map(|snapshot| json!({ "view": "tasks", "tasks": snapshot })),
@@ -1047,6 +1051,40 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["view"], "tasks");
         assert_eq!(value["tasks"]["tasks"].as_array().unwrap().len(), 1);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/query")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"view":"graph","query":"zzzznonexistent"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["graph"]["nodes"].as_array().unwrap().len(), 1);
+        assert!(value["visibleNodes"].as_array().unwrap().is_empty());
+        assert_eq!(value["revision"], value["graph"]["revision"]);
+        let cached_query = json!({ "view": "graph", "graphRevision": value["revision"] });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/query")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(cached_query.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(value["graph"].is_null());
+        assert_eq!(value["visibleNodes"].as_array().unwrap().len(), 1);
+        assert_eq!(value["complete"], true);
 
         let response = app
             .clone()
