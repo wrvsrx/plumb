@@ -98,16 +98,25 @@ Marked verbatim is the compact derived-label Link spelling:
 
 ## Images and Attachments
 
-`img` and `file` use visible first positional content and a direct `src`
-property group:
+Anonymous or marked parsed inline groups become images or attachments through
+direct `img` or `file` facets. They share Link's first/rest target binding:
+one element derives the label from the target; otherwise the first element is
+the label and the remaining elements stringify to the target. Group multiword
+labels and use an empty group for decorative alt. The two facets conflict;
+resource owners do not accept a second target through `src`.
 
 ```plumb
-`img{status icon `={src static/status.png}}
-`file{{Demo video} `={src static/demo.mp4}}
+{{status icon} static/status.png `+{img}}
+{{Demo video} static/demo.mp4 `+{file}}
+{static/status.png `+{img}}
+{{} static/decorative.png `+{img}}
 ```
 
 Local sources are raw relative paths. Export lowers files to portable Pandoc
-Links and may enhance supported local video MIME types in the Web viewer.
+Links with `data-plumb-facet=file` intent and may enhance supported local video
+MIME types in the Web viewer. Resource-faceted `->` groups do not produce
+navigation records or document graph edges. The old `img` and `file` marker
+spellings are generic owners, not resource selectors.
 
 ## Citations
 

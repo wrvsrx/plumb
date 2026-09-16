@@ -29,7 +29,7 @@ Try go-to-definition, hover, find references, and rename on these links:
 `- External verbatim Link hover: `->"https://example.test/a%20b"
 `- Relative document Link: `->"plumb-export.plumb#export-target"
 `- Relative file Link: `->"static/plumb-pipeline.svg"
-`- Image file hover and definition: `img{pipeline `={src static/plumb-pipeline.svg}}
+`- Image file hover and definition: {pipeline `"static/plumb-pipeline.svg" `+{img}}
 
 `anchor Rename this id to update its references.
  `@ local-anchor

@@ -131,23 +131,24 @@ compact verbatim Link template。完成后的 one-element/two-or-more-element fo
 
 `# Image
 
-`"img" content 是 alt text，`"src" 是 absolute URI 或相对当前 document 的 file reference：
+inline group 通过 direct `"img" facet 表示图片，不需要 marker 或 src property。目标绑定与 Link 相同：单参数从目标派生 alt；多参数的 first 是 alt，remaining elements 是 absolute URI 或相对当前 document 的 file reference：
 
 `plumb"
-  Text with `img{{status icon} `={src static/status.png}} inline.
-  `img{{} `={src https://example.test/decorative.svg}}
+  Text with {{status icon} static/status.png `+{img}} inline.
+  {static/status.png `+{img}}
+  {{} https://example.test/decorative.svg `+{img}}
 
-empty alt 用于 decorative image。image 单独占一个 paragraph 时不需要另一种 block syntax。 相对 src 是 raw filesystem path，中文、spaces、parentheses 和 percent characters 都按字面保留， 不做 URL encode/decode。LSP 在 src 中补全常见本地图片文件，并为存在的文件提供 hover 和 go-to-definition。image 的 标准 profile 边界见 `->{{standard semantics reference} ../reference/standard-semantics.plumb}。
+empty explicit alt 用于 decorative image；多词或富文本 alt 使用一个 anonymous Group。image 单独占一个 paragraph 时不需要另一种 block syntax。相对 target 是 raw filesystem path，中文、spaces、parentheses 和 percent characters 都按字面保留，不做 URL encode/decode。LSP 在 positional target 中补全常见本地图片文件，并为存在的文件提供 hover 和 go-to-definition。image 的标准 profile 边界见 `->{{standard semantics reference} ../reference/standard-semantics.plumb}。
 
 `# File attachment
 
-`"file" content 是始终可用的 fallback label，`"src" 指向 absolute URI 或相对当前 document 的文件：
+inline group 通过 direct `"file" facet 表示附件。label 与 target 使用同一 first/rest 规则，file 与 img facets 互斥：
 
 `plumb"
-  `file{{Demo video} `={src static/demo.mp4}}
-  `file{{Download report} `={src reports/final.pdf}}
+  {{Demo video} static/demo.mp4 `+{file}}
+  `->{{Download report} reports/final.pdf `+{file}}
 
-普通 exporter 把 attachment 写成可点击 Link。Web viewer 会把 workspace 内能识别为 video 的本地文件 显示为带 controls 的播放器，同时保留下载链接作为浏览器不支持该格式时的 fallback；PDF、archive 或 未知类型继续显示为普通附件链接。MIME 不改变 `"file" 语义，普通 `"->" Link 也不会自动变成播放器。 LSP 在 src 中补全任意本地文件，并提供 hover、go-to-definition 和 unresolved-file diagnostic。
+普通 exporter 把 attachment 写成可点击 Link。Web viewer 会把 workspace 内能识别为 video 的本地文件显示为带 controls 的播放器，同时保留下载链接作为浏览器不支持该格式时的 fallback；PDF、archive 或未知类型继续显示为普通附件链接。MIME 不改变 file facet 的语义，普通 `"->" Link 也不会自动变成播放器。resource-faceted Link 不产生文档导航或 document graph edge。LSP 在 positional target 中补全任意本地文件，并提供 hover、go-to-definition 和 unresolved-file diagnostic。
 
 `# Citation
 

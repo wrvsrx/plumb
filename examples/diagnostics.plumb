@@ -22,6 +22,6 @@ This document is the only playground source expected to emit semantic diagnostic
 
 `# Images
 
-`img{{missing source}}
+{`+{img}}
 
-`img{{unresolved image} `={src static/missing.png}}
+{{unresolved image} static/missing.png `+{img}}
