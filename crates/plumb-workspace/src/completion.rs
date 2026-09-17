@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use plumb_semantics::{EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext};
+use plumb_semantics::{EmbedCompletionContext, EventTitleCompletionContext};
 
 use crate::{
-    fuzzy_match, is_image_path, normalize, CompletionCandidate, QueryResult, Workspace,
-    WorkspaceQueryError,
+    fuzzy_match, normalize, CompletionCandidate, QueryResult, Workspace, WorkspaceQueryError,
 };
 
 const EVENT_TITLE_COMPLETION_LIMIT: usize = 50;
@@ -65,27 +64,18 @@ impl Workspace {
         ))
     }
 
-    pub fn complete_image_path(
+    pub fn complete_embed_path(
         &self,
         from: impl AsRef<Path>,
-        context: &ImageCompletionContext,
+        context: &EmbedCompletionContext,
     ) -> Vec<CompletionCandidate> {
-        self.complete_resource_path(from.as_ref(), context, true)
-    }
-
-    pub fn complete_file_path(
-        &self,
-        from: impl AsRef<Path>,
-        context: &FileCompletionContext,
-    ) -> Vec<CompletionCandidate> {
-        self.complete_resource_path(from.as_ref(), context, false)
+        self.complete_resource_path(from.as_ref(), context)
     }
 
     fn complete_resource_path(
         &self,
         from: &Path,
-        context: &ImageCompletionContext,
-        images_only: bool,
+        context: &EmbedCompletionContext,
     ) -> Vec<CompletionCandidate> {
         let from = normalize(from);
         if Path::new(&context.query).is_absolute() {
@@ -115,23 +105,9 @@ impl Workspace {
                 }
                 let path = entry.path();
                 let (suffix, detail) = if path.is_dir() {
-                    (
-                        "/",
-                        if images_only {
-                            "image directory"
-                        } else {
-                            "file directory"
-                        },
-                    )
-                } else if path.is_file() && (!images_only || is_image_path(&path)) {
-                    (
-                        "",
-                        if images_only {
-                            "image file"
-                        } else {
-                            "file attachment"
-                        },
-                    )
+                    ("/", "resource directory")
+                } else if path.is_file() {
+                    ("", "embed target")
                 } else {
                     return None;
                 };

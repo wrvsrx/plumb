@@ -1727,16 +1727,9 @@ impl WebWorkspace {
                     paths.insert(path);
                 }
             }
-            for image in current.output.images() {
+            for embed in current.output.embeds() {
                 if let ResolvedTarget::File { path } =
-                    self.workspace.resolve_image(&entry.path, &image)
-                {
-                    paths.insert(path);
-                }
-            }
-            for file in current.output.files() {
-                if let ResolvedTarget::File { path } =
-                    self.workspace.resolve_file(&entry.path, &file)
+                    self.workspace.resolve_embed(&entry.path, &embed)
                 {
                     paths.insert(path);
                 }
@@ -3336,7 +3329,7 @@ mod tests {
         std::fs::write(target.join("static/image.jpg"), b"image").unwrap();
         std::fs::write(
             target.join("note.plumb"),
-            "{{} `\"static/image.jpg\" `+{img}}\n",
+            "`->{{} `\"static/image.jpg\" `+{embed}}\n",
         )
         .unwrap();
         symlink(&target, &root).unwrap();

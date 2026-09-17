@@ -226,24 +226,29 @@ impl RelativeSemanticRecord for LinkRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ImageTarget {
+pub enum EmbedTarget {
     External,
     File { path: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ImageRecord {
+pub struct EmbedRecord {
     pub range: Range<usize>,
     pub selection_range: Range<usize>,
     pub source: SourceBacked<String>,
-    pub target_kind: ImageTarget,
+    pub target_kind: EmbedTarget,
+    pub media: Option<crate::MediaType>,
 }
 
-pub type ImageRecordView<'a> = crate::SemanticRecordView<'a, ImageRecord>;
+pub type EmbedRecordView<'a> = crate::SemanticRecordView<'a, EmbedRecord>;
 
-impl<'a> ImageRecordView<'a> {
+impl<'a> EmbedRecordView<'a> {
     pub fn range(self) -> Range<usize> {
         shifted_range(&self.record.range, self.offset)
+    }
+
+    pub fn media(self) -> Option<&'a crate::MediaType> {
+        self.record.media.as_ref()
     }
 
     pub fn source_value(self) -> &'a str {
@@ -251,45 +256,7 @@ impl<'a> ImageRecordView<'a> {
     }
 }
 
-impl RelativeSemanticRecord for ImageRecord {
-    fn start(&self) -> usize {
-        self.range.start
-    }
-
-    fn shift(&mut self, delta: isize) {
-        shift_range(&mut self.range, delta);
-        shift_range(&mut self.selection_range, delta);
-        shift_source_backed(&mut self.source, delta);
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FileTarget {
-    External,
-    File { path: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileRecord {
-    pub range: Range<usize>,
-    pub selection_range: Range<usize>,
-    pub source: SourceBacked<String>,
-    pub target_kind: FileTarget,
-}
-
-pub type FileRecordView<'a> = crate::SemanticRecordView<'a, FileRecord>;
-
-impl<'a> FileRecordView<'a> {
-    pub fn range(self) -> Range<usize> {
-        shifted_range(&self.record.range, self.offset)
-    }
-
-    pub fn source_value(self) -> &'a str {
-        &self.record.source.value
-    }
-}
-
-impl RelativeSemanticRecord for FileRecord {
+impl RelativeSemanticRecord for EmbedRecord {
     fn start(&self) -> usize {
         self.range.start
     }
@@ -363,8 +330,7 @@ pub struct SemanticRoot {
     pub(crate) anchors: SemanticRecords<AnchorRecord>,
     pub(crate) links: SemanticRecords<LinkRecord>,
     first_link_start: Option<usize>,
-    pub(crate) images: SemanticRecords<ImageRecord>,
-    pub(crate) files: SemanticRecords<FileRecord>,
+    pub(crate) embeds: SemanticRecords<EmbedRecord>,
     pub(crate) diagnostics: SemanticDiagnostics,
 }
 
@@ -474,8 +440,7 @@ struct RootProjectionIndex {
     tables: RecordProjectionIndex,
     anchors: RecordProjectionIndex,
     links: RecordProjectionIndex,
-    images: RecordProjectionIndex,
-    files: RecordProjectionIndex,
+    embeds: RecordProjectionIndex,
     citation_diagnostics: DiagnosticProjectionIndex,
     math_diagnostics: DiagnosticProjectionIndex,
     task_diagnostics: DiagnosticProjectionIndex,
@@ -505,8 +470,7 @@ impl Default for SemanticRoot {
             anchors: SemanticRecords::default(),
             links: SemanticRecords::default(),
             first_link_start: None,
-            images: SemanticRecords::default(),
-            files: SemanticRecords::default(),
+            embeds: SemanticRecords::default(),
             diagnostics: SemanticDiagnostics::default(),
         }
     }
@@ -539,8 +503,7 @@ impl PartialEq for DocumentOutput {
             && self.tables() == other.tables()
             && self.anchors() == other.anchors()
             && self.links() == other.links()
-            && self.images() == other.images()
-            && self.files() == other.files()
+            && self.embeds() == other.embeds()
             && self.diagnostics() == other.diagnostics()
     }
 }
@@ -567,8 +530,7 @@ impl std::ops::Deref for DocumentOutput {
 struct RecordOutput {
     anchors: SemanticRecords<AnchorRecord>,
     links: SemanticRecords<LinkRecord>,
-    images: SemanticRecords<ImageRecord>,
-    files: SemanticRecords<FileRecord>,
+    embeds: SemanticRecords<EmbedRecord>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -674,12 +636,8 @@ impl DocumentOutput {
         build_event_link_ranges(&self.root.events.events, &self.root.links)
     }
 
-    pub fn images(&self) -> &SemanticRecords<ImageRecord> {
-        &self.root.images
-    }
-
-    pub fn files(&self) -> &SemanticRecords<FileRecord> {
-        &self.root.files
+    pub fn embeds(&self) -> &SemanticRecords<EmbedRecord> {
+        &self.root.embeds
     }
 
     pub fn diagnostics(&self) -> &SemanticDiagnostics {
@@ -706,12 +664,8 @@ impl DocumentOutput {
         self.links.view_at_start(start)
     }
 
-    pub fn image_at_node_start(&self, start: usize) -> Option<ImageRecordView<'_>> {
-        self.images.view_at_start(start)
-    }
-
-    pub fn file_at_node_start(&self, start: usize) -> Option<FileRecordView<'_>> {
-        self.files.view_at_start(start)
+    pub fn embed_at_node_start(&self, start: usize) -> Option<EmbedRecordView<'_>> {
+        self.embeds.view_at_start(start)
     }
 
     pub fn links_contained_by_event(&self, event_start: usize) -> Option<Vec<LinkRecord>> {
@@ -1178,17 +1132,11 @@ fn analyze_semantic_tree_observed(
         std::mem::take(&mut projections.links),
         |output| &output.records.links,
     );
-    let images = projected_records(
+    let embeds = projected_records(
         &tree,
-        record_projection_source.map(|previous| &previous.root.images),
-        std::mem::take(&mut projections.images),
-        |output| &output.records.images,
-    );
-    let files = projected_records(
-        &tree,
-        record_projection_source.map(|previous| &previous.root.files),
-        std::mem::take(&mut projections.files),
-        |output| &output.records.files,
+        record_projection_source.map(|previous| &previous.root.embeds),
+        std::mem::take(&mut projections.embeds),
+        |output| &output.records.embeds,
     );
     let first_link_start = links.first().map(|link| link.range.start);
     let local_root_diagnostics = projected_diagnostics(
@@ -1255,8 +1203,7 @@ fn analyze_semantic_tree_observed(
             anchors,
             links,
             first_link_start,
-            images,
-            files,
+            embeds,
             diagnostics,
         }),
     })
@@ -1324,8 +1271,7 @@ fn rebind_unchanged_document(
     };
     let anchors = previous.root.anchors.rebind_tree(Arc::clone(&tree))?;
     let links = previous.root.links.rebind_tree(Arc::clone(&tree))?;
-    let images = previous.root.images.rebind_tree(Arc::clone(&tree))?;
-    let files = previous.root.files.rebind_tree(Arc::clone(&tree))?;
+    let embeds = previous.root.embeds.rebind_tree(Arc::clone(&tree))?;
     let lists = previous.root.lists.clone();
     let definitions = crate::DefinitionOutput {
         groups: previous.definitions().groups.rebind(Arc::clone(&tree)),
@@ -1356,8 +1302,7 @@ fn rebind_unchanged_document(
             anchors,
             links,
             first_link_start: previous.root.first_link_start,
-            images,
-            files,
+            embeds,
             diagnostics,
         }),
     })
@@ -1490,8 +1435,7 @@ fn same_record_counts(previous: &SemanticNodeOutput, current: &SemanticNodeOutpu
         && previous.tables.tables.len() == current.tables.tables.len()
         && previous.records.anchors.len() == current.records.anchors.len()
         && previous.records.links.len() == current.records.links.len()
-        && previous.records.images.len() == current.records.images.len()
-        && previous.records.files.len() == current.records.files.len()
+        && previous.records.embeds.len() == current.records.embeds.len()
 }
 
 fn same_diagnostic_counts(previous: &SemanticNodeOutput, current: &SemanticNodeOutput) -> bool {
@@ -1518,8 +1462,7 @@ impl RootProjectionIndex {
             output.tables.add(index, local.tables.tables.len());
             output.anchors.add(index, local.records.anchors.len());
             output.links.add(index, local.records.links.len());
-            output.images.add(index, local.records.images.len());
-            output.files.add(index, local.records.files.len());
+            output.embeds.add(index, local.records.embeds.len());
             output
                 .citation_diagnostics
                 .add(index, local.citations.diagnostics.len());
@@ -2002,7 +1945,7 @@ fn collect_inlines(
                         output,
                     );
                 }
-                if let Some(facet) = crate::resource_facet(content) {
+                if crate::has_embed_facet(content) {
                     let attrs = plumb_syntax::attributes_from_inlines(source, content);
                     if mark.is_none() {
                         collect_anchor(
@@ -2015,27 +1958,17 @@ fn collect_inlines(
                             output,
                         );
                     }
-                    let invalid_owner = mark
+                    let invalid_owner = !mark
                         .as_ref()
-                        .is_some_and(|mark| !resource_owner_kind_is_valid(&mark.marker));
-                    if facet == crate::ResourceFacet::Conflicted || invalid_owner {
+                        .is_some_and(|mark| resource_owner_kind_is_valid(&mark.marker));
+                    if invalid_owner {
                         output.diagnostics.push(Diagnostic {
-                            code: if invalid_owner {
-                                "resource.invalid-owner"
-                            } else {
-                                "resource.conflicting-facets"
-                            },
+                            code: "resource.invalid-owner",
                             severity: DiagnosticSeverity::Warning,
-                            message: "resource facets must select one compatible inline owner kind"
-                                .into(),
-                            range: if invalid_owner {
-                                mark.as_ref().unwrap().marker_range.clone()
-                            } else {
-                                attrs.items.iter().rev().find_map(|item| match item {
-                                    AttrItem::Class { value, value_range, .. } if matches!(value.as_str(), "img" | "file") => Some(value_range.clone()),
-                                    _ => None,
-                                }).unwrap_or_else(|| range.clone())
-                            },
+                            message: "embed requires a parsed -> link".into(),
+                            range: mark
+                                .as_ref()
+                                .map_or_else(|| range.clone(), |mark| mark.marker_range.clone()),
                             related: Vec::new(),
                         });
                     } else if let Some(AttrItem::Pair {
@@ -2056,23 +1989,7 @@ fn collect_inlines(
                             related: Vec::new(),
                         });
                     } else {
-                        match facet {
-                            crate::ResourceFacet::Image => collect_image(
-                                source,
-                                range.clone(),
-                                selection_range,
-                                content,
-                                output,
-                            ),
-                            crate::ResourceFacet::File => collect_file(
-                                source,
-                                range.clone(),
-                                selection_range,
-                                content,
-                                output,
-                            ),
-                            crate::ResourceFacet::Conflicted => unreachable!(),
-                        }
+                        collect_embed(source, range.clone(), selection_range, content, output);
                     }
                 } else if mark.as_ref().is_some_and(|mark| mark.marker == "->") {
                     collect_link(source, range.clone(), content, output);
@@ -2238,10 +2155,7 @@ fn valid_derived_link_target(target: &str) -> bool {
 }
 
 pub fn resource_owner_kind_is_valid(kind: &str) -> bool {
-    !matches!(
-        kind,
-        "*" | "!" | "==" | "~" | "^" | "_" | "cite" | "@" | "+" | "="
-    )
+    kind == "->"
 }
 
 pub fn resource_target_is_valid(target: &str) -> bool {
@@ -2260,7 +2174,7 @@ fn valid_relative_file_path(target: &str) -> bool {
             .any(|character| character.is_control() || character == '\\')
 }
 
-fn collect_image(
+fn collect_embed(
     source: &str,
     range: Range<usize>,
     selection_range: Range<usize>,
@@ -2268,7 +2182,7 @@ fn collect_image(
     output: &mut RecordOutput,
 ) {
     let Some(source_value) =
-        resource_source(source, content, &range, "image.missing-source", output)
+        resource_source(source, content, &range, "embed.missing-source", output)
     else {
         return;
     };
@@ -2276,79 +2190,38 @@ fn collect_image(
     {
         if !valid_uri_reference(&source_value.value) {
             output.diagnostics.push(Diagnostic {
-                code: "image.invalid-source",
+                code: "embed.invalid-source",
                 severity: DiagnosticSeverity::Warning,
-                message: "absolute image target must be a valid URI reference".to_string(),
+                message: "absolute embed target must be a valid URI reference".to_string(),
                 range: source_value.range,
                 related: Vec::new(),
             });
             return;
         }
-        ImageTarget::External
+        EmbedTarget::External
     } else {
         if !valid_relative_file_path(&source_value.value) {
             output.diagnostics.push(Diagnostic {
-                code: "image.invalid-source",
+                code: "embed.invalid-source",
                 severity: DiagnosticSeverity::Warning,
-                message: "relative image target must be a valid raw file path".to_string(),
+                message: "relative embed target must be a valid raw file path".to_string(),
                 range: source_value.range,
                 related: Vec::new(),
             });
             return;
         }
-        ImageTarget::File {
+        EmbedTarget::File {
             path: source_value.value.clone(),
         }
     };
-    output.images.push(ImageRecord {
-        range,
-        selection_range,
-        source: source_value,
-        target_kind,
+    let attrs = plumb_syntax::attributes_from_inlines(source, content);
+    let explicit = attrs.items.iter().find_map(|item| match item {
+        AttrItem::Pair { key, value, .. } if key == "type" => Some(value.decoded.as_str()),
+        _ => None,
     });
-}
-
-fn collect_file(
-    source: &str,
-    range: Range<usize>,
-    selection_range: Range<usize>,
-    content: &InlineContent,
-    output: &mut RecordOutput,
-) {
-    let Some(source_value) =
-        resource_source(source, content, &range, "file.missing-source", output)
-    else {
-        return;
-    };
-    let target_kind = if has_uri_scheme(&source_value.value) || source_value.value.starts_with("//")
-    {
-        if !valid_uri_reference(&source_value.value) {
-            output.diagnostics.push(Diagnostic {
-                code: "file.invalid-source",
-                severity: DiagnosticSeverity::Warning,
-                message: "absolute attachment target must be a valid URI reference".to_string(),
-                range: source_value.range,
-                related: Vec::new(),
-            });
-            return;
-        }
-        FileTarget::External
-    } else {
-        if !valid_relative_file_path(&source_value.value) {
-            output.diagnostics.push(Diagnostic {
-                code: "file.invalid-source",
-                severity: DiagnosticSeverity::Warning,
-                message: "relative attachment target must be a valid raw file path".to_string(),
-                range: source_value.range,
-                related: Vec::new(),
-            });
-            return;
-        }
-        FileTarget::File {
-            path: source_value.value.clone(),
-        }
-    };
-    output.files.push(FileRecord {
+    let media = crate::embed_media_type(&source_value.value, explicit);
+    output.embeds.push(EmbedRecord {
+        media,
         range,
         selection_range,
         source: source_value,
@@ -2365,9 +2238,14 @@ fn resource_source(
 ) -> Option<SourceBacked<String>> {
     let view = crate::owner_semantic_view(content);
     let arguments = view.split_first();
-    let missing_range = arguments.as_ref().map_or_else(|| range.clone(), |arguments| {
-        arguments.rest_range().unwrap_or_else(|| arguments.first.range.clone())
-    });
+    let missing_range = arguments.as_ref().map_or_else(
+        || range.clone(),
+        |arguments| {
+            arguments
+                .rest_range()
+                .unwrap_or_else(|| arguments.first.range.clone())
+        },
+    );
     let target = arguments.and_then(|arguments| {
         let content = if arguments.rest.is_empty() {
             Some(arguments.first.clone())
@@ -2826,8 +2704,7 @@ mod tests {
         assert_eq!(output.tables(), &tables);
         assert_eq!(output.anchors(), &records.anchors);
         assert_eq!(output.links(), &records.links);
-        assert_eq!(output.images(), &records.images);
-        assert_eq!(output.files(), &records.files);
+        assert_eq!(output.embeds(), &records.embeds);
         assert_eq!(output.diagnostics().to_vec(), diagnostics);
     }
 
@@ -2881,10 +2758,10 @@ mod tests {
 
     #[test]
     fn incremental_document_records_rebase_suffix_and_rebuild_global_diagnostics() {
-        let old = "`node First\n `@ same\n\nSee `->{one first.plumb#target}.\n\n`node Middle\n\n {old `\"old.png\" `+{img}}\n\n`node Last\n `@ same\n\n {manual `\"docs/manual.pdf\" `+{file}}\n";
+        let old = "`node First\n `@ same\n\nSee `->{one first.plumb#target}.\n\n`node Middle\n\n `->{old `\"old.png\" `+{embed}}\n\n`node Last\n `@ same\n\n `->{manual `\"docs/manual.pdf\" `+{embed}}\n";
         let new = old.replace(
-            "`node Middle\n\n {old `\"old.png\" `+{img}}",
-            "`node Changed middle owner\n\n {new `\"images/new.png\" `+{img}}",
+            "`node Middle\n\n `->{old `\"old.png\" `+{embed}}",
+            "`node Changed middle owner\n\n `->{new `\"embeds/new.png\" `+{embed}}",
         );
         let previous = parse(old);
         let previous_output = analyze_document(previous.valid_syntax().unwrap());
@@ -2912,7 +2789,7 @@ mod tests {
 
     #[test]
     fn semantic_tree_reuses_relative_nodes_across_a_file_start_shift() {
-        let old = "`# Heading\n `@ heading\n\n`- Task `->{guide guide.plumb}\n `+ task\n `@ task\n {icon `\"icon.png\" `+{img}}\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n\n`table\n `- name age\n\n`> Quote `cite{paper} `!{strong} `$\"x\"\n";
+        let old = "`# Heading\n `@ heading\n\n`- Task `->{guide guide.plumb}\n `+ task\n `@ task\n `->{icon `\"icon.png\" `+{embed}}\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n\n`table\n `- name age\n\n`> Quote `cite{paper} `!{strong} `$\"x\"\n";
         let prefix = "Prelude\n\n";
         let new = format!("{prefix}{old}");
         let previous = parse(old);
@@ -3460,7 +3337,7 @@ mod tests {
 
     #[test]
     fn exact_start_views_project_later_shard_ranges_without_ownership() {
-        let source = "Prelude\n\n`> Quoted\n\nSee `!{strong}, `$\"x\", `cite{smith}, and `->{guide guide.plumb}.\n\n{status `\"status.png\" `+{img}}\n\n{manual `\"manual.pdf\" `+{file}}\n";
+        let source = "Prelude\n\n`> Quoted\n\nSee `!{strong}, `$\"x\", `cite{smith}, and `->{guide guide.plumb}.\n\n`->{status `\"status.png\" `+{embed}}\n\n`->{manual `\"manual.pdf\" `+{embed}}\n";
         let parsed = parse(source);
         let output = analyze_document(parsed.valid_syntax().unwrap());
         let quote_start = source.find("`> Quoted").unwrap();
@@ -3468,8 +3345,8 @@ mod tests {
         let math_start = source.find("`$\"x\"").unwrap();
         let citation_start = source.find("`cite{smith}").unwrap();
         let link_start = source.find("`->{guide").unwrap();
-        let image_start = source.find("{status").unwrap();
-        let file_start = source.find("{manual").unwrap();
+        let image_start = source.find("`->{status").unwrap();
+        let file_start = source.find("`->{manual").unwrap();
 
         assert_eq!(
             output
@@ -3498,10 +3375,10 @@ mod tests {
         let link = output.link_at_node_start(link_start).unwrap();
         assert_eq!(link.range().start, link_start);
         assert_eq!(link.target_value(), "guide.plumb");
-        let image = output.image_at_node_start(image_start).unwrap();
+        let image = output.embed_at_node_start(image_start).unwrap();
         assert_eq!(image.range().start, image_start);
         assert_eq!(image.source_value(), "status.png");
-        let file = output.file_at_node_start(file_start).unwrap();
+        let file = output.embed_at_node_start(file_start).unwrap();
         assert_eq!(file.range().start, file_start);
         assert_eq!(file.source_value(), "manual.pdf");
     }
@@ -3924,7 +3801,7 @@ mod tests {
 
     #[test]
     fn recognizes_standard_images_and_diagnoses_invalid_sources() {
-        let source = "{{Alt `*{text}} `\"static/图 像(100%).png\" `@{figure} `+{wide} `={loading lazy} `+{img}}\n{{} `\"https://example.test/a.png\" `+{img}}\n{`+{img}}\n{Empty `\"\" `+{img}}\n{{Invalid URI} `\"https://example.test/bad path.png\" `+{img}}\n{{Invalid path} `\"bad\\path.png\" `+{img}}\n";
+        let source = "`->{{Alt `*{text}} `\"static/图 像(100%).png\" `@{figure} `+{wide} `={loading lazy} `+{embed}}\n`->{{} `\"https://example.test/a.png\" `+{embed}}\n`->{`+{embed}}\n`->{Empty `\"\" `+{embed}}\n`->{{Invalid URI} `\"https://example.test/bad path.png\" `+{embed}}\n`->{{Invalid path} `\"bad\\path.png\" `+{embed}}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -3933,20 +3810,20 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        assert_eq!(output.images.len(), 2);
+        assert_eq!(output.embeds.len(), 2);
         assert_eq!(
-            output.images.get(0).unwrap().source.value,
+            output.embeds.get(0).unwrap().source.value,
             "static/图 像(100%).png"
         );
         assert_eq!(
-            output.images.get(0).unwrap().target_kind,
-            ImageTarget::File {
+            output.embeds.get(0).unwrap().target_kind,
+            EmbedTarget::File {
                 path: "static/图 像(100%).png".to_string()
             }
         );
         assert_eq!(
-            output.images.get(1).unwrap().target_kind,
-            ImageTarget::External
+            output.embeds.get(1).unwrap().target_kind,
+            EmbedTarget::External
         );
         assert_eq!(
             output
@@ -3955,17 +3832,17 @@ mod tests {
                 .map(|diagnostic| diagnostic.code)
                 .collect::<Vec<_>>(),
             [
-                "image.missing-source",
-                "image.missing-source",
-                "image.invalid-source",
-                "image.invalid-source"
+                "embed.missing-source",
+                "embed.missing-source",
+                "embed.invalid-source",
+                "embed.invalid-source"
             ]
         );
     }
 
     #[test]
-    fn recognizes_standard_files_and_diagnoses_invalid_sources() {
-        let source = "{Demo `\"static/demo video.mp4\" `@{demo} `+{wide} `+{file}}\n{Remote `\"https://example.test/demo.mp4\" `+{file}}\n{`+{file}}\n{Empty `\"\" `+{file}}\n{{Invalid URI} `\"https://example.test/bad path.mp4\" `+{file}}\n{{Invalid path} `\"bad\\path.mp4\" `+{file}}\n";
+    fn recognizes_video_embeds_and_diagnoses_invalid_sources() {
+        let source = "`->{Demo `\"static/demo video.mp4\" `@{demo} `+{wide} `+{embed}}\n`->{Remote `\"https://example.test/demo.mp4\" `+{embed}}\n`->{`+{embed}}\n`->{Empty `\"\" `+{embed}}\n`->{{Invalid URI} `\"https://example.test/bad path.mp4\" `+{embed}}\n`->{{Invalid path} `\"bad\\path.mp4\" `+{embed}}\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
@@ -3974,20 +3851,20 @@ mod tests {
                 .valid_syntax()
                 .expect("semantic analysis requires valid syntax"),
         );
-        assert_eq!(output.files.len(), 2);
+        assert_eq!(output.embeds.len(), 2);
         assert_eq!(
-            output.files.get(0).unwrap().source.value,
+            output.embeds.get(0).unwrap().source.value,
             "static/demo video.mp4"
         );
         assert_eq!(
-            output.files.get(0).unwrap().target_kind,
-            FileTarget::File {
+            output.embeds.get(0).unwrap().target_kind,
+            EmbedTarget::File {
                 path: "static/demo video.mp4".to_string()
             }
         );
         assert_eq!(
-            output.files.get(1).unwrap().target_kind,
-            FileTarget::External
+            output.embeds.get(1).unwrap().target_kind,
+            EmbedTarget::External
         );
         assert_eq!(
             output
@@ -3996,10 +3873,10 @@ mod tests {
                 .map(|diagnostic| diagnostic.code)
                 .collect::<Vec<_>>(),
             [
-                "file.missing-source",
-                "file.missing-source",
-                "file.invalid-source",
-                "file.invalid-source"
+                "embed.missing-source",
+                "embed.missing-source",
+                "embed.invalid-source",
+                "embed.invalid-source"
             ]
         );
     }

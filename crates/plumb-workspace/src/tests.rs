@@ -1813,7 +1813,7 @@ fn completes_paths_and_only_explicit_anchors() {
 }
 
 #[test]
-fn completes_and_resolves_relative_image_files() {
+fn completes_and_resolves_relative_embed_targets() {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1834,13 +1834,13 @@ fn completes_and_resolves_relative_image_files() {
     std::fs::write(static_dir.join("literal%20name.txt"), b"text").unwrap();
     std::fs::write(static_dir.join("ignored.txt"), b"text").unwrap();
     let source_path = root.join("current.plumb");
-    let source = "`->\"static/image one.PNG\" {Result `\"static/image one.PNG\" `+{img}} {{Literal percent} `\"static/literal%20name.PNG\" `+{img}} `->\"static/literal%20name.txt\"\n";
+    let source = "`->\"static/image one.PNG\" `->{Result `\"static/image one.PNG\" `+{embed}} `->{{Literal percent} `\"static/literal%20name.PNG\" `+{embed}} `->\"static/literal%20name.txt\"\n";
     let mut workspace = Workspace::new();
     workspace.insert(&source_path, 3, source);
 
-    let candidates = workspace.complete_image_path(
+    let candidates = workspace.complete_embed_path(
         &source_path,
-        &ImageCompletionContext {
+        &EmbedCompletionContext {
             replace: 18..25,
             query: "static/im".to_string(),
         },
@@ -1850,12 +1850,12 @@ fn completes_and_resolves_relative_image_files() {
         .find(|candidate| candidate.label == "static/image one.PNG")
         .unwrap();
     assert_eq!(image_with_space.new_text, "{static/image one.PNG}");
-    assert_eq!(image_with_space.detail, "image file");
+    assert_eq!(image_with_space.detail, "embed target");
     assert_eq!(image_with_space.replace, 18..25);
 
-    let unicode = workspace.complete_image_path(
+    let unicode = workspace.complete_embed_path(
         &source_path,
-        &ImageCompletionContext {
+        &EmbedCompletionContext {
             replace: 0..0,
             query: "static/图".to_string(),
         },
@@ -1864,9 +1864,9 @@ fn completes_and_resolves_relative_image_files() {
     assert_eq!(unicode[0].label, "static/图 像(100%).PNG");
     assert_eq!(unicode[0].new_text, "{static/图 像(100%).PNG}");
 
-    let quoted = workspace.complete_image_path(
+    let quoted = workspace.complete_embed_path(
         &source_path,
-        &ImageCompletionContext {
+        &EmbedCompletionContext {
             replace: 0..0,
             query: "static/quote".to_string(),
         },
@@ -1880,9 +1880,9 @@ fn completes_and_resolves_relative_image_files() {
         ("tick", "static/tick``image.PNG"),
     ] {
         let candidate = workspace
-            .complete_image_path(
+            .complete_embed_path(
                 &source_path,
-                &ImageCompletionContext {
+                &EmbedCompletionContext {
                     replace: 0..0,
                     query: format!("static/{query}"),
                 },
@@ -1891,7 +1891,7 @@ fn completes_and_resolves_relative_image_files() {
             .next()
             .unwrap_or_else(|| panic!("missing completion for {query}"));
         assert_eq!(candidate.new_text, expected);
-        let completed = format!("{{alt {} `+{{img}}}}\n", candidate.new_text);
+        let completed = format!("`->{{alt {} `+{{embed}}}}\n", candidate.new_text);
         let parsed = parse(&completed);
         assert!(parsed.is_valid(), "{completed}\n{:?}", parsed.diagnostics);
         assert_eq!(
@@ -1900,7 +1900,7 @@ fn completes_and_resolves_relative_image_files() {
                     .valid_syntax()
                     .expect("semantic analysis requires valid syntax")
             )
-            .images()
+            .embeds()
             .get(0)
             .unwrap()
             .source
@@ -1909,18 +1909,18 @@ fn completes_and_resolves_relative_image_files() {
         );
     }
     assert!(workspace
-        .complete_image_path(
+        .complete_embed_path(
             &source_path,
-            &ImageCompletionContext {
+            &EmbedCompletionContext {
                 replace: 0..0,
                 query: "static/pipe".to_string(),
             },
         )
         .is_empty());
 
-    let directories = workspace.complete_image_path(
+    let directories = workspace.complete_embed_path(
         &source_path,
-        &ImageCompletionContext {
+        &EmbedCompletionContext {
             replace: 0..0,
             query: "static/ne".to_string(),
         },
@@ -1951,19 +1951,19 @@ fn completes_and_resolves_relative_image_files() {
         }
     );
     let image = workspace
-        .image_at(&source_path, source.find("Result").unwrap())
+        .embed_at(&source_path, source.find("Result").unwrap())
         .unwrap();
     assert_eq!(
-        workspace.resolve_image(&source_path, &image),
+        workspace.resolve_embed(&source_path, &image),
         ResolvedTarget::File {
             path: static_dir.join("image one.PNG")
         }
     );
     let literal_percent_image = workspace
-        .image_at(&source_path, source.find("Literal percent").unwrap())
+        .embed_at(&source_path, source.find("Literal percent").unwrap())
         .unwrap();
     assert_eq!(
-        workspace.resolve_image(&source_path, &literal_percent_image),
+        workspace.resolve_embed(&source_path, &literal_percent_image),
         ResolvedTarget::File {
             path: static_dir.join("literal%20name.PNG")
         }
@@ -1984,7 +1984,7 @@ fn completes_and_resolves_relative_image_files() {
         .unwrap()
         .value
         .into_iter()
-        .find(|diagnostic| diagnostic.code == "image.unresolved-file")
+        .find(|diagnostic| diagnostic.code == "embed.unresolved-file")
         .unwrap();
     assert!(unresolved
         .message
@@ -1993,7 +1993,7 @@ fn completes_and_resolves_relative_image_files() {
 }
 
 #[test]
-fn resolves_file_attachments_and_reports_missing_targets() {
+fn resolves_embeds_and_reports_missing_targets() {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -2007,15 +2007,15 @@ fn resolves_file_attachments_and_reports_missing_targets() {
     std::fs::write(root.join("static/manual.pdf"), b"pdf").unwrap();
     let source_path = root.join("note.plumb");
     let source =
-        "{Demo `\"static/demo.mp4\" `+{file}} {Missing `\"static/missing.pdf\" `+{file}}\n";
+        "`->{Demo `\"static/demo.mp4\" `+{embed}} `->{Missing `\"static/missing.pdf\" `+{embed}}\n";
     let mut workspace = Workspace::new();
     workspace.insert(&source_path, 1, source);
 
     let file = workspace
-        .file_at(&source_path, source.find("Demo").unwrap())
+        .embed_at(&source_path, source.find("Demo").unwrap())
         .unwrap();
     assert_eq!(
-        workspace.resolve_file(&source_path, &file),
+        workspace.resolve_embed(&source_path, &file),
         ResolvedTarget::File {
             path: root.join("static/demo.mp4")
         }
@@ -2029,21 +2029,21 @@ fn resolves_file_attachments_and_reports_missing_targets() {
             path: root.join("static/demo.mp4")
         })
     );
-    let completions = workspace.complete_file_path(
+    let completions = workspace.complete_embed_path(
         &source_path,
-        &FileCompletionContext {
+        &EmbedCompletionContext {
             replace: 0..0,
             query: "static/ma".to_string(),
         },
     );
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0].new_text, "static/manual.pdf");
-    assert_eq!(completions[0].detail, "file attachment");
+    assert_eq!(completions[0].detail, "embed target");
     let diagnostics = workspace.diagnostics(&source_path).unwrap().value;
     assert_eq!(
         diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.code == "file.unresolved-file")
+            .filter(|diagnostic| diagnostic.code == "embed.unresolved-file")
             .count(),
         1
     );

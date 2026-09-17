@@ -41,12 +41,10 @@ pub enum LinkCompletionContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImageCompletionContext {
+pub struct EmbedCompletionContext {
     pub replace: Range<usize>,
     pub query: String,
 }
-
-pub type FileCompletionContext = ImageCompletionContext;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskDependencyCompletionContext {
@@ -927,11 +925,13 @@ fn find_marked_group_in_content<'a>(
         };
         if range.start <= offset && offset <= range.end {
             let matches = match marker {
-                "img" => crate::resource_facet(content) == Some(crate::ResourceFacet::Image),
-                "file" => crate::resource_facet(content) == Some(crate::ResourceFacet::File),
+                "embed" => {
+                    mark.as_ref().is_some_and(|mark| mark.marker == "->")
+                        && crate::has_embed_facet(content)
+                }
                 "->" => {
                     mark.as_ref().is_some_and(|mark| mark.marker == marker)
-                        && crate::resource_facet(content).is_none()
+                        && !crate::has_embed_facet(content)
                 }
                 _ => mark.as_ref().is_some_and(|mark| mark.marker == marker),
             };
@@ -946,42 +946,21 @@ fn find_marked_group_in_content<'a>(
     None
 }
 
-pub fn image_completion_context(
+pub fn embed_completion_context(
     document: &ParsedDocument,
     offset: usize,
-) -> Option<ImageCompletionContext> {
-    resource_completion_context(document, offset, "img")
+) -> Option<EmbedCompletionContext> {
+    resource_completion_context(document, offset, "embed")
 }
 
-pub fn green_image_completion_context(
+pub fn green_embed_completion_context(
     document: &GreenDocument,
     offset: usize,
-) -> Option<ImageCompletionContext> {
+) -> Option<EmbedCompletionContext> {
     green_completion_context(
         document,
         offset,
-        image_completion_context,
-        |context, delta| {
-            shift_range(&mut context.replace, delta);
-        },
-    )
-}
-
-pub fn file_completion_context(
-    document: &ParsedDocument,
-    offset: usize,
-) -> Option<FileCompletionContext> {
-    resource_completion_context(document, offset, "file")
-}
-
-pub fn green_file_completion_context(
-    document: &GreenDocument,
-    offset: usize,
-) -> Option<FileCompletionContext> {
-    green_completion_context(
-        document,
-        offset,
-        file_completion_context,
+        embed_completion_context,
         |context, delta| {
             shift_range(&mut context.replace, delta);
         },
@@ -1009,7 +988,7 @@ fn resource_completion_context(
     document: &ParsedDocument,
     offset: usize,
     kind: &str,
-) -> Option<ImageCompletionContext> {
+) -> Option<EmbedCompletionContext> {
     let source = &document.source;
     if offset > source.len() || !source.is_char_boundary(offset) {
         return None;
@@ -1033,7 +1012,7 @@ fn resource_completion_context(
     {
         return None;
     }
-    Some(ImageCompletionContext {
+    Some(EmbedCompletionContext {
         replace: target.range.clone(),
         query: query.to_string(),
     })
@@ -1607,34 +1586,35 @@ mod tests {
     }
 
     #[test]
-    fn completes_image_positional_targets_in_valid_and_recovered_documents() {
-        let (valid, cursor) = strip_cursor("{Alt static/im|age.png `+{img}}\n");
+    fn completes_embed_positional_targets_in_valid_and_recovered_documents() {
+        let (valid, cursor) = strip_cursor("`->{Alt static/im|age.png `+{embed}}\n");
         let value_start = valid.find("static/image.png").unwrap();
         assert_eq!(
-            image_completion(&valid, cursor),
-            Some(ImageCompletionContext {
+            embed_completion(&valid, cursor),
+            Some(EmbedCompletionContext {
                 replace: value_start..value_start + "static/image.png".len(),
                 query: "static/im".to_string(),
             })
         );
 
-        let (recovered, cursor) = strip_cursor("{`+{img} Alt static/im|");
+        let (recovered, cursor) = strip_cursor("`->{`+{embed} Alt static/im|");
         assert_eq!(
-            image_completion(&recovered, cursor),
-            Some(ImageCompletionContext {
+            embed_completion(&recovered, cursor),
+            Some(EmbedCompletionContext {
                 replace: recovered.find("static/im").unwrap()..cursor,
                 query: "static/im".to_string(),
             })
         );
 
-        let (external, cursor) = strip_cursor("{Alt `\"https:|//example.test/a.png\" `+{img}}\n");
-        assert_eq!(image_completion(&external, cursor), None);
+        let (external, cursor) =
+            strip_cursor("`->{Alt `\"https:|//example.test/a.png\" `+{embed}}\n");
+        assert_eq!(embed_completion(&external, cursor), None);
 
-        let (literal_path, cursor) = strip_cursor("{Alt static/a#b?quote\"| `+{img}}\n");
+        let (literal_path, cursor) = strip_cursor("`->{Alt static/a#b?quote\"| `+{embed}}\n");
         let value_start = literal_path.find("static/a#b?quote\"").unwrap();
         assert_eq!(
-            image_completion(&literal_path, cursor),
-            Some(ImageCompletionContext {
+            embed_completion(&literal_path, cursor),
+            Some(EmbedCompletionContext {
                 replace: value_start..value_start + "static/a#b?quote\"".len(),
                 query: "static/a#b?quote\"".to_string(),
             })
@@ -1642,17 +1622,17 @@ mod tests {
     }
 
     #[test]
-    fn completes_file_positional_targets_without_confusing_images() {
-        let (file, cursor) = strip_cursor("{Demo static/de|mo.mp4 `+{file}}\n");
+    fn completes_video_embed_positional_targets() {
+        let (file, cursor) = strip_cursor("`->{Demo static/de|mo.mp4 `+{embed}}\n");
         let value_start = file.find("static/demo.mp4").unwrap();
         assert_eq!(
-            file_completion_context(&parse(&file), cursor),
-            Some(FileCompletionContext {
+            embed_completion_context(&parse(&file), cursor),
+            Some(EmbedCompletionContext {
                 replace: value_start..value_start + "static/demo.mp4".len(),
                 query: "static/de".to_string(),
             })
         );
-        assert_eq!(image_completion_context(&parse(&file), cursor), None);
+        assert_eq!(link_completion_context(&parse(&file), cursor), None);
     }
 
     #[test]
@@ -1661,8 +1641,8 @@ mod tests {
             "Prelude\n\nSee `cite{pap|}.\n",
             "Prelude\n\n`-|\n",
             "Prelude\n\nSee `->{guide guide.pl|umb}.\n",
-            "Prelude\n\n{Alt `\"static/i|mg.png\" `+{img}}\n",
-            "Prelude\n\n{Demo `\"static/d|emo.mp4\" `+{file}}\n",
+            "Prelude\n\n`->{Alt `\"static/i|mg.png\" `+{embed}}\n",
+            "Prelude\n\n`->{Demo `\"static/d|emo.mp4\" `+{embed}}\n",
             "Prelude\n\n`- Task\n `+ task\n `= depends Project.plumb#ta|rget\n",
             "Prelude\n\n`- 2026-09-05T09:00:00Z Event ti|tle\n `+ event\n",
             "Prelude\n\n`- Task\n `+ task\n `= pri|\n",
@@ -1686,14 +1666,9 @@ mod tests {
                 "link: {source:?}"
             );
             assert_eq!(
-                green_image_completion_context(&green, cursor),
-                image_completion_context(&parsed, cursor),
-                "image: {source:?}"
-            );
-            assert_eq!(
-                green_file_completion_context(&green, cursor),
-                file_completion_context(&parsed, cursor),
-                "file: {source:?}"
+                green_embed_completion_context(&green, cursor),
+                embed_completion_context(&parsed, cursor),
+                "embed: {source:?}"
             );
             assert_eq!(
                 green_task_dependency_completion_context(&green, cursor),
@@ -1717,8 +1692,8 @@ mod tests {
         link_completion_context(&parse(source), offset)
     }
 
-    fn image_completion(source: &str, offset: usize) -> Option<ImageCompletionContext> {
-        image_completion_context(&parse(source), offset)
+    fn embed_completion(source: &str, offset: usize) -> Option<EmbedCompletionContext> {
+        embed_completion_context(&parse(source), offset)
     }
 
     fn strip_cursor(source: &str) -> (String, usize) {

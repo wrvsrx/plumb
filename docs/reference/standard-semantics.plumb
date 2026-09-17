@@ -142,22 +142,27 @@ spelling semantic-equivalent。Link record与 graph edge不按 derived/explicit 
 completion 在 explicit-label Link target、derived-label Link element 与 compact payload 的 explicit anchor component
 提供 workspace documents/anchors；delimiter collision 使用 full quote strength，不改 raw path。
 
-`# 7. Images and file attachments
+`# 7. Embedded links
 
-任意 parsed inline Group（anonymous、`"()"、`"->" 或 generic marker）可通过 direct `"+ img" 或 `"+ file" facet 成为图片或附件引用。两种 resource facets 互斥；与其它已识别的 inline semantic kind（style、citation 或 declaration）组合发布 resource.invalid-owner，不进行 resource projection。block owner 或 Verbatim 不从这些 facets 获得 resource semantics。`"img"/`"file" marker 本身不再产生图片或附件，`"src" 不再是 resource target property；resource owner 上存在 src 发布 resource.unexpected-source，不在两个 target 来源中选择优先级。
+只有 parsed inline Link（marker 为 `"->"）可通过 direct `"+ embed" facet 表达内嵌展示目标的意图。anonymous、transparent、generic、style、citation 或 declaration Group 上的 embed 发布 resource.invalid-owner，不获得资源 projection 或 completion。block 与 Verbatim 不获得 embed semantics。img/file facets 与 markers 不再选择资源语义；普通下载附件使用普通 Link。embed owner 上的 src 发布 resource.unexpected-source，目标只来自 positional arguments。
 
-目标绑定沿用 Link 的 first/rest 规则：一个 positional element 同时提供 derived label 与 target；两个或更多 elements 的 first 是 alt/fallback label，remaining source-ordered elements Stringify 为唯一 target。direct declarations 不占 positional index，rich/multiword label 通过 anonymous Group 保持一个 element。zero elements 或 empty target 分别发布 image/file.missing-source；非法 URI/raw path 发布 image/file.invalid-source。目标与 label ranges/decoded source mapping 必须 source-backed，不由 adapter 推测。
+目标绑定沿用 Link first/rest：单 element 同时提供 derived label 与 target；多个 elements 的 first 是 label，其余 Stringify 为唯一 target。empty explicit label 合法，target 必须 nonempty。目标继续使用 URI/raw relative file path constraints；zero/empty target 发布 embed.missing-source，非法目标发布 embed.invalid-source。plain-text 只贡献 label。所有 embed 引用（包括未知类型 fallback）都不产生 navigation LinkRecord 或 document graph edge。
 
 `plumb"
- {{status icon} static/status.png `+{img}}
- {{Demo video} static/demo.mp4 `+{file}}
- {static/status.png `+{img}}
- {{} static/decorative.png `+{img}}
- `->{{Demo video} static/demo.mp4 `+{file}}
+ `->{头像 static/avatar.jpg `+{embed}}
+ `->{static/avatar.jpg `+{embed}}
+ `->{{} static/decorative.png `+{embed}}
+ `->{{Demo video} static/demo.mp4 `+{embed}}
+ `->{Podcast https://example.test/stream `+{embed} `={type audio/ogg}}
+ `->{Download reports/final.pdf}
 
-empty explicit image alt 合法，target 必须 nonempty。Enclosing plain-text projection 只贡献 label，不包含 target 或 declarations。image/file 分别产生 typed ImageRecord/FileRecord，resource-faceted `"->" 不再产生 navigation LinkRecord 或 document graph edge。resource target 继续使用 URI/raw relative file path constraints，不从 filename 或 MIME 推测 reference intent。
+共享层通过纯函数确定媒体类型，不读取文件或请求网络。优先使用 first explicit type property：MIME essence trim 并忽略大小写，允许 semicolon parameters；未知或无效 explicit type 直接返回 unknown，不能再从扩展名推断。缺少 type 时取目标 path 最后扩展名（忽略大小写）；URI/network target 仅使用 URL path，忽略 query/fragment 与 authority，local raw path 不剥离字面问号或井号。
 
-image export 为 Pandoc Image；file export 为 Pandoc Link，并通过 data-plumb-facet=file 保存附件意图。recognized resource facet 从普通 Pandoc classes 消费，其余 id、facets、properties 与 generic marker 保留。Importer 从 Image 或 file intent 生成 canonical anonymous resource group 与 explicit label/target（空 label 用 empty Group）；不能重新生成 src spelling。Web viewer 可按 indexed MIME enhancement video，但 portable fallback 始终保留。不存在独立 block-image spelling。completion 使用共同的 positional target boundary；anonymous 与 marked resource owners 都可查询，image/file targets 不提供 document anchor completion。
+识别的 MIME 与 extensions：image/png（png）、image/jpeg（jpg/jpeg/jpe）、image/gif（gif）、image/webp（webp）、image/svg+xml（svg）、image/avif（avif）、image/bmp（bmp）、image/tiff（tif/tiff）、image/x-icon（ico，兼容 image/vnd.microsoft.icon）；video/mp4（mp4/m4v）、video/webm（webm）、video/ogg（ogv）、video/quicktime（mov）、video/x-matroska（mkv）、video/mpeg（mpeg/mpg）；audio/mpeg（mp3）、audio/mp4（m4a）、audio/ogg（ogg/oga/opus）、audio/wav（wav，兼容 audio/x-wav）、audio/flac（flac）、audio/aac（aac）、audio/webm（仅显式 type）。其他类型回退普通 Link。识别某种媒体类型不保证浏览器支持具体 codec。
+
+exporter 将 image 分类导出为 Pandoc Image，其他 embed 导出为 Pandoc Link fallback。两者都通过 data-plumb-facet=embed 保存内嵌意图，保留原始显式 type 与其它 attributes，不把推断结果伪装成显式 type。Importer 将 Pandoc Image 与带 embed intent 的 Link 导入为 canonical parsed Link + embed；普通 Link 不添加 facet。显式 incompatible data-plumb-marker 必须拒绝，不能重新生成 src。output writer 不支持媒体时保留 portable label/link fallback；Pandoc Image 由 writer 承担对应格式的图片 lowering。
+
+Web 使用同一共享类型识别结果：image 渲染图片（TIFF 因浏览器支持不足保留 Link），video/audio 渲染 controls 播放器，并提供独立可点击的 Link fallback；未知类型保留普通链接。Web 不用本地资源索引、HTTP Content-Type 或 MIME sniffing 覆盖语义分类。CSP 允许同源与 HTTPS 媒体；其它外部来源仍有可点击 fallback。embed completion 使用 positional target boundary，补全任意本地文件，不提供 document anchor completion。
 
 `# 8. Citations
 

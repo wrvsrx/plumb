@@ -356,11 +356,11 @@ fn example_diagnostics_are_isolated_and_exact() {
         [
             "diagnostics.plumb:anchor.duplicate-id",
             "diagnostics.plumb:anchor.duplicate-id.related",
+            "diagnostics.plumb:embed.missing-source",
+            "diagnostics.plumb:embed.unresolved-file",
             "diagnostics.plumb:event.invalid-head-arity",
             "diagnostics.plumb:event.missing-time",
             "diagnostics.plumb:event.missing-title",
-            "diagnostics.plumb:image.missing-source",
-            "diagnostics.plumb:image.unresolved-file",
             "diagnostics.plumb:link.unresolved-anchor",
             "diagnostics.plumb:link.unresolved-path",
             "plumb-ls.plumb:task.blocked",
@@ -535,7 +535,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     std::fs::write(root.join("private/note.plumb"), "Private note.\n").unwrap();
     std::fs::write(
         root.join("a.plumb"),
-        "`= title Alpha\n\nSee `->{Beta b.plumb#beta}.\n\n{icon `\"assets/icon.png\" `+{img}}\n\n`- Ship release\n `+ task\n `= created 2026-07-25T10:00:00+08:00\n",
+        "`= title Alpha\n\nSee `->{Beta b.plumb#beta}.\n\n`->{icon `\"assets/icon.png\" `+{embed}}\n\n`- Ship release\n `+ task\n `= created 2026-07-25T10:00:00+08:00\n",
     )
     .unwrap();
     std::fs::write(root.join("b.plumb"), "`# Beta\n `@ beta\n").unwrap();

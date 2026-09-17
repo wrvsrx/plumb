@@ -548,10 +548,9 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
             Inline::Code(attrs, text) => output.push_str(&render_verbatim(text, attrs)?),
             Inline::Link(attrs, label, target) => {
                 let mut attrs = attrs.clone();
-                if attr_pair(&attrs, "data-plumb-facet") == Some("file") {
+                if attr_pair(&attrs, "data-plumb-facet") == Some("embed") {
                     attrs.attributes.retain(|pair| pair.0 != "data-plumb-facet");
-                    output.push_str(&render_resource_reference(
-                        "file",
+                    output.push_str(&render_embed_reference(
                         &attrs,
                         label,
                         &target.url,
@@ -566,7 +565,11 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                 }
             }
             Inline::Image(attrs, alt, target) => {
-                output.push_str(&render_resource_reference("img", attrs, alt, &target.url)?);
+                output.push_str(&render_embed_reference(
+                    attrs,
+                    alt,
+                    &target.url,
+                )?);
             }
             Inline::Math(MathType::InlineMath, text) => {
                 let mut attrs = Attr::default();
@@ -867,8 +870,7 @@ fn without_first_class(attrs: &Attr, class: &str) -> Option<Attr> {
     Some(attrs)
 }
 
-fn render_resource_reference(
-    facet: &str,
+fn render_embed_reference(
     attrs: &Attr,
     label: &[Inline],
     target: &str,
@@ -883,28 +885,16 @@ fn render_resource_reference(
         );
     }
     let mut attrs = attrs.clone();
-    if attrs
-        .classes
-        .iter()
-        .any(|class| matches!(class.as_str(), "img" | "file") && class != facet)
-    {
-        return Err("conflicting resource facets".into());
+    attrs.attributes.retain(|pair| pair.0 != "data-plumb-facet");
+    if !attrs.classes.iter().any(|class| class == "embed") {
+        attrs.classes.push("embed".into());
     }
-    if !attrs.classes.iter().any(|class| class == facet) {
-        attrs.classes.push(facet.into());
-    }
-    let marker = attr_pair(&attrs, "data-plumb-marker").unwrap_or("");
+    let marker = attr_pair(&attrs, "data-plumb-marker").unwrap_or("->");
     if !plumb_semantics::resource_owner_kind_is_valid(marker) {
         return Err("incompatible resource owner kind".into());
     }
-    let prefix = if marker.is_empty() {
-        String::new()
-    } else {
-        require_marker(marker)?;
-        format!("`{marker}")
-    };
     Ok(format!(
-        "{prefix}{{{{{}}} {}{}}}",
+        "`->{{{{{}}} {}{}}}",
         render_inlines(label, true)?,
         render_verbatim_argument(target),
         render_inline_children(&attrs, Some("data-plumb-marker"))?
@@ -1033,7 +1023,7 @@ mod tests {
                     {"t": "Space"},
                     {"t": "Link", "c": [["", [], []], [{"t": "Str", "c": "target"}], ["other.plumb#id", ""]]},
                     {"t": "Space"},
-                    {"t": "Link", "c": [["demo", ["wide"], [["download", "yes"], ["data-plumb-facet", "file"]]], [{"t": "Str", "c": "video"}], ["static/demo.mp4", ""]]}
+                    {"t": "Link", "c": [["demo", ["wide"], [["download", "yes"], ["data-plumb-facet", "embed"]]], [{"t": "Str", "c": "video"}], ["static/demo.mp4", ""]]}
                 ]},
                 {"t": "BlockQuote", "c": [{"t": "Para", "c": [{"t": "Str", "c": "quoted"}]}]},
                 {"t": "BulletList", "c": [[{"t": "Para", "c": [{"t": "Str", "c": "item"}]}]]},
@@ -1056,7 +1046,7 @@ mod tests {
         );
         assert!(
             source.contains(
-                "{{video} `\"static/demo.mp4\" `@{demo} `+{wide} `+{file} `={download `\"yes\"}}\n"
+                "`->{{video} `\"static/demo.mp4\" `@{demo} `+{wide} `+{embed} `={download `\"yes\"}}\n"
             ),
             "{source}"
         );

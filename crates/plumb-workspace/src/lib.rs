@@ -13,8 +13,7 @@ use plumb_edit::{
 pub use plumb_edit::{apply_text_edits, TextEdit};
 #[cfg(test)]
 use plumb_semantics::{
-    analyze_document, EventTitleCompletionContext, FileCompletionContext, ImageCompletionContext,
-    TaskStatus,
+    analyze_document, EmbedCompletionContext, EventTitleCompletionContext, TaskStatus,
 };
 use plumb_semantics::{analyze_green_document, analyze_green_document_incremental, DocumentChange};
 use plumb_semantics::{
@@ -961,12 +960,10 @@ impl Workspace {
                 return Ok(Some(resolved));
             }
         }
-        if let Some(image) = self.image_at(&path, offset) {
-            return Ok(Some(self.resolve_image(&path, &image)));
+        if let Some(embed) = self.embed_at(&path, offset) {
+            return Ok(Some(self.resolve_embed(&path, &embed)));
         }
-        if let Some(file) = self.file_at(&path, offset) {
-            return Ok(Some(self.resolve_file(&path, &file)));
-        }
+
         Ok(None)
     }
 
@@ -2007,29 +2004,16 @@ impl Workspace {
                 related: Vec::new(),
             });
         }
-        for image in current.output.images() {
-            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_image(&path, &image)
+        for embed in current.output.embeds() {
+            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_embed(&path, &embed)
             else {
                 continue;
             };
             diagnostics.push(Diagnostic {
-                code: "image.unresolved-file",
+                code: "embed.unresolved-file",
                 severity: DiagnosticSeverity::Warning,
-                message: format!("unresolved image file '{}'", target.display()),
-                range: image.source.range.clone(),
-                related: Vec::new(),
-            });
-        }
-        for file in current.output.files() {
-            let ResolvedTarget::UnresolvedFile { path: target } = self.resolve_file(&path, &file)
-            else {
-                continue;
-            };
-            diagnostics.push(Diagnostic {
-                code: "file.unresolved-file",
-                severity: DiagnosticSeverity::Warning,
-                message: format!("unresolved file attachment '{}'", target.display()),
-                range: file.source.range.clone(),
+                message: format!("unresolved embed file '{}'", target.display()),
+                range: embed.source.range.clone(),
                 related: Vec::new(),
             });
         }
@@ -2450,8 +2434,8 @@ impl Workspace {
         let metadata = self
             .document_metadata(&path)
             .ok_or(RenameError::NotRenameable)?;
-        let in_declaration_opener = metadata.range.start <= offset
-            && offset < metadata.selection_range.end;
+        let in_declaration_opener =
+            metadata.range.start <= offset && offset < metadata.selection_range.end;
         if in_declaration_opener {
             return Ok(PathRenameTarget {
                 old_path: path,
@@ -4400,17 +4384,6 @@ fn format_inline_verbatim(payload: &str) -> String {
         .expect("a finite payload always has a safe verbatim delimiter");
     let quotes = "\"".repeat(quote_count);
     format!("`{quotes}[{payload}]{quotes}")
-}
-
-fn is_image_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "avif"
-            )
-        })
 }
 
 fn contains_inclusive(range: &std::ops::Range<usize>, offset: usize) -> bool {

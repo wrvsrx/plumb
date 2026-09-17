@@ -19,9 +19,9 @@ A derived-label Link can use compact verbatim spelling: `->"https://example.test
 
 A relative file Link uses the same form: `->"static/plumb-pipeline.svg".
 
-Images use the img facet, parsed alt content and an absolute URI or raw relative positional target:
+Images use the embed facet on a parsed Link, with alt content and an absolute URI or raw relative positional target:
 
-{{plumb processing pipeline} `"static/plumb-pipeline.svg" `@{pipeline} `+{diagram} `={loading lazy} `+{img}}
+`->{{plumb processing pipeline} `"static/plumb-pipeline.svg" `@{pipeline} `+{diagram} `={loading lazy} `+{embed}}
 
 Transparent `(){{inline containers} `+{notice}} and TeX `$"x^2 + y^2" use standard profiles.
 

@@ -100,21 +100,36 @@ fn adapt_value(
                     .and_then(Value::as_str)
                     .map(str::to_string)
                 {
-                    let (adapted, document_id) = if node_kind.as_deref() == Some("Image") {
-                        (
-                            adapt_resource_target(workspace, source_path, &target)?,
-                            None,
-                        )
-                    } else {
-                        adapt_link_target(workspace, source_path, &target)?
-                    };
-                    if node_kind.as_deref() == Some("Link")
-                        && is_file_node(object)
-                        && is_local_video(workspace, source_path, &target)?
-                    {
-                        let video = video_inline(object, &adapted);
-                        *object = video;
-                        return Ok(());
+                    // TIFF is portable in Pandoc but has no broadly supported browser decoder.
+                    if node_kind.as_deref() == Some("Image") && is_embed_node(object) {
+                        let explicit = node_attribute(object, "type");
+                        if plumb_semantics::embed_media_type(&target, explicit)
+                            .is_some_and(|media| media.mime == "image/tiff")
+                        {
+                            object.insert("t".into(), Value::String("Link".into()));
+                        }
+                    }
+                    let (adapted, document_id) =
+                        if node_kind.as_deref() == Some("Image") || is_embed_node(object) {
+                            (
+                                adapt_resource_target(workspace, source_path, &target)?,
+                                None,
+                            )
+                        } else {
+                            adapt_link_target(workspace, source_path, &target)?
+                        };
+                    if node_kind.as_deref() == Some("Link") && is_embed_node(object) {
+                        let explicit = node_attribute(object, "type");
+                        if let Some(media) = plumb_semantics::embed_media_type(&target, explicit) {
+                            if matches!(
+                                media.kind,
+                                plumb_semantics::MediaKind::Video
+                                    | plumb_semantics::MediaKind::Audio
+                            ) {
+                                *object = media_inline(object, &adapted, media);
+                                return Ok(());
+                            }
+                        }
                     }
                     if let Some(target_value) = object
                         .get_mut("c")
@@ -139,54 +154,45 @@ fn adapt_value(
     Ok(())
 }
 
-fn is_file_node(object: &serde_json::Map<String, Value>) -> bool {
+fn node_attribute<'a>(object: &'a serde_json::Map<String, Value>, key: &str) -> Option<&'a str> {
     object
-        .get("c")
-        .and_then(Value::as_array)
-        .and_then(|contents| contents.first())
-        .and_then(Value::as_array)
-        .and_then(|attrs| attrs.get(2))
-        .and_then(Value::as_array)
-        .is_some_and(|pairs| {
-            pairs.iter().any(|pair| {
-                pair.as_array().is_some_and(|pair| {
-                    pair.first().and_then(Value::as_str) == Some("data-plumb-facet")
-                        && pair.get(1).and_then(Value::as_str) == Some("file")
-                })
-            })
+        .get("c")?
+        .as_array()?
+        .first()?
+        .as_array()?
+        .get(2)?
+        .as_array()?
+        .iter()
+        .find_map(|pair| {
+            let pair = pair.as_array()?;
+            (pair.first()?.as_str()? == key)
+                .then(|| pair.get(1)?.as_str())
+                .flatten()
         })
 }
 
-fn is_local_video(
-    workspace: &WebWorkspace,
-    source_path: &Path,
-    target: &str,
-) -> Result<bool, String> {
-    if is_external(target) || target.contains('#') {
-        return Ok(false);
-    }
-    let resolved = resolve_relative(source_path, target);
-    let canonical = resolved.canonicalize().unwrap_or(resolved);
-    Ok(workspace
-        .resource_for_path(&canonical)?
-        .is_some_and(|resource| {
-            mime_guess::from_path(&resource.path)
-                .first()
-                .is_some_and(|mime| mime.type_() == mime_guess::mime::VIDEO)
-        }))
+fn is_embed_node(object: &serde_json::Map<String, Value>) -> bool {
+    node_attribute(object, "data-plumb-facet") == Some("embed")
 }
 
-fn video_inline(
+fn media_inline(
     link: &serde_json::Map<String, Value>,
     target: &str,
+    media: plumb_semantics::MediaType,
 ) -> serde_json::Map<String, Value> {
     let escaped_target = escape_html_attribute(target);
+    let tag = if media.kind == plumb_semantics::MediaKind::Audio {
+        "audio"
+    } else {
+        "video"
+    };
+    let mime = media.mime;
     let contents = link.get("c").and_then(Value::as_array);
     let mut attrs = contents
         .and_then(|contents| contents.first())
         .cloned()
         .unwrap_or_else(|| serde_json::json!(["", [], []]));
-    remove_file_marker(&mut attrs);
+    remove_embed_marker(&mut attrs);
     let label = contents
         .and_then(|contents| contents.get(1))
         .cloned()
@@ -204,17 +210,16 @@ fn video_inline(
                 Value::Array(vec![
                     serde_json::json!({
                         "t": "RawInline",
-                        "c": ["html", format!("<video controls preload=\"metadata\" src=\"{escaped_target}\">")],
+                        "c": ["html", format!("<{tag} controls preload=\"metadata\"><source src=\"{escaped_target}\" type=\"{mime}\"></{tag}>")],
                     }),
                     fallback,
-                    serde_json::json!({"t": "RawInline", "c": ["html", "</video>"]}),
                 ]),
             ]),
         ),
     ])
 }
 
-fn remove_file_marker(attrs: &mut Value) {
+fn remove_embed_marker(attrs: &mut Value) {
     let Some(pairs) = attrs
         .as_array_mut()
         .and_then(|attrs| attrs.get_mut(2))
@@ -225,7 +230,7 @@ fn remove_file_marker(attrs: &mut Value) {
     pairs.retain(|pair| {
         !pair.as_array().is_some_and(|pair| {
             pair.first().and_then(Value::as_str) == Some("data-plumb-facet")
-                && pair.get(1).and_then(Value::as_str) == Some("file")
+                && pair.get(1).and_then(Value::as_str) == Some("embed")
         })
     });
 }
@@ -333,7 +338,7 @@ mod tests {
         std::fs::write(root.join("assets/a b.png"), b"png").unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "`->{B b.plumb#section}\n\n{x `\"assets/a b.png\" `+{img}}\n",
+            "`->{B b.plumb#section}\n\n`->{x `\"assets/a b.png\" `+{embed}}\n",
         )
         .unwrap();
         std::fs::write(root.join("b.plumb"), "`# B\n  `@ section\n").unwrap();
@@ -362,6 +367,53 @@ mod tests {
     }
 
     #[test]
+    fn embeds_use_explicit_type_and_external_url_path_with_visible_link_fallbacks() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let source = concat!(
+            "`->{Audio https://example.test/stream `+{embed} `={type audio/ogg}}\n\n",
+            "`->{Video https://example.test/MOVIE.MP4?x=.png#clip `+{embed}}\n\n",
+            "`->{Unknown https://example.test/MOVIE.MP4 `+{embed} `={type application/unknown}}\n\n",
+            "`->{Ordinary https://example.test/movie.mp4}\n\n",
+            "`->{Image https://example.test/stream `+{embed} `={type image/png}}\n\n",
+            "`->{Override https://example.test/photo.png `+{embed} `={type audio/mpeg}}\n",
+            "\n`->{TIFF https://example.test/photo.tiff `+{embed}}\n",
+        );
+        std::fs::write(root.join("a.plumb"), source).unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let id = workspace.document_id(root.join("a.plumb")).unwrap();
+        let mut document = workspace.pandoc_document(id).unwrap();
+        adapt_pandoc_targets(&workspace, &root.join("a.plumb"), &mut document).unwrap();
+        for (index, tag, mime) in [
+            (0, "audio", "audio/ogg"),
+            (1, "video", "video/mp4"),
+            (5, "audio", "audio/mpeg"),
+        ] {
+            let inline = &document["blocks"][index]["c"][0];
+            let html = inline["c"][1][0]["c"][1].as_str().unwrap();
+            assert!(html.starts_with(&format!("<{tag} controls")), "{html}");
+            assert!(
+                html.ends_with(&format!("</{tag}>")),
+                "fallback must be outside player"
+            );
+            assert!(html.contains(mime));
+            assert_eq!(inline["c"][1][1]["t"], "Link");
+        }
+        for index in [2, 3, 6] {
+            assert_eq!(document["blocks"][index]["c"][0]["t"], "Link");
+        }
+        assert_eq!(document["blocks"][4]["c"][0]["t"], "Image");
+        let html = render_note_html(&workspace, id).unwrap();
+        assert!(html.contains("<audio controls"));
+        assert!(html.contains("<video controls"));
+        assert!(
+            html.contains("</audio><a") || html.contains("</audio>\n<a"),
+            "{html}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn renders_local_video_files_as_media() {
         let root = temp_dir();
         std::fs::create_dir_all(root.join("assets")).unwrap();
@@ -369,7 +421,7 @@ mod tests {
         std::fs::write(root.join("assets/manual.pdf"), b"pdf").unwrap();
         std::fs::write(
             root.join("a.plumb"),
-            "{{Demo video} `\"assets/demo video.mp4\" `+{file}}\n\n{Manual `\"assets/manual.pdf\" `+{file}}\n\n`->{{Video link} {assets/demo video.mp4}}\n",
+            "`->{{Demo video} `\"assets/demo video.mp4\" `+{embed}}\n\n`->{Manual `\"assets/manual.pdf\" `+{embed}}\n\n`->{{Video link} {assets/demo video.mp4}}\n",
         )
         .unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();

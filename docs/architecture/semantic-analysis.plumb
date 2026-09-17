@@ -41,6 +41,8 @@ record identity 不能依赖 unstable allocation address。跨 revision reuse �
 
 analyses 只增加自己拥有的 records/diagnostics，不能删除其他 analysis 所需的 source data。组合冲突必须 产生显式 diagnostic 或使用在 standard profile 中冻结的 rule，不能依赖 Rust module 调用顺序。generic export 在标准 semantic lowering 后仍保留未消费的 declaration children。
 
+parsed Link 的 embed facet 产生统一 EmbedRecord（source-backed target、owner ranges、local/external target kind 与 optional MediaType），不另存 ImageRecord/FileRecord，也不产生 navigation LinkRecord。媒体类型由 semantics 的纯函数从 explicit MIME 或 target path extension 得到，不依赖 workspace files、HTTP 或 adapter MIME sniffing。exporter 消费 record.media，Web 使用同一函数与 preserved target/type；workspace 只负责 embed target 的实际文件解析、诊断与补全，不能改变媒体分类。type/facet/target 改动参与当前 owner 的 semantic invalidation；持久缓存 schema 升级必须清除旧 image/file projection。
+
 Link analysis 从 Group content 过滤 direct declarations与 whitespace；one remaining element形成 derived label/target，
 two or more remaining elements使用 first/rest 形成 explicit label/target。unknown marked groups 保持 ordinary content。历史 Link conversion 不属于 current pipeline。
 

@@ -37,9 +37,8 @@ use plumb_semantics::{
     green_attribute_completion_context as attribute_completion_context,
     green_citation_completion_context as citation_completion_context,
     green_construct_completion_context as construct_completion_context,
+    green_embed_completion_context as embed_completion_context,
     green_event_title_completion_context as event_title_completion_context,
-    green_file_completion_context as file_completion_context,
-    green_image_completion_context as image_completion_context,
     green_link_completion_context as link_completion_context, green_recovered_bibliography_sources,
     green_task_dependency_completion_context as task_dependency_completion_context, AnchorKind,
     ConstructCompletionContext, TaskStatus,
@@ -61,8 +60,8 @@ use crate::folding::{collapsed_text_labels as fold_labels, green_ranges as green
 #[cfg(test)]
 use crate::hover::fenced_plumb;
 use crate::hover::{
-    event as event_hover, file as file_hover, image as image_hover, link as link_hover,
-    metadata as metadata_hover, target as target_hover, task as task_hover,
+    embed as embed_hover, event as event_hover, link as link_hover, metadata as metadata_hover,
+    target as target_hover, task as task_hover,
 };
 use crate::position::{byte_range_to_lsp, position_to_offset, LineIndex, PositionIndex};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
@@ -1934,35 +1933,19 @@ impl LanguageServer for ServerState {
                     )),
                 }));
             }
-            if let Some(file) = self.workspace.file_at(&path, offset) {
-                let target = self.workspace.resolve_file(&path, &file);
+            if let Some(embed) = self.workspace.embed_at(&path, offset) {
+                let target = self.workspace.resolve_embed(&path, &embed);
                 let Some(entry) = self.workspace.get(&path) else {
                     return Ok(None);
                 };
                 return Ok(Some(Hover {
                     contents: HoverContents::Markup(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: file_hover(&target, &file),
+                        value: embed_hover(&target, &embed),
                     }),
                     range: Some(byte_range_to_lsp(
                         entry.parsed.source(),
-                        &file.selection_range,
-                    )),
-                }));
-            }
-            if let Some(image) = self.workspace.image_at(&path, offset) {
-                let target = self.workspace.resolve_image(&path, &image);
-                let Some(entry) = self.workspace.get(&path) else {
-                    return Ok(None);
-                };
-                return Ok(Some(Hover {
-                    contents: HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: image_hover(&target, &image),
-                    }),
-                    range: Some(byte_range_to_lsp(
-                        entry.parsed.source(),
-                        &image.selection_range,
+                        &embed.selection_range,
                     )),
                 }));
             }
@@ -2214,17 +2197,12 @@ impl LanguageServer for ServerState {
                         .map_err(workspace_query_response_error)?,
                     kind,
                 )
-            } else if let Some(context) = image_completion_context(green, offset) {
-                (
-                    self.workspace.complete_image_path(&path, &context),
-                    CompletionItemKind::FILE,
-                )
             } else {
-                let Some(context) = file_completion_context(green, offset) else {
+                let Some(context) = embed_completion_context(green, offset) else {
                     return Ok(None);
                 };
                 (
-                    self.workspace.complete_file_path(&path, &context),
+                    self.workspace.complete_embed_path(&path, &context),
                     CompletionItemKind::FILE,
                 )
             };
@@ -2449,9 +2427,9 @@ impl LanguageServer for ServerState {
                                     .to_string();
                                 (target.range, placeholder)
                             }
-                            Err(WorkspaceOperationError::Operation(
-                                RenameError::NotRenameable,
-                            )) => return Ok(None),
+                            Err(WorkspaceOperationError::Operation(RenameError::NotRenameable)) => {
+                                return Ok(None)
+                            }
                             Err(error) => {
                                 return Err(rename_operation_error("path rename", error));
                             }

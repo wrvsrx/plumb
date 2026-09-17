@@ -518,10 +518,7 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                 mark,
                 content,
             } => {
-                if mark.is_none()
-                    && analysis.image_at_node_start(range.start).is_none()
-                    && analysis.file_at_node_start(range.start).is_none()
-                {
+                if mark.is_none() && analysis.embed_at_node_start(range.start).is_none() {
                     output.extend(lower_inlines(content, analysis));
                     continue;
                 }
@@ -566,15 +563,18 @@ fn lower_inline_items(items: &[Inline], analysis: &DocumentOutput, output: &mut 
                     analysis.citations().citation_at_node_start(range.start)
                 {
                     output.push(lower_citation(citation));
-                } else if let Some(image) = analysis.image_at_node_start(range.start) {
+                } else if let Some(embed) = analysis.embed_at_node_start(range.start) {
+                    let kind = if embed
+                        .media()
+                        .is_some_and(|media| media.kind == plumb_semantics::MediaKind::Image)
+                    {
+                        "Image"
+                    } else {
+                        "Link"
+                    };
                     output.push(json!({
-                        "t": "Image",
-                        "c": [lower_image_attrs(attrs, kind), lower_first_argument(content, analysis), [image.source_value(), ""]],
-                    }));
-                } else if let Some(file) = analysis.file_at_node_start(range.start) {
-                    output.push(json!({
-                        "t": "Link",
-                        "c": [lower_file_attrs(attrs, kind), lower_first_argument(content, analysis), [file.source_value(), ""]],
+                        "t": kind,
+                        "c": [lower_embed_attrs(attrs), lower_first_argument(content, analysis), [embed.source_value(), ""]],
                     }));
                 } else if let Some(link) = analysis.link_at_node_start(range.start) {
                     let label = if matches!(link.spelling(), LinkSpelling::Verbatim { .. }) {
@@ -681,30 +681,17 @@ fn lower_verbatim_link_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "->", |_| false)
 }
 
-fn resource_marker(kind: &str) -> Option<&str> {
-    (!matches!(kind, "" | "()" | "->")).then_some(kind)
-}
-
-fn lower_image_attrs(attrs: &Attributes, kind: &str) -> Value {
-    lower_attrs_filtered(
-        attrs,
-        resource_marker(kind),
-        |class| class == "img",
-        |_| false,
-    )
-}
-
-fn lower_file_attrs(attrs: &Attributes, kind: &str) -> Value {
+fn lower_embed_attrs(attrs: &Attributes) -> Value {
     let mut value = lower_attrs_filtered(
         attrs,
-        resource_marker(kind),
-        |class| class == "file",
-        |_| false,
+        None,
+        |class| class == "embed",
+        |key| key == "data-plumb-facet",
     );
     value[2]
         .as_array_mut()
         .unwrap()
-        .push(json!(["data-plumb-facet", "file"]));
+        .push(json!(["data-plumb-facet", "embed"]));
     value
 }
 
@@ -1019,8 +1006,35 @@ mod tests {
     }
 
     #[test]
+    fn embed_export_uses_shared_type_and_preserves_fallback_intent() {
+        for (source, kind) in [
+            (
+                "`->{photo https://example.test/PHOTO.PNG?x=.mp4#clip `+{embed}}\n",
+                "Image",
+            ),
+            (
+                "`->{stream https://example.test/stream `+{embed} `={type image/png}}\n",
+                "Image",
+            ),
+            ("`->{photo a.png `+{embed} `={type video/mp4}}\n", "Link"),
+            ("`->{photo a.png `+{embed} `={type unknown/type}}\n", "Link"),
+            ("`->{sound a.mp3 `+{embed}}\n", "Link"),
+            ("`->{other a.plumb `+{embed}}\n", "Link"),
+        ] {
+            let exported = export(source).unwrap();
+            let inline = &exported["blocks"][0]["c"][0];
+            assert_eq!(inline["t"], kind, "{source}");
+            assert!(inline["c"][0][2]
+                .as_array()
+                .unwrap()
+                .contains(&json!(["data-plumb-facet", "embed"])));
+            assert!(inline["c"][1].is_array());
+        }
+    }
+
+    #[test]
     fn exports_standard_images_in_body_and_metadata() {
-        let source = "`= cover {Cover `\"static/cover.png\" `+{img}}\n\nBefore {{Rich `!{alt}} `\"static/a b.webp\" `@{image} `+{wide} `={loading lazy} `+{img}} after.\n\n{{} `\"https://example.test/decorative.svg\" `+{img}}\n";
+        let source = "`= cover `->{Cover `\"static/cover.png\" `+{embed}}\n\nBefore `->{{Rich `!{alt}} `\"static/a b.webp\" `@{image} `+{wide} `={loading lazy} `+{embed}} after.\n\n`->{{} `\"https://example.test/decorative.svg\" `+{embed}}\n";
         let document = export(source).unwrap();
 
         let metadata_image = &document["meta"]["cover"]["c"][0];
@@ -1037,7 +1051,11 @@ mod tests {
         assert_eq!(body_image["t"], "Image");
         assert_eq!(
             body_image["c"][0],
-            json!(["image", ["wide"], [["loading", "lazy"]]])
+            json!([
+                "image",
+                ["wide"],
+                [["loading", "lazy"], ["data-plumb-facet", "embed"]]
+            ])
         );
         assert_eq!(body_image["c"][1][0]["c"], "Rich");
         assert_eq!(body_image["c"][1][2]["t"], "Strong");
@@ -1048,7 +1066,10 @@ mod tests {
         assert_eq!(image_only_paragraph["c"].as_array().unwrap().len(), 1);
         let decorative = &image_only_paragraph["c"][0];
         assert_eq!(decorative["t"], "Image");
-        assert_eq!(decorative["c"][0], json!(["", [], []]));
+        assert_eq!(
+            decorative["c"][0],
+            json!(["", [], [["data-plumb-facet", "embed"]]])
+        );
         assert_eq!(decorative["c"][1], json!([]));
         assert_eq!(
             decorative["c"][2],
@@ -1057,9 +1078,9 @@ mod tests {
     }
 
     #[test]
-    fn exports_file_attachments_as_portable_links_with_fallback_content() {
+    fn exports_non_image_embeds_as_portable_links_with_intent() {
         let document = export(
-            "Watch {{Demo `!{video}} `\"static/demo video.mp4\" `@{demo} `+{wide} `={download yes} `+{file}}.\n",
+            "Watch `->{{Demo `!{video}} `\"static/demo video.mp4\" `@{demo} `+{wide} `={download yes} `+{embed}}.\n",
         )
         .unwrap();
         let file = &document["blocks"][0]["c"][2];
@@ -1069,7 +1090,7 @@ mod tests {
             json!([
                 "demo",
                 ["wide"],
-                [["download", "yes"], ["data-plumb-facet", "file"]]
+                [["download", "yes"], ["data-plumb-facet", "embed"]]
             ])
         );
         assert_eq!(file["c"][1][0]["c"], "Demo");

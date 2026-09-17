@@ -1,6 +1,6 @@
 use plumb_semantics::{
     analyze_document, citation_completion_context, construct_completion_context,
-    image_completion_context, link_completion_context, ConstructCompletionContext, InlineStyleKind,
+    embed_completion_context, link_completion_context, ConstructCompletionContext, InlineStyleKind,
     LinkCompletionContext, MathKind, MetadataValue,
 };
 use plumb_syntax::parse;
@@ -194,9 +194,9 @@ fn current_recovered_completion_contexts_follow_brace_data() {
             if path == "doc.plumb" && query == "ta"
     ));
 
-    let image = parse("{`+{img} Alt static/im");
+    let image = parse("`->{`+{embed} Alt static/im");
     assert_eq!(
-        image_completion_context(&image, image.source.len())
+        embed_completion_context(&image, image.source.len())
             .unwrap()
             .query,
         "static/im"

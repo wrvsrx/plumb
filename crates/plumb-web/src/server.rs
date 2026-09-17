@@ -767,7 +767,7 @@ fn secure_html(html: String) -> Response {
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         ),
     );
     headers.insert(
@@ -962,7 +962,7 @@ mod tests {
         let bytes = b"0123456789abcdefghijklmnopqrstuvwxyz";
         let file = root.join("media.mp4");
         std::fs::write(&file, bytes).unwrap();
-        std::fs::write(root.join("note.plumb"), "{Media `\"media.mp4\" `+{file}}\n").unwrap();
+        std::fs::write(root.join("note.plumb"), "`->{Media `\"media.mp4\" `+{embed}}\n").unwrap();
         let workspace = WebWorkspace::load(&root).unwrap();
         let record = workspace.resource_for_path(&file).unwrap().unwrap();
         let uri = format!("/resource/{}/{}", record.id, record.name);

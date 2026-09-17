@@ -87,48 +87,30 @@ pub(crate) fn element_selection_range(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResourceFacet {
-    Image,
-    File,
-    Conflicted,
-}
-
-pub fn resource_facet(content: &plumb_syntax::InlineContent) -> Option<ResourceFacet> {
-    let mut image = false;
-    let mut file = false;
-    for inline in &content.items {
+pub fn has_embed_facet(content: &plumb_syntax::InlineContent) -> bool {
+    content.items.iter().any(|inline| {
         let plumb_syntax::Inline::Group {
             mark: Some(mark),
             content,
             ..
         } = inline
         else {
-            continue;
+            return false;
         };
         if mark.marker != "+" {
-            continue;
+            return false;
         }
         let view = owner_semantic_view(content);
         let Some(arguments) = view.split_first() else {
-            continue;
+            return false;
         };
-        if !arguments.rest.is_empty() {
-            continue;
-        }
-        match plumb_syntax::plain_scalar(arguments.first).as_deref() {
-            Some("img") => image = true,
-            Some("file") => file = true,
-            _ => {}
-        }
-    }
-    match (image, file) {
-        (true, false) => Some(ResourceFacet::Image),
-        (false, true) => Some(ResourceFacet::File),
-        (true, true) => Some(ResourceFacet::Conflicted),
-        _ => None,
-    }
+        arguments.rest.is_empty()
+            && plumb_syntax::plain_scalar(arguments.first).as_deref() == Some("embed")
+    })
 }
+
+mod media;
+pub use media::{embed_media_type, MediaKind, MediaType};
 
 pub struct OwnerSemanticView<'a> {
     content: &'a plumb_syntax::InlineContent,
@@ -298,11 +280,10 @@ pub use definitions::{
 pub use document::{
     analyze_document, analyze_document_incremental, analyze_green_document,
     analyze_green_document_incremental, resource_owner_kind_is_valid, resource_target_is_valid,
-    AnchorKind, AnchorRecord, DocumentChange, DocumentOutput, EventLinkRange,
-    ExportedSemanticChangeKinds, ExportedSemanticDelta, ExportedSemanticSummary, FileRecord,
-    FileRecordView, FileTarget, ImageRecord, ImageRecordView, ImageTarget, LinkRecord,
-    LinkRecordView, LinkSpelling, LinkTarget, SemanticRecordAddress, SemanticRecordChange,
-    SemanticRecordEntry, SemanticRoot, SourceBacked,
+    AnchorKind, AnchorRecord, DocumentChange, DocumentOutput, EmbedRecord, EmbedRecordView,
+    EmbedTarget, EventLinkRange, ExportedSemanticChangeKinds, ExportedSemanticDelta,
+    ExportedSemanticSummary, LinkRecord, LinkRecordView, LinkSpelling, LinkTarget,
+    SemanticRecordAddress, SemanticRecordChange, SemanticRecordEntry, SemanticRoot, SourceBacked,
 };
 pub use events::{
     analyze_events, EventField, EventOutput, EventRecord, EventRecordView, EventRecords,
@@ -321,14 +302,13 @@ pub use metadata::{
 };
 pub use queries::{
     attribute_completion_context, citation_completion_context, construct_completion_context,
-    event_title_completion_context, file_completion_context, green_attribute_completion_context,
+    embed_completion_context, event_title_completion_context, green_attribute_completion_context,
     green_citation_completion_context, green_construct_completion_context,
-    green_event_title_completion_context, green_file_completion_context,
-    green_image_completion_context, green_link_completion_context,
-    green_task_dependency_completion_context, image_completion_context, link_completion_context,
-    task_dependency_completion_context, AttributeCompletion, AttributeCompletionContext,
-    CitationCompletionContext, ConstructCompletionContext, EventTitleCompletionContext,
-    FileCompletionContext, ImageCompletionContext, LinkCompletionContext,
+    green_embed_completion_context, green_event_title_completion_context,
+    green_link_completion_context, green_task_dependency_completion_context,
+    link_completion_context, task_dependency_completion_context, AttributeCompletion,
+    AttributeCompletionContext, CitationCompletionContext, ConstructCompletionContext,
+    EmbedCompletionContext, EventTitleCompletionContext, LinkCompletionContext,
     TaskDependencyCompletionContext,
 };
 pub use quotes::{analyze_quotes, QuoteOutput, QuoteRecord, QuoteRecordView};

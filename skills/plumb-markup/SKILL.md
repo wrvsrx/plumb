@@ -96,8 +96,9 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
  `- {Alice Smith}    10
 
 See `->{guide guide.plumb#intro}, `->"guide.plumb#intro", and `cite{smith2004}.
-Use {status static/status.png `+{img}} for an image.
-Use {Demo static/demo.mp4 `+{file}} for an attachment.
+Use `->{status static/status.png `+{embed}} for an image.
+Use `->{Demo static/demo.mp4 `+{embed}} for embedded video.
+Use `->{Download static/manual.pdf} for an ordinary attachment.
 
 Use `*{emphasis}, `!{strong}, `=={mark}, `~{strikeout}, `^{superscript}, and `_{subscript}.
 Inline `$"x^2" math.

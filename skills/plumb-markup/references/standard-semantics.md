@@ -96,27 +96,29 @@ Marked verbatim is the compact derived-label Link spelling:
 `->"../assets/manual draft.pdf"
 ```
 
-## Images and Attachments
+## Embedded Links
 
-Anonymous or marked parsed inline groups become images or attachments through
-direct `img` or `file` facets. They share Link's first/rest target binding:
-one element derives the label from the target; otherwise the first element is
-the label and the remaining elements stringify to the target. Group multiword
-labels and use an empty group for decorative alt. The two facets conflict;
-resource owners do not accept a second target through `src`.
+Only parsed `->` links accept the `embed` facet. Other groups receive
+`resource.invalid-owner`. The first/rest binding is the same as ordinary links:
+one element derives its label; otherwise the first element is the label.
 
 ```plumb
-{{status icon} static/status.png `+{img}}
-{{Demo video} static/demo.mp4 `+{file}}
-{static/status.png `+{img}}
-{{} static/decorative.png `+{img}}
+`->{{status icon} static/status.png `+{embed}}
+`->{{Demo video} static/demo.mp4 `+{embed}}
+`->{Podcast https://example.test/stream `+{embed} `={type audio/ogg}}
+`->{{} static/decorative.png `+{embed}}
+`->{{Download report} reports/final.pdf}
 ```
 
-Local sources are raw relative paths. Export lowers files to portable Pandoc
-Links with `data-plumb-facet=file` intent and may enhance supported local video
-MIME types in the Web viewer. Resource-faceted `->` groups do not produce
-navigation records or document graph edges. The old `img` and `file` marker
-spellings are generic owners, not resource selectors.
+Explicit `type` (MIME) takes precedence over case-insensitive path extension
+inference. URL query/fragment do not participate. Unknown explicit type falls
+back to a link without extension inference. Classification never reads files
+or fetches URLs. Images export as Pandoc Image; other embeds export as Link.
+Both preserve `data-plumb-facet=embed` and the original explicit type on round
+trip. Web supports image/video/audio with link fallback. All embeds are excluded
+from document graph edges. Plain downloads need only an ordinary link.
+Neither `img`/`file` markers nor facets select resource semantics, and `src` is
+not a target property.
 
 ## Citations
 

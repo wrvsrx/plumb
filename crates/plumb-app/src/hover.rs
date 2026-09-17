@@ -2,8 +2,8 @@ use std::path::Path;
 
 use chrono::Local;
 use plumb_semantics::{
-    semantic_plain_text, AnchorKind, EventRecord, FileRecord, ImageRecord, LinkRecord,
-    MetadataBlock, MetadataEntry, MetadataValue, TaskRecord,
+    semantic_plain_text, AnchorKind, EmbedRecord, EventRecord, LinkRecord, MetadataBlock,
+    MetadataEntry, MetadataValue, TaskRecord,
 };
 use plumb_workspace::{ResolvedTarget, Workspace, WorkspaceQueryError};
 
@@ -66,39 +66,21 @@ pub(crate) fn target(workspace: &Workspace, target: &ResolvedTarget) -> String {
     }
 }
 
-pub(crate) fn image(target: &ResolvedTarget, image: &ImageRecord) -> String {
+pub(crate) fn embed(target: &ResolvedTarget, embed: &EmbedRecord) -> String {
     match target {
         ResolvedTarget::External => format!(
-            "**External image**\n\n`{}`",
-            escape_markdown_code(&image.source.value)
+            "**External embedded link**\n\n`{}`",
+            escape_markdown_code(&embed.source.value)
         ),
         ResolvedTarget::File { path } => format!(
-            "**Image file**\n\n`{}`",
+            "**Embedded resource**\n\n`{}`",
             escape_markdown_code(&path.display().to_string())
         ),
         ResolvedTarget::UnresolvedFile { path } => format!(
-            "**Unresolved image file**\n\n`{}`",
+            "**Unresolved embedded resource**\n\n`{}`",
             escape_markdown_code(&path.display().to_string())
         ),
-        _ => "Image".to_string(),
-    }
-}
-
-pub(crate) fn file(target: &ResolvedTarget, file: &FileRecord) -> String {
-    match target {
-        ResolvedTarget::External => format!(
-            "**External file attachment**\n\n`{}`",
-            escape_markdown_code(&file.source.value)
-        ),
-        ResolvedTarget::File { path } => format!(
-            "**File attachment**\n\n`{}`",
-            escape_markdown_code(&path.display().to_string())
-        ),
-        ResolvedTarget::UnresolvedFile { path } => format!(
-            "**Unresolved file attachment**\n\n`{}`",
-            escape_markdown_code(&path.display().to_string())
-        ),
-        _ => "File attachment".to_string(),
+        _ => "Embedded link".to_string(),
     }
 }
 

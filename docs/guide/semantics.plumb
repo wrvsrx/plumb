@@ -129,26 +129,25 @@ strength。`"..plumb" path 与 explicit anchor 可以由 LSP 补全。自定义 
 ordinary inline `"-"/`"->" prefix 只提供 canonical parsed Link template；`"->{" 保持该候选，`"->\"" 提供
 compact verbatim Link template。完成后的 one-element/two-or-more-element forms分别使用 derived/explicit label。
 
-`# Image
+`# 内嵌链接
 
-inline group 通过 direct `"img" facet 表示图片，不需要 marker 或 src property。目标绑定与 Link 相同：单参数从目标派生 alt；多参数的 first 是 alt，remaining elements 是 absolute URI 或相对当前 document 的 file reference：
-
-`plumb"
-  Text with {{status icon} static/status.png `+{img}} inline.
-  {static/status.png `+{img}}
-  {{} https://example.test/decorative.svg `+{img}}
-
-empty explicit alt 用于 decorative image；多词或富文本 alt 使用一个 anonymous Group。image 单独占一个 paragraph 时不需要另一种 block syntax。相对 target 是 raw filesystem path，中文、spaces、parentheses 和 percent characters 都按字面保留，不做 URL encode/decode。LSP 在 positional target 中补全常见本地图片文件，并为存在的文件提供 hover 和 go-to-definition。image 的标准 profile 边界见 `->{{standard semantics reference} ../reference/standard-semantics.plumb}。
-
-`# File attachment
-
-inline group 通过 direct `"file" facet 表示附件。label 与 target 使用同一 first/rest 规则，file 与 img facets 互斥：
+给 parsed Link 添加 direct `"embed" facet，表达内嵌展示链接目标的意图。单参数从目标派生 label，多参数的 first 是 label，其余共同构成 target；多词或富文本 label 使用一个 anonymous Group，空图片 alt 使用 empty Group：
 
 `plumb"
-  {{Demo video} static/demo.mp4 `+{file}}
-  `->{{Download report} reports/final.pdf `+{file}}
+  Text with `->{{status icon} static/status.png `+{embed}} inline.
+  `->{static/status.png `+{embed}}
+  `->{{} static/decorative.svg `+{embed}}
+  `->{{Demo video} static/demo.mp4 `+{embed}}
+  `->{Podcast https://example.test/stream `+{embed} `={type audio/ogg}}
 
-普通 exporter 把 attachment 写成可点击 Link。Web viewer 会把 workspace 内能识别为 video 的本地文件显示为带 controls 的播放器，同时保留下载链接作为浏览器不支持该格式时的 fallback；PDF、archive 或未知类型继续显示为普通附件链接。MIME 不改变 file facet 的语义，普通 `"->" Link 也不会自动变成播放器。resource-faceted Link 不产生文档导航或 document graph edge。LSP 在 positional target 中补全任意本地文件，并提供 hover、go-to-definition 和 unresolved-file diagnostic。
+显式 `"type" 属性优先指定 MIME；否则按目标扩展名识别，忽略大小写，并对 URL 排除 query/fragment。显式类型未知时直接保留链接，不再猜扩展名。识别不读取文件或请求网络。exporter 将图片导出为 Pandoc Image，其余保留 Link；Web 按类型呈现图片、视频或音频，播放器旁保留可点击 fallback。目标类型或输出格式不支持内嵌时使用链接 fallback。
+
+普通下载附件直接使用普通 Link，不需要 facet：
+
+`plumb"
+  `->{{Download report} reports/final.pdf}
+
+embed 引用不产生笔记导航图边，包括未知类型 fallback。LSP 在 positional target 中补全本地文件，并提供 hover、go-to-definition 与 unresolved-file diagnostic。具体类型表与诊断规则见 `->{{standard semantics reference} ../reference/standard-semantics.plumb}。
 
 `# Citation
 
