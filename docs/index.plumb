@@ -44,6 +44,7 @@ Guides 只描述当前 release，不保存 TODO、prototype 进度或 historical
 `- `->{{Current tasks} project/tasks.plumb}：可以直接实施和验收的工作。
 `- `->{{Completed tasks} project/completed-tasks.plumb}：带 done timestamp 的验收快照。
 `- `->{{Performance benchmark methodology} project/performance-benchmarks.plumb}：当前 workload 与测量 contract。
+`- `->{{Embed link migration} project/embed-migration.plumb}：先发布、更新工具，再预览并迁移旧资源引用。
 
 `# Historical records
 

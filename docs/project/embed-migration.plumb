@@ -1,0 +1,50 @@
+`= title Embed link migration
+
+这是从旧资源写法迁移到 `->{{embed profile} ../reference/standard-semantics.plumb} 的版本配套操作说明。它不是通用 legacy parser，也不会在正常读取文档时自动转换。
+
+`# 顺序
+
+`. 先发布包含 embed profile 的 plumb release，并保留该 tag 对应的源码 checkout。此次包含语义变更，应使用 minor release，而不是 patch release。
+`. 更新 zettelkasten 所使用的 plumb package/version，确认终端、编辑器 LSP 与 Web server 都运行新版本。
+`. 在新版本可用后生成迁移预览，审阅 diff，再应用迁移并提交笔记仓库。
+
+脚本会调用选定 plumb 的 export 实测 embed 支持与 anonymous owner 排除规则，旧版本会在写入前被拒绝。它不会安装 package、发布版本或自动提交笔记。
+
+`# 预览与应用
+
+在该 release 对应的 plumb checkout 中运行；需要 Python 3 和 Cargo。helper 通过 workspace 的 strict parser 与 plumb-edit owned inline mutation 转换，不用正则替换源码。
+
+`sh"
+ python3 scripts/migrate-resource-links.py \
+   --root "$HOME/Syncthing/Apps/zettelkasten" \
+   --output "$HOME/Documents/plumb-embed-migration" \
+   --plumb "$(command -v plumb)"
+
+output 必须是笔记 root 之外的全新目录。默认仅生成 changes.diff、plan.json，以及 before/ 和 after/ trees，不修改笔记。脚本只扫描 .plumb，递归排除 .git、.stversions、.nsfw 与 symlinks；不读取被排除的内容。raw examples 保持原样。预览目录包含原笔记备份，按笔记本身管理其隐私。
+
+审阅 changes.diff 后应用同一 plan：
+
+`sh"
+ python3 scripts/migrate-resource-links.py \
+   --apply "$HOME/Documents/plumb-embed-migration" \
+   --plumb "$(command -v plumb)"
+
+应用前会重新校验所有已扫描文档的 hashes、after preview 与 before backup，并用新版本 export 验证全部待写结果。任何变更、语法错误或歧义都会拒绝应用，应重新生成 preview。每个文件用 atomic replace 写入；整个多文件 batch 不构成 filesystem transaction，I/O 错误可留下部分已应用文件，原文仍在 before/。应用期间避免并发编辑或同步覆盖。重复生成预览应为 zero changes。
+
+`# 转换规则
+
+`- 旧 img/image marker + 唯一 src 转成 parsed Link + embed；保留原 label（包括 empty/rich label）、target、id 与其它 declarations。
+`- 旧 file marker + src 按共享 MIME/扩展名规则识别：媒体转成 Link + embed，普通下载转成普通 Link；显式未知 type 不触发扩展名推断。
+`- 先前迁移得到的 anonymous/Link + img/file facets 使用同样规则；anonymous + embed 补上 Link marker。
+`- 重复 src、混合资源 facets、无目标、非法路径或非 Link 的 generic resource owner 都停止并要求人工处理；不会猜测或静默丢弃属性。
+
+如果当前笔记保留了错误的旧迁移结果，应先还原该笔记提交再生成 plan。脚本不负责 Git rebase，也不会重置用户改动。
+
+`# 验证脚本
+
+`sh"
+ cargo test -p plumb --example migrate_resource_links
+ cargo build -p plumb --bin plumb --example migrate_resource_links
+ python3 scripts/test-migrate-resource-links.py
+
+integration tests 在临时目录验证 preview 不写笔记、exclusions、backup、stale-plan refusal、tampered preview refusal 与 idempotence。可用 PLUMB_BIN 与 PLUMB_MIGRATION_HELPER 指定自定义 Cargo target 路径。
