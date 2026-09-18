@@ -53,7 +53,7 @@ model 等价。anonymous/marked parsed blocks 共享 children；VerbatimBlock ch
 InlineContents 只保存唯一一份 source-ordered elements，包括 direct SpaceRun 与 SoftBreak；没有 InlineDatum、
 segment、argument descriptor或对应的 stored range/index projection。Text 在 direct whitespace、special entry或
 boundary处结束，Group/Verbatim各自是 parent depth的一个 element。SoftBreak range覆盖 physical line ending与
-下一行 structural continuation indentation，typed plain-text projection视为一个 semantic space。
+下一行 continuation indentation（同列 continuation 时为 empty），typed plain-text projection视为一个 semantic space。
 SpaceRun/SoftBreak不占 semantic positional index；repeated whitespace不产生 empty value，empty Group 是 explicit
 empty positional element。
 

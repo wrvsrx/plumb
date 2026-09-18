@@ -5,7 +5,7 @@
 
 `# Blocks and indentation
 
-每条 nonblank physical line 开始一个 block，或作为 preceding parsed owner 的 plain continuation。普通 line 是
+每条 nonblank physical line 开始一个 block，或作为当前 open parsed block 的 plain continuation。普通 line 是
 anonymous parsed block；反引号加 marker 是 marked block：
 
 `plumb"
@@ -24,8 +24,10 @@ indentation 是一格 ASCII space：
   `child One
   `child Two
 
-立即缩进且没有前置 blank 的 plain line继续 owner inline content；typed projection把 boundary视为一个 space。
-blank line结束 continuation，之后的缩进 plain line成为 anonymous child。显式 empty anonymous block 写作 `"{}"。
+open block 之后没有前置 blank 的 plain line继续该 block 的 inline content：同列或更深缩进都算 continuation，
+continuation 的缩进不建立 column；typed projection把 boundary视为一个 space。blank line结束 open block，之后的
+同列 plain line开始新的 sibling block，更深缩进的成为 anonymous child。显式 empty anonymous block 写作 `"{}"，
+并用 blank line 或 introducer 与 preceding block 分开。
 
 block marker 后必须是 ASCII space 或 line ending。marker 紧邻 brace/quote 时是 inline owner，因此：
 

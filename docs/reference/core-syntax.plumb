@@ -27,7 +27,7 @@ ASCII space 是唯一 parsed separator；Unicode control 可作为普通文本�
 
 `# 3. Block dispatch
 
-每条 nonblank physical line开始一个 block，或在第 5 节条件下继续 preceding parsed owner 的 InlineContents。普通
+每条 nonblank physical line 开始一个 block，或在第 5 节条件下继续当前 open parsed block 的 InlineContents。普通
 line 产生 anonymous parsed block。introducer-marker 后为 line ending 或 ASCII SpaceRun 时产生 marked parsed
 block；marker 后的 SpaceRun 进入 lossless InlineContents，但不占 positional element index。
 
@@ -52,16 +52,19 @@ dedent 必须返回 indentation stack 中已有 column。canonical child column 
 
 `plumb"
  parent
-  child
+
+ child
 
 `plumb"
  `parent head
   `child one
   `child two
 
-blank line 是 layout，不建立 block 或改变 indentation，但会阻断 inline continuation。top-level block 从 column
+blank line 不建立 block，但会结束当前 open block：其后同列的 plain line 开始新的 sibling block，更深缩进的 plain
+line 成为 anonymous child。top-level block 从 column
 zero 开始。structural tab
-是 error。需要 explicit empty anonymous block 时使用 empty group：
+是 error。需要 explicit empty anonymous block 时使用 empty group，并像其它 block 一样用 blank line 或
+introducer 与 preceding block 分开：
 
 `plumb"
  {}
@@ -75,15 +78,23 @@ spaces 产生一个 SpaceRun。Text 在 direct space、special entry 或 content
 parent depth始终是一个 element。SpaceRun width 完整保留，SpaceRun 与 SoftBreak 不占 positional index，
 repeated spaces 不产生 empty positional element。
 
-parsed owner 后立即出现的更深缩进 plain line继续该 owner 的 InlineContents；plain line 不能是 marked/verbatim
-block entry，且 owner 与 continuation 之间不能有 blank line。第一条 continuation 建立 continuation column；连续
-continuation lines 必须匹配该 column。physical boundary 与 structural indentation losslessly 形成 SoftBreak，typed
+一个 parsed block 打开后保持 open，直到 blank line、以 introducer 开头的行、或更浅的缩进结束它。open block 之后
+没有前置 blank line 的 plain line 并入它的 InlineContents，条件是 indentation 不浅于 open block 的 column：同列与
+更深缩进都算 continuation。continuation line 只贡献 content，不建立或改变 indentation column，因此 continuation
+的缩进宽度是 layout：
+
+`plumb"
+ ordinary paragraph
+ continues at the same column
+
+physical boundary 与 structural indentation losslessly 形成 SoftBreak，typed
 plain-text/argument projection把它视为一个 semantic space。formatter 保留 physical wrapping，把 SoftBreak 中的
 structural indentation 规范化为 owner column 加一 ASCII space并移除 line-end padding；其余 inline source bytes
 不变。
 
-blank line 结束 continuation phase；其后的更深缩进 plain line是 anonymous child block。marked/verbatim child 由
-introducer dispatch消除二义性，不要求前置 blank line：
+以 introducer 开头的行结束 preceding open block 并开始自己的 block：更深的缩进使它成为 preceding parsed owner
+的 child，同列的则是 sibling。marked/verbatim child 不要求前置 blank line。blank line 同样结束 open block，其后
+同列的 plain line 开始新的 sibling block，更深缩进的 plain line 成为 anonymous child：
 
 `plumb"
  `= title
@@ -191,7 +202,6 @@ ValidDocument。authoritative semantics、export 与 valid-tree mutation 只接�
 `# 11. Recovery
 
 `- malformed block entry：current physical line。
-`- continuation partial indent：发布 structural diagnostic，并在 established continuation/owner column恢复。
 `- unmatched group opener/closer：current physical line；不消费下一 block。
 `- unclosed inline verbatim：current physical line ending/EOF。
 `- structural tab/partial dedent：发布最具体 structural diagnostic，并在最近合法 column 继续。

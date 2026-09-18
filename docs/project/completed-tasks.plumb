@@ -219,6 +219,22 @@
  `note 旧 tight verbatim opener group 与 owner 后续独立 structural-line group 直接非法；没有增加 compatibility parser、migration reader 或 migrator。
  `note 同步 typed/lossless tree、formatter/edit、extensions/workspace/LSP consumers、tree-sitter grammar/queries/corpus、references、guides、examples 与 bundled skill，并通过 workspace warning gate、 strict/lossless/property tests、project document checks 与 tree-sitter corpus。
 
+`- 同列 plain line 继续 open block
+ `+ task
+
+ `@ same-column-paragraph-continuation
+
+ `= created 2026-09-18T19:38:19+08:00
+ `= done 2026-09-18T19:38:19+08:00
+
+ `note core syntax §3/§4/§5 采用段落模型：一个 open parsed block 保持 open，直到 blank line、以 introducer 开头的行、或更浅的 column；其后的 plain line 在 column 不浅于 open block 时并入该 block，成为 SoftBreak。continuation line 只贡献 content，不建立或改变 indentation column，因此 continuation 的缩进宽度只是 layout；blank line 结束 open block，其后同列 plain line 开始新的 sibling block，更深缩进的 plain line 成为 anonymous child。删除 `"syntax.partial-indent" 的 continuation established-column 分支，保留 top-level、dedent 与 verbatim-child 诊断。
+ `note strict parser 把 plain continuation 的 gate 从 `"indent > level" 放宽为 `"indent >= level"，plain owner 与 marked owner 同样适用；以 introducer 开头的行仍总是开始自己的 block，因此 `"= created"/`"= done"、list item 与 task 的紧邻写法保持不变。
+ `note GreenDocument shard 边界不再假设每个 column-0 nonblank line 都是 block start：boundary 只在 blank line 之后或 block dispatch 处产生，并复用 parser 的 pure classifier。incremental/green reparse 的起止边界都要求 `"reusable_boundary"（top-level line 且是 dispatch 或紧跟 blank line），避免删除分隔空行后复用已被吸收的 suffix；green materialization、incremental revision 与 all-boundary edit property tests 通过。
+ `note 修复 verbatim payload margin 在多字节字符前切片的 panic：`"prefix_end" 现在要求 `"is_char_boundary"，重建 shard 边界后该路径才会被 cover。
+ `note `"plumb-edit" 插入 block 时保证插入文本以 blank line 结束，使插入的 block 与 following block 在 current rule 下仍是 sibling；`"plumb-format" 继续保留 physical wrapping 并把 continuation indentation 规范化为 owner column 加一。
+ `note tree-sitter mirror 把 `"INLINE_CONTINUE" 与 `"PARAGRAPH_CONTINUE" 合成单一 `"scan_continue" 消费路径并接入 paragraph 与 marked head，避免先试 same-column token 消费换行后 deeper token 失败；grammar、scanner、corpus 与 strict-alignment fixture 同步，corpus 9/9、alignment 与 project document checks 通过。
+ `note 同步更新 core syntax、syntax-tree architecture、syntax guide、standard-semantics 的 expanded table 示例与 README projections；`"cargo test --workspace"（除 sandbox 中 read-only khal database 的环境相关 test）、`"cargo check --workspace --all-targets"、tree-sitter corpus/alignment 与 node asset tests 通过。
+
 `# Standard extensions
 
 `- 支持向空文档插入 metadata

@@ -268,16 +268,21 @@ width 是 formatting padding，不改变 columns，empty group 是 empty cell：
   `- {Alice Smith}    10
   `- Bob              {}
 
-empty-head row 的 direct non-declaration block children 是 expanded cells；无需额外 cell marker：
+empty-head row 的 direct non-declaration block children 是 expanded cells；无需额外 cell marker。cell 是
+sibling block，因此与其它 block 一样用 blank line 分开：
 
 `plumb"
  `table
   `-
    `+ header
+
    name
+
    age
   `-
+
    {Alice Smith}
+
    10
 
 direct `"+ header" 标 leading header rows；expanded body row 的 leading header-faceted cells 是 row-header prefix。
