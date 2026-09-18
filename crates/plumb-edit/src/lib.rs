@@ -1891,7 +1891,15 @@ impl<'a> EditSession<'a> {
             return Err(EditError::InvalidRange);
         }
         let newline = line_ending(&self.parsed.source);
-        let new_text = format_owned_blocks(blocks, newline)?;
+        let mut new_text = format_owned_blocks(blocks, newline)?;
+        if !new_text.is_empty() && offset < self.parsed.source.len() {
+            // Two blocks at the same column stay separate siblings only when a
+            // blank line ends the inserted one.
+            let separator = format!("{newline}{newline}");
+            while !new_text.ends_with(&separator) {
+                new_text.push_str(newline);
+            }
+        }
         self.replace(offset..offset, new_text)
     }
 

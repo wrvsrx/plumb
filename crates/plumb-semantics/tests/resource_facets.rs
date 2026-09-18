@@ -50,7 +50,7 @@ fn embed_records_share_media_classification_and_never_create_graph_links() {
 
 #[test]
 fn link_resource_facets_share_first_rest_binding_without_navigation_links() {
-    let source = "See `->{{Alt text} static/a `*{b}.png `+{ embed } `@{figure} `+{wide}} and `->{{Demo video} static/demo.webm `+{embed}}.\n`->{static/derived.png `+{embed}}\n`->{{} static/decorative.png `+{embed}}\n";
+    let source = "See `->{{Alt text} static/a `*{b}.png `+{ embed } `@{figure} `+{wide}} and `->{{Demo video} static/demo.webm `+{embed}}.\n\n`->{static/derived.png `+{embed}}\n\n`->{{} static/decorative.png `+{embed}}\n";
     let parsed = parse(source);
     assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
     let output = analyze_document(parsed.valid_syntax().unwrap());

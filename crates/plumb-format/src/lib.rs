@@ -937,12 +937,10 @@ mod tests {
     fn preserves_marker_member_padding_and_escaped_boundary_spaces() {
         let source = concat!(
             "`row {Alice} 10\n",
+            "\n",
             "`owner{first `child{value} `\"raw\" `code\"child\"}\n",
         );
-        assert_formats(
-            source,
-            "`row {Alice} 10\n\n`owner{first `child{value} `\"raw\" `code\"child\"}\n",
-        );
+        assert_formats(source, source);
     }
 
     #[test]
