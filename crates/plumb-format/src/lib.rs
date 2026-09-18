@@ -792,13 +792,16 @@ impl<'a> Formatter<'a> {
         if marked && !starts_on_continuation {
             self.output.push(' ');
         }
-        if starts_on_continuation {
-            self.soft_break(indent + 1);
+        if let Some(leading) = content.items[..first]
+            .iter()
+            .find(|inline| matches!(inline, Inline::SoftBreak { .. }))
+        {
+            self.soft_break(self.continuation_indent(leading, indent));
         }
         let body = &content.items[first..=last];
         for (index, inline) in body.iter().enumerate() {
             if matches!(inline, Inline::SoftBreak { .. }) {
-                self.soft_break(indent + 1);
+                self.soft_break(self.continuation_indent(inline, indent));
             } else if matches!(inline, Inline::Space { .. })
                 && body
                     .get(index + 1)
@@ -809,6 +812,16 @@ impl<'a> Formatter<'a> {
                 self.output
                     .push_str(&self.source[inline_range(inline).clone()]);
             }
+        }
+    }
+
+    /// A continuation line keeps the owner column when the source used no
+    /// structural indentation, and is otherwise normalized to owner column plus
+    /// one ASCII space.
+    fn continuation_indent(&self, inline: &Inline, indent: usize) -> usize {
+        match inline {
+            Inline::SoftBreak { range } if self.source[range.clone()].ends_with(' ') => indent + 1,
+            _ => indent,
         }
     }
 
@@ -931,6 +944,15 @@ mod tests {
     fn preserves_argument_boundary_padding() {
         let source = "`row name    age\n`row Alice   10\n";
         assert_formats(source, source);
+    }
+
+    #[test]
+    fn keeps_same_column_continuation_at_the_owner_column() {
+        assert_formats("para1\ncontinuation\n", "para1\ncontinuation\n");
+        assert_formats("`note head\nwrapped\n", "`note head\nwrapped\n");
+        assert_formats("`note\ncontent\n", "`note\ncontent\n");
+        assert_formats("para1\n   deeper\n", "para1\n deeper\n");
+        assert_formats("`note head\n      deeper\n", "`note head\n deeper\n");
     }
 
     #[test]
