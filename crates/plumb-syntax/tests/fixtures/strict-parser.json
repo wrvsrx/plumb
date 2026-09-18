@@ -87,7 +87,7 @@
     "name": "unclosed inline group",
     "source": "before {open\nnext\n",
     "valid": false,
-    "blocks": "P_(T[before]S1G_[T[open]]);P_(T[next]);",
+    "blocks": "P_(T[before]S1G_[T[open]]BT[next]);",
     "diagnostics": ["syntax.unclosed-inline-group"]
   },
   {
@@ -101,7 +101,7 @@
     "name": "unclosed inline verbatim",
     "source": "before `\"raw\nnext\n",
     "valid": false,
-    "blocks": "P_(T[before]S1V_[raw]);P_(T[next]);",
+    "blocks": "P_(T[before]S1V_[raw]BT[next]);",
     "diagnostics": ["syntax.unclosed-verbatim"]
   },
   {

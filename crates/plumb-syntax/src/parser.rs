@@ -98,24 +98,29 @@ fn incremental_plan(
     source: &str,
     changed_old: &SourceRange,
 ) -> IncrementalPlan {
-    let old_start = previous
+    let starts = previous
         .syntax
         .blocks
         .iter()
         .map(|block| block.range().start)
-        .take_while(|start| *start < changed_old.start)
+        .collect::<Vec<_>>();
+    let old_start = starts
+        .iter()
+        .copied()
+        .filter(|start| *start <= changed_old.start && reusable_boundary(source, *start))
         .last()
         .unwrap_or(0);
-    let (old_end, new_end) = previous
-        .syntax
-        .blocks
+    let (old_end, new_end) = starts
         .iter()
-        .map(|block| block.range().start)
+        .copied()
         .filter(|start| *start >= changed_old.end)
         .find_map(|old_end| {
             let suffix_len = previous.source.len().checked_sub(old_end)?;
             let new_end = source.len().checked_sub(suffix_len)?;
-            (new_end >= old_start && is_line_start(source, new_end)).then_some((old_end, new_end))
+            (new_end >= old_start
+                && is_line_start(source, new_end)
+                && reusable_boundary(source, new_end))
+            .then_some((old_end, new_end))
         })
         .unwrap_or((previous.source.len(), source.len()));
     IncrementalPlan {
@@ -157,6 +162,75 @@ fn changed_ranges(old: &str, new: &str) -> (SourceRange, SourceRange) {
 
 fn is_line_start(source: &str, offset: usize) -> bool {
     offset == 0 || source.as_bytes().get(offset.wrapping_sub(1)) == Some(&b'\n')
+}
+
+/// Whether parsing may begin at `offset` without the preceding bytes: a block
+/// dispatch opens its own block, and a blank preceding line closes the open
+/// block. Every other line continues the open block, so its meaning depends on
+/// the prefix and incremental reuse cannot start there.
+pub(crate) fn reusable_boundary(source: &str, offset: usize) -> bool {
+    if offset == 0 || offset >= source.len() {
+        return true;
+    }
+    if !is_line_start(source, offset) {
+        return false;
+    }
+    // Only a top-level line is independent of the prefix; an indented line is a
+    // child of the block that opened its column.
+    if source.as_bytes()[offset] == b' ' {
+        return false;
+    }
+    let line_end = source[offset..]
+        .find('\n')
+        .map_or(source.len(), |index| offset + index);
+    let content_end = if source[offset..line_end].ends_with('\r') {
+        line_end - 1
+    } else {
+        line_end
+    };
+    if starts_block_dispatch(source, offset, content_end) {
+        return true;
+    }
+    let before = &source[..offset];
+    let before = before.strip_suffix('\n').unwrap_or(before);
+    let before = before.strip_suffix('\r').unwrap_or(before);
+    let previous_line = match before.rfind('\n') {
+        Some(index) => &before[index + 1..],
+        None => before,
+    };
+    let previous_line = previous_line.strip_suffix('\r').unwrap_or(previous_line);
+    previous_line
+        .bytes()
+        .all(|byte| matches!(byte, b' ' | b'\t'))
+}
+
+/// Merge a plain continuation line into the open block of the current level.
+/// Returns `None` when the line was absorbed, or the block when it must still
+/// be placed (a marked line, a verbatim owner, or no open block).
+fn append_plain_continuation(levels: &mut [Level], line: &Line, block: Block) -> Option<Block> {
+    let Block::Parsed(mut continuation) = block else {
+        return Some(block);
+    };
+    if continuation.mark.is_some() {
+        return Some(Block::Parsed(continuation));
+    }
+    let level = levels.last_mut().expect("root level exists");
+    let Some(Block::Parsed(owner)) = level.blocks.last_mut() else {
+        return Some(Block::Parsed(continuation));
+    };
+
+    let boundary_start = owner.content.range.end;
+    let boundary_end = line.start + line.indent;
+    owner.content.items.push(Inline::SoftBreak {
+        range: boundary_start..boundary_end,
+    });
+    owner.content.items.append(&mut continuation.content.items);
+    owner.content = InlineContent::from_items(
+        owner.content.range.start..continuation.content.range.end,
+        std::mem::take(&mut owner.content.items),
+    );
+    owner.range.end = continuation.range.end;
+    None
 }
 
 fn incremental_parse_with_plan(
@@ -471,14 +545,14 @@ impl<'a> Parser<'a> {
             }
 
             let preceded_by_blank = index > 0 && self.lines[index - 1].blank;
-            let previous_indent = index
-                .checked_sub(1)
-                .map_or(line.indent, |previous| self.lines[previous].indent);
             let (block, next_index) = self.parse_block(index);
             index = next_index;
-            if !preceded_by_blank && line.indent > levels.last().expect("root level exists").indent
+            // An open parsed block absorbs following plain lines whose
+            // indentation is not shallower than its own column; a blank line or
+            // an introducer line ends it and starts a new block.
+            if !preceded_by_blank && line.indent >= levels.last().expect("root level exists").indent
             {
-                match self.append_plain_continuation(&mut levels, &line, previous_indent, block) {
+                match append_plain_continuation(&mut levels, &line, block) {
                     None => continue,
                     Some(block) => self.place_block(&mut levels, line.indent, block),
                 }
@@ -496,46 +570,6 @@ impl<'a> Parser<'a> {
             blocks,
             range: 0..self.source.len(),
         }
-    }
-
-    fn append_plain_continuation(
-        &mut self,
-        levels: &mut [Level],
-        line: &Line,
-        previous_indent: usize,
-        block: Block,
-    ) -> Option<Block> {
-        let Block::Parsed(mut continuation) = block else {
-            return Some(block);
-        };
-        if continuation.mark.is_some() {
-            return Some(Block::Parsed(continuation));
-        }
-        let level = levels.last_mut().expect("root level exists");
-        let Some(Block::Parsed(owner)) = level.blocks.last_mut() else {
-            return Some(Block::Parsed(continuation));
-        };
-
-        if previous_indent > level.indent && previous_indent != line.indent {
-            self.error(
-                "syntax.partial-indent",
-                "continuation indentation must match its established column",
-                line.start..line.start + line.indent,
-            );
-        }
-
-        let boundary_start = owner.content.range.end;
-        let boundary_end = line.start + line.indent;
-        owner.content.items.push(Inline::SoftBreak {
-            range: boundary_start..boundary_end,
-        });
-        owner.content.items.append(&mut continuation.content.items);
-        owner.content = InlineContent::from_items(
-            owner.content.range.start..continuation.content.range.end,
-            std::mem::take(&mut owner.content.items),
-        );
-        owner.range.end = continuation.range.end;
-        None
     }
 
     fn place_block(&mut self, levels: &mut Vec<Level>, indent: usize, block: Block) {
@@ -628,66 +662,15 @@ impl<'a> Parser<'a> {
     }
 
     fn block_dispatch(&mut self, start: usize, end: usize) -> Option<BlockDispatch> {
-        let bytes = self.source.as_bytes();
-        if start >= end || bytes[start] != b'`' {
-            return None;
+        let classified = classify_block_dispatch(self.source, start, end)?;
+        if let Some(range) = classified.invalid_separator {
+            self.error(
+                "syntax.invalid-block-dispatch",
+                "only ASCII space can separate a block marker from its content",
+                range,
+            );
         }
-        if start + 1 < end && bytes[start + 1] == b'`' {
-            return None;
-        }
-        let after = start + 1;
-        if after == end {
-            return None;
-        }
-        if bytes[after] == b'"' && after + 1 == end {
-            return Some(BlockDispatch::Verbatim {
-                mark: None,
-                quote_range: after..after + 1,
-            });
-        }
-        if matches!(bytes[after], b'{' | b'}') {
-            return None;
-        }
-
-        let marker_end = scan_marker(self.source, after, end);
-        if marker_end == after {
-            return None;
-        }
-        let mark = Mark {
-            range: start..marker_end,
-            marker: self.source[after..marker_end].to_string(),
-            marker_range: after..marker_end,
-            attrs: Default::default(),
-        };
-        if marker_end == end {
-            return Some(BlockDispatch::Parsed {
-                mark: Some(mark),
-                inline_start: end,
-            });
-        }
-        match bytes[marker_end] {
-            b' ' => Some(BlockDispatch::Parsed {
-                mark: Some(mark),
-                inline_start: marker_end,
-            }),
-            b'"' if marker_end + 1 == end => Some(BlockDispatch::Verbatim {
-                mark: Some(mark),
-                quote_range: marker_end..marker_end + 1,
-            }),
-            b'{' | b'"' => None,
-            byte if byte.is_ascii_whitespace() => {
-                self.error(
-                    "syntax.invalid-block-dispatch",
-                    "only ASCII space can separate a block marker from its content",
-                    marker_end..marker_end + 1,
-                );
-                Some(BlockDispatch::Parsed {
-                    mark: Some(mark),
-                    inline_start: marker_end,
-                })
-            }
-            _ => None,
-        }
+        Some(classified.dispatch)
     }
 
     fn parse_verbatim_block(
@@ -708,6 +691,7 @@ impl<'a> Parser<'a> {
             let line = &self.lines[index];
             let prefix_end = line.start.saturating_add(margin);
             let has_margin = prefix_end <= line.content_end
+                && self.source.is_char_boundary(prefix_end)
                 && self.source[line.start..prefix_end].bytes().all(|byte| byte == b' ');
             if !has_margin {
                 // An unindented blank line is payload only when followed by
@@ -1017,6 +1001,82 @@ enum BlockDispatch {
         mark: Option<Mark>,
         quote_range: SourceRange,
     },
+}
+
+struct ClassifiedDispatch {
+    dispatch: BlockDispatch,
+    invalid_separator: Option<SourceRange>,
+}
+
+/// Classify a block entry at `start..end` without reporting diagnostics, so
+/// non-parser scans (green shard boundaries) agree with the parser on where a
+/// new block begins.
+fn classify_block_dispatch(source: &str, start: usize, end: usize) -> Option<ClassifiedDispatch> {
+    let bytes = source.as_bytes();
+    if start >= end || bytes[start] != b'`' {
+        return None;
+    }
+    if start + 1 < end && bytes[start + 1] == b'`' {
+        return None;
+    }
+    let after = start + 1;
+    if after == end {
+        return None;
+    }
+    let classified = |dispatch| ClassifiedDispatch {
+        dispatch,
+        invalid_separator: None,
+    };
+    if bytes[after] == b'"' && after + 1 == end {
+        return Some(classified(BlockDispatch::Verbatim {
+            mark: None,
+            quote_range: after..after + 1,
+        }));
+    }
+    if matches!(bytes[after], b'{' | b'}') {
+        return None;
+    }
+
+    let marker_end = scan_marker(source, after, end);
+    if marker_end == after {
+        return None;
+    }
+    let mark = Mark {
+        range: start..marker_end,
+        marker: source[after..marker_end].to_string(),
+        marker_range: after..marker_end,
+        attrs: Default::default(),
+    };
+    if marker_end == end {
+        return Some(classified(BlockDispatch::Parsed {
+            mark: Some(mark),
+            inline_start: end,
+        }));
+    }
+    match bytes[marker_end] {
+        b' ' => Some(classified(BlockDispatch::Parsed {
+            mark: Some(mark),
+            inline_start: marker_end,
+        })),
+        b'"' if marker_end + 1 == end => Some(classified(BlockDispatch::Verbatim {
+            mark: Some(mark),
+            quote_range: marker_end..marker_end + 1,
+        })),
+        b'{' | b'"' => None,
+        byte if byte.is_ascii_whitespace() => Some(ClassifiedDispatch {
+            dispatch: BlockDispatch::Parsed {
+                mark: Some(mark),
+                inline_start: marker_end,
+            },
+            invalid_separator: Some(marker_end..marker_end + 1),
+        }),
+        _ => None,
+    }
+}
+
+/// Whether `start..end` opens a marked or verbatim block entry.
+pub(crate) fn starts_block_dispatch(source: &str, start: usize, end: usize) -> bool {
+    classify_block_dispatch(source, start, end).is_some()
 }
 
 struct InlineFrame {

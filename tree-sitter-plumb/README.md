@@ -2,21 +2,11 @@ The intentionally lenient tree-sitter grammar for plumb editor tooling. The hand
 
 # Core-only CST
 
-The grammar represents current core syntax with generic `marked_block`、`paragraph`、`block_body`、
+The grammar represents current core syntax with generic `marked_block`、`paragraph`、`block_body`、 `verbatim_block`、`marked_group`、`anonymous_group` and `inline_verbatim` nodes. Marker/kind tokens remain opaque; heading/list/task/link meanings belong to official semantics。
 
-`verbatim_block`、`marked_group`、`anonymous_group` and `inline_verbatim` nodes. Marker/kind tokens remain opaque;
+`verbatim_block` directly owns optional `verbatim_kind` and indentation-terminated payload with fixed one-space margin。 `inline_verbatim` covers compact/full single-line raw。Recovery-only incomplete group nodes keep later blocks parseable； they do not make source strict-valid。
 
-heading/list/task/link meanings belong to official semantics。
-
-`verbatim_block` directly owns optional `verbatim_kind` and indentation-terminated payload with fixed one-space margin。
-
-`inline_verbatim` covers compact/full single-line raw。Recovery-only incomplete group nodes keep later blocks parseable；
-
-they do not make source strict-valid。
-
-ASCII `space` and `soft_break` nodes remain lossless whitespace elements and occupy no positional index。Braces recursively group inline content；there
-
-are no member, argument-separator or raw-tail nodes。
+ASCII `space` and `soft_break` nodes remain lossless whitespace elements and occupy no positional index。Braces recursively group inline content；there are no member, argument-separator or raw-tail nodes。
 
 # Source and generated files
 
@@ -61,13 +51,9 @@ Generated parser sources and binary packages are produced for releases in a Nix 
 
 # Neovim editor queries
 
-`queries/highlights.scm` only highlights generic CST。marker/kind receive keyword captures；introducer/braces are muted
+`queries/highlights.scm` only highlights generic CST。marker/kind receive keyword captures；introducer/braces are muted punctuation，backtick/brace escapes are string escapes，raw payloads use markup.raw，recovery uses error。
 
-punctuation，backtick/brace escapes are string escapes，raw payloads use markup.raw，recovery uses error。
-
-fold/indent/textobject queries cover block_body、groups and verbatim。injections use marked VerbatimBlock kind as language；
-
-`$` selects LaTeX，anonymous raw has no language。
+fold/indent/textobject queries cover block_body、groups and verbatim。injections use marked VerbatimBlock kind as language； `$` selects LaTeX，anonymous raw has no language。
 
 Build the parser explicitly through the locked Nix environment:
 

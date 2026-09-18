@@ -1,7 +1,10 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::parser::{parse, shift_attributes, shift_blocks, shift_diagnostics, shift_tokens};
+use crate::parser::{
+    parse, reusable_boundary, shift_attributes, shift_blocks, shift_diagnostics, shift_tokens,
+    starts_block_dispatch,
+};
 use crate::{
     AttrItem, Attributes, Diagnostic, Document, LosslessTree, ParsedDocument, SourceChange,
 };
@@ -84,7 +87,9 @@ impl GreenDocument {
         let old_start = starts
             .iter()
             .copied()
-            .take_while(|start| *start < change.old_range.start)
+            .filter(|start| {
+                *start <= change.old_range.start && reusable_boundary(&source, *start)
+            })
             .last()
             .unwrap_or(0);
         let (old_end, new_end) = starts
@@ -94,8 +99,10 @@ impl GreenDocument {
             .find_map(|old_end| {
                 let suffix_len = self.source.len().checked_sub(old_end)?;
                 let new_end = source.len().checked_sub(suffix_len)?;
-                (new_end >= old_start && is_line_start(&source, new_end))
-                    .then_some((old_end, new_end))
+                (new_end >= old_start
+                    && is_line_start(&source, new_end)
+                    && reusable_boundary(&source, new_end))
+                .then_some((old_end, new_end))
             })
             .unwrap_or((self.source.len(), source.len()));
         if old_start == 0 && old_end == self.source.len() {
@@ -266,21 +273,28 @@ impl<'a> GreenShardView<'a> {
     }
 }
 
+/// Top-level block starts. A line opens a new top-level block when it follows a
+/// blank line or opens a marked/verbatim block entry; a plain line after a
+/// nonblank line continues the open block, so it stays in the same shard.
 fn top_level_boundaries(source: &str) -> Vec<usize> {
     let mut boundaries = vec![0];
     let mut start = 0;
+    let mut after_blank = true;
     for line in source.split_inclusive('\n') {
         let content = line
             .strip_suffix('\n')
             .unwrap_or(line)
             .strip_suffix('\r')
             .unwrap_or_else(|| line.strip_suffix('\n').unwrap_or(line));
+        let blank = content.bytes().all(|byte| matches!(byte, b' ' | b'\t'));
         if start > 0
-            && !content.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
+            && !blank
             && !content.starts_with(' ')
+            && (after_blank || starts_block_dispatch(source, start, start + content.len()))
         {
             boundaries.push(start);
         }
+        after_blank = blank;
         start += line.len();
     }
     if boundaries.last().copied() != Some(source.len()) {
