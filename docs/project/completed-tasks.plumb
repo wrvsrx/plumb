@@ -969,6 +969,21 @@
  `note 在窄侧栏与移动端保留完整 label 和可操作 controls；需要时让单个 key 内部换行或调整 responsive layout，不能依靠裁掉文字或隐藏 keyboard controls 掩盖越界。
  `note 增加覆盖全部 sort keys、长标签、最窄支持 viewport 和 desktop sidebar 的 frontend layout regression test，并确认 add/reset actions 与排序 key 列表之间没有重叠。
 
+`- 让 Web Tasks 列表折叠文件与含 subtasks 的任务
+ `+ task
+
+ `@ web-task-folding
+
+ `= depends #web-task-management
+ `= created 2026-09-18T13:10:00+08:00
+ `= done 2026-09-18T13:24:12+08:00
+
+ `note Document group heading 与含 subtasks 的 task row 都提供可键盘操作、带 `"aria-expanded" 的 disclosure control：折叠 document 隐藏该文件在当前结果集中的全部 tasks，折叠 task 隐藏其完整 descendant subtree；无 rendered subtasks 的 key 不隐藏任何行。
+ `note 折叠是 rendered record list 上的纯投影，不是重新查询：query、sort 顺序、filters、selection 与 parent/subtask subtree 连续性都保持不变，collapsed row 继续显示被隐藏的 subtask 数量，document heading 显示被折叠的 task 总量。
+ `note 折叠状态是同一 browser session 内的 UI state，不进入 URL、不跨 reload 保存；显式选中 task（row 点击、detail 的 child task、form 提交后的新 selection、URL 初始 `"selected"）会自动展开其 ancestors 与被折叠的 document，保证 selection 始终可见。
+ `note 新增 protocol-neutral `"task-tree.js" projection 与 `"task-tree.test.mjs" 单元测试，覆盖 document 折叠、subtree 折叠、嵌套折叠状态保留、跨 document 边界、无 subtasks、ancestor reveal 与缺失 fold state；server 增加 `"/task-tree.js" asset route。Browser E2E 覆盖 task 与 document 折叠、隐藏计数、detail 保留与选中隐藏 subtask 后自动展开。
+ `note `->{{workspace 指南} workspace.plumb} 补充折叠行为说明；`"cargo check --workspace --all-targets"、`"cargo test -p plumb-web"、`"node --test crates/plumb-web/assets/*.test.mjs" 与 Chromium E2E 通过。
+
 `# Workspace performance and maintenance
 
 `- Finish semantic reducer deltas and equality invalidation
