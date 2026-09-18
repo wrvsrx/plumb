@@ -145,14 +145,35 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   background: #e7e8e4; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px; font-weight: 700; overflow-wrap: anywhere;
 }
-.task-row {
-  --task-depth: 0;
-  width: 100%; min-height: 64px; display: grid; grid-template-columns: 86px minmax(0, 1fr) 100px;
-  align-items: center; gap: 14px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
-  padding: 9px 16px 9px calc(16px + var(--task-depth) * 14px); text-align: left; background: transparent;
+.task-document-toggle {
+  width: 100%; min-height: 0; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center; gap: 8px; border: 0; border-radius: 0; text-align: left; cursor: pointer;
 }
-.task-row:hover { background: #efefec; }
-.task-row.selected { background: #e5efed; box-shadow: inset 3px 0 var(--teal); }
+.task-document-toggle:hover { background: #dcdeda; }
+.task-document-toggle.collapsed { color: #4f5255; }
+.task-document-path { min-width: 0; overflow-wrap: anywhere; }
+.task-document-count { color: #858883; font-weight: 600; white-space: nowrap; }
+.task-disclosure {
+  width: 22px; min-height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--muted); font-size: 11px; line-height: 1;
+}
+.task-disclosure:hover { background: #e2e3df; color: var(--ink); }
+.task-disclosure-empty { visibility: hidden; }
+.task-list-item {
+  --task-depth: 0;
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: stretch;
+  padding-left: calc(var(--task-depth) * 14px); border-bottom: 1px solid var(--border);
+}
+.task-list-item:hover { background: #efefec; }
+.task-list-item.collapsed { background: #f1f2ee; }
+.task-list-item.selected { background: #e5efed; box-shadow: inset 3px 0 var(--teal); }
+.task-list-item > .task-disclosure { align-self: center; }
+.task-list-item .task-hidden-count { color: var(--teal); font-weight: 600; }
+.task-row {
+  width: 100%; min-height: 64px; display: grid; grid-template-columns: 86px minmax(0, 1fr) 100px;
+  align-items: center; gap: 14px; border: 0; border-radius: 0;
+  padding: 9px 16px 9px 5px; text-align: left; background: transparent;
+}
 .task-state, .task-detail-state { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
 .state-ready { color: var(--teal); }
 .state-waiting { color: var(--yellow); }

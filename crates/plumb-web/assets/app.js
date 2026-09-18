@@ -16,6 +16,7 @@ import {
   localDateKey,
 } from './agenda-state.js';
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
+import { revealTask, taskListItems } from './task-tree.js';
 import {
   beginMutation,
   createRevisionState,
@@ -52,6 +53,7 @@ import {
     view: initialView,
     tasks: null,
     selectedTask: null,
+    collapsed: { documents: new Set(), tasks: new Set() },
     presets: { graph: [], tasks: ['ready', 'blocked'], agenda: [] },
     presetsSpecified: { graph: false, tasks: false, agenda: false },
     query: { graph: '', tasks: '', agenda: '' },
@@ -1197,6 +1199,107 @@ import {
     return task.state.charAt(0).toUpperCase() + task.state.slice(1);
   }
 
+  function countLabel(count, noun) {
+    return `${count} ${noun}${count === 1 ? '' : 's'}`;
+  }
+
+  function disclosureButton({ expanded, label, onClick }) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'task-disclosure';
+    button.setAttribute('aria-expanded', String(expanded));
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.textContent = expanded ? '▾' : '▸';
+    button.addEventListener('click', onClick);
+    return button;
+  }
+
+  function toggleTaskDocument(path) {
+    if (state.collapsed.documents.has(path)) state.collapsed.documents.delete(path);
+    else state.collapsed.documents.add(path);
+    renderTasks();
+  }
+
+  function toggleTaskSubtree(key) {
+    if (state.collapsed.tasks.has(key)) state.collapsed.tasks.delete(key);
+    else state.collapsed.tasks.add(key);
+    renderTasks();
+  }
+
+  function taskDocumentItem(item) {
+    const heading = document.createElement('button');
+    heading.type = 'button';
+    heading.className = 'task-document-group task-document-toggle';
+    heading.classList.toggle('collapsed', item.collapsed);
+    heading.setAttribute('aria-expanded', String(!item.collapsed));
+    heading.title = item.collapsed ? `Expand ${item.path}` : `Collapse ${item.path}`;
+    const mark = document.createElement('span');
+    mark.className = 'task-disclosure-mark';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = item.collapsed ? '▸' : '▾';
+    const path = document.createElement('span');
+    path.className = 'task-document-path';
+    path.textContent = item.path;
+    const count = document.createElement('span');
+    count.className = 'task-document-count';
+    count.textContent = item.collapsed
+      ? `${countLabel(item.total, 'task')} hidden`
+      : countLabel(item.total, 'task');
+    heading.append(mark, path, count);
+    heading.addEventListener('click', () => toggleTaskDocument(item.path));
+    return heading;
+  }
+
+  function taskListItem(item) {
+    const task = item.task;
+    const row = document.createElement('div');
+    row.className = 'task-list-item';
+    row.classList.toggle('selected', task.key === state.selectedTask);
+    row.classList.toggle('collapsed', item.collapsed);
+    row.style.setProperty('--task-depth', Math.min(task.depth, 5));
+    if (item.childCount > 0) {
+      row.append(disclosureButton({
+        expanded: !item.collapsed,
+        label: item.collapsed
+          ? `Expand ${countLabel(item.hiddenCount, 'hidden subtask')}`
+          : `Collapse ${countLabel(item.childCount, 'subtask')}`,
+        onClick: () => toggleTaskSubtree(task.key),
+      }));
+    } else {
+      const spacer = document.createElement('span');
+      spacer.className = 'task-disclosure task-disclosure-empty';
+      spacer.setAttribute('aria-hidden', 'true');
+      row.append(spacer);
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'task-row';
+    const stateLabel = document.createElement('span');
+    stateLabel.className = `task-state state-${task.state}${task.blocked ? ' blocked' : ''}`;
+    stateLabel.textContent = taskStateLabel(task);
+    const identity = document.createElement('span');
+    identity.className = 'task-identity';
+    const title = document.createElement('strong');
+    title.textContent = task.title || '(untitled task)';
+    const source = document.createElement('small');
+    source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
+    identity.append(title, source);
+    if (item.collapsed && item.hiddenCount > 0) {
+      const hidden = document.createElement('small');
+      hidden.className = 'task-hidden-count';
+      hidden.textContent = `${countLabel(item.hiddenCount, 'subtask')} hidden`;
+      identity.append(hidden);
+    }
+    const due = document.createElement('time');
+    due.textContent = task.due ? task.due.slice(0, 10) : 'No due date';
+    if (task.due) due.dateTime = task.due;
+    button.append(stateLabel, identity, due);
+    button.addEventListener('click', () => selectTask(task));
+    row.append(button);
+    return row;
+  }
+
   function renderTasks() {
     if (!state.tasks) return;
     const tasks = state.tasks.tasks;
@@ -1204,36 +1307,8 @@ import {
     taskEmpty.hidden = tasks.length > 0;
     newTaskButton.disabled = !config.taskMutations || !state.tasks.documents?.length || Boolean(state.pendingTask);
     taskSummary.textContent = `${tasks.length} tasks${state.tasks.complete ? '' : ' (truncated)'}`;
-    let previousPath = null;
-    tasks.forEach((task) => {
-      if (task.path !== previousPath) {
-        const heading = document.createElement('div');
-        heading.className = 'task-document-group';
-        heading.textContent = task.path;
-        taskList.append(heading);
-        previousPath = task.path;
-      }
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'task-row';
-      button.classList.toggle('selected', task.key === state.selectedTask);
-      button.style.setProperty('--task-depth', Math.min(task.depth, 5));
-      const stateLabel = document.createElement('span');
-      stateLabel.className = `task-state state-${task.state}${task.blocked ? ' blocked' : ''}`;
-      stateLabel.textContent = taskStateLabel(task);
-      const identity = document.createElement('span');
-      identity.className = 'task-identity';
-      const title = document.createElement('strong');
-      title.textContent = task.title || '(untitled task)';
-      const source = document.createElement('small');
-      source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
-      identity.append(title, source);
-      const due = document.createElement('time');
-      due.textContent = task.due ? task.due.slice(0, 10) : 'No due date';
-      if (task.due) due.dateTime = task.due;
-      button.append(stateLabel, identity, due);
-      button.addEventListener('click', () => selectTask(task));
-      taskList.append(button);
+    taskListItems(tasks, state.collapsed).forEach((item) => {
+      taskList.append(item.kind === 'document' ? taskDocumentItem(item) : taskListItem(item));
     });
     if (state.tasks.nextCursor) {
       const more = document.createElement('button');
@@ -1251,6 +1326,7 @@ import {
   }
 
   function selectTask(task) {
+    revealTask(state.collapsed, state.tasks.tasks, task);
     state.selectedTask = task.key;
     updateUrl();
     renderTasks();
@@ -1676,6 +1752,7 @@ import {
       await loadTasks();
       const selected = state.tasks.tasks.find((candidate) => candidate.title === fields.title && candidate.documentId === document.id);
       state.selectedTask = selected?.key || task?.key || null;
+      if (selected) revealTask(state.collapsed, state.tasks.tasks, selected);
       renderTasks(); updateUrl(); notify(`Task ${action}d.`);
     } catch (error) {
       await loadTasks();
@@ -1803,6 +1880,11 @@ import {
         const id = state.selectedGraph || state.current;
         const node = state.renderedNodes.find((candidate) => candidate.id === id);
         if (node) selectNode(node);
+      });
+    } else if (state.view === 'tasks' && state.selectedTask) {
+      initialLoad.then(() => {
+        const selected = taskByKey(state.tasks, state.selectedTask);
+        if (selected && revealTask(state.collapsed, state.tasks.tasks, selected)) renderTasks();
       });
     }
   }).catch((error) => notify(`Cannot load query presets: ${error}`, true));
