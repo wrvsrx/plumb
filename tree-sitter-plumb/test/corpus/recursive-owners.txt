@@ -18,8 +18,8 @@ anonymous owner
     (inline_content
       (text)
       (space)
-      (text)))
-  (paragraph
+      (text))
+    (soft_break)
     (inline_content
       (text)
       (space)
@@ -32,9 +32,8 @@ anonymous owner
     (marker)
     (inline_content
       (space)
-      (text)))
-  (paragraph
-    (inline_content
+      (text)
+      (soft_break)
       (text)
       (space)
       (text))
@@ -107,9 +106,8 @@ Marked and anonymous children
         (marker)
         (inline_content
           (space)
-          (text)))
-      (paragraph
-        (inline_content
+          (text)
+          (soft_break)
           (text)
           (space)
           (text))
@@ -155,8 +153,8 @@ Empty {} and nested {outer {inner}}.
         (inline_kind)
         (inline_content
           (text)))
-      (text)))
-  (paragraph
+      (text))
+    (soft_break)
     (inline_content
       (marked_group
         (introducer)
@@ -180,8 +178,8 @@ Empty {} and nested {outer {inner}}.
             (inline_kind)
             (inline_content
               (text)))
-          (space)))))
-  (paragraph
+          (space))))
+    (soft_break)
     (inline_content
       (text)
       (space)
@@ -223,8 +221,8 @@ Brackets [are] and pipe | is ordinary.
       (space)
       (brace_escape)
       (space)
-      (text)))
-  (paragraph
+      (text))
+    (soft_break)
     (inline_content
       (text)
       (space)
@@ -266,13 +264,13 @@ Inline verbatim
       (inline_verbatim
         (introducer)
         (verbatim_kind)
-        (raw_text))))
-  (paragraph
+        (raw_text)))
+    (soft_break)
     (inline_content
       (inline_verbatim
         (introducer)
-        (raw_text))))
-  (paragraph
+        (raw_text)))
+    (soft_break)
     (inline_content
       (inline_verbatim
         (introducer)
@@ -369,11 +367,11 @@ Unexpected } close
         (introducer)
         (inline_kind)
         (inline_content
-          (text)))))
-  (paragraph
+          (text))))
+    (soft_break)
     (inline_content
-      (text)))
-  (paragraph
+      (text))
+    (soft_break)
     (inline_content
       (text)
       (space))

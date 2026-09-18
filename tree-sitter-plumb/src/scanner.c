@@ -327,32 +327,12 @@ static bool scan_inline_child_kind(TSLexer *lexer) {
   return true;
 }
 
-static bool scan_paragraph_continue(Scanner *scanner, TSLexer *lexer) {
-  if (lexer->lookahead != '\n') return false;
-  take(lexer);
-
-  uint16_t column = 0;
-  while (lexer->lookahead == ' ' && column < scanner->indents[scanner->depth]) {
-    take(lexer);
-    column++;
-  }
-
-  if (column != scanner->indents[scanner->depth] ||
-      lexer->lookahead == ' ' || lexer->lookahead == '\n' ||
-      lexer->lookahead == 0) {
-    return false;
-  }
-
-  lexer->mark_end(lexer);
-  if (lexer->lookahead == '`') {
-    enum BacktickDispatch dispatch = classify_backtick_dispatch(lexer);
-    if (!is_inline_dispatch(dispatch)) return false;
-  }
-  lexer->result_symbol = PARAGRAPH_CONTINUE;
-  return true;
-}
-
-static bool scan_inline_continue(Scanner *scanner, TSLexer *lexer) {
+// A plain line continues the open block at its own column (PARAGRAPH_CONTINUE)
+// or deeper (INLINE_CONTINUE). Both spellings start with the same line ending,
+// so a single consumption path decides between them: attempting one and then
+// the other would leave the newline consumed on failure.
+static bool scan_continue(Scanner *scanner, TSLexer *lexer,
+                          const bool *valid_symbols) {
   if (lexer->lookahead != '\n') return false;
   take(lexer);
 
@@ -364,16 +344,21 @@ static bool scan_inline_continue(Scanner *scanner, TSLexer *lexer) {
   }
   if (column != required) return false;
 
-  if (lexer->lookahead != ' ') return false;
-  while (lexer->lookahead == ' ') take(lexer);
+  bool deeper = lexer->lookahead == ' ';
+  if (deeper) {
+    if (!valid_symbols[INLINE_CONTINUE]) return false;
+    while (lexer->lookahead == ' ') take(lexer);
+  } else if (!valid_symbols[PARAGRAPH_CONTINUE]) {
+    return false;
+  }
   if (lexer->lookahead == '\n' || lexer->lookahead == 0) return false;
+
+  lexer->mark_end(lexer);
   if (lexer->lookahead == '`') {
     enum BacktickDispatch dispatch = classify_backtick_dispatch(lexer);
     if (!is_inline_dispatch(dispatch)) return false;
   }
-
-  lexer->mark_end(lexer);
-  lexer->result_symbol = INLINE_CONTINUE;
+  lexer->result_symbol = deeper ? INLINE_CONTINUE : PARAGRAPH_CONTINUE;
   return true;
 }
 
@@ -497,11 +482,10 @@ bool tree_sitter_plumb_external_scanner_scan(void *payload, TSLexer *lexer,
   if (valid_symbols[RAW_CODE_LINE] && lexer->get_column(lexer) == 0) {
     return scan_raw_code_line(scanner, lexer, valid_symbols);
   }
-  if (valid_symbols[PARAGRAPH_CONTINUE] && lexer->lookahead == '\n') {
-    return scan_paragraph_continue(scanner, lexer);
-  }
-  if (valid_symbols[INLINE_CONTINUE] && lexer->lookahead == '\n') {
-    return scan_inline_continue(scanner, lexer);
+  if ((valid_symbols[PARAGRAPH_CONTINUE] || valid_symbols[INLINE_CONTINUE]) &&
+      lexer->lookahead == '\n') {
+    if (scan_continue(scanner, lexer, valid_symbols)) return true;
+    return false;
   }
   if (scan_layout(scanner, lexer, valid_symbols)) return true;
   if (valid_symbols[INCOMPLETE_INLINE_END] &&
