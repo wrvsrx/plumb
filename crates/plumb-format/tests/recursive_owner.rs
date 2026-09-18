@@ -13,10 +13,10 @@ fn canonicalizes_recursive_owners_and_spaces() {
 }
 
 #[test]
-fn preserves_continuations_and_normalizes_their_structural_indentation() {
+fn preserves_continuation_structural_indentation() {
     assert_eq!(
         format("`= title\n    inline   value\n").unwrap(),
-        "`= title\n inline   value\n"
+        "`= title\n    inline   value\n"
     );
     assert_eq!(
         format("`= title\n\n block value\n").unwrap(),
@@ -25,9 +25,9 @@ fn preserves_continuations_and_normalizes_their_structural_indentation() {
 
     let crlf = "`node\r\n    head   value\r\n";
     let parsed = parse(crlf);
-    assert_eq!(format(crlf).unwrap(), "`node\r\n head   value\r\n");
+    assert_eq!(format(crlf).unwrap(), "`node\r\n    head   value\r\n");
     let edit = format_block_range(crlf, parsed.syntax.blocks[0].range().clone()).unwrap();
-    assert_eq!(edit.new_text, "`node\r\n head   value\r\n");
+    assert_eq!(edit.new_text, "`node\r\n    head   value\r\n");
 }
 
 #[test]

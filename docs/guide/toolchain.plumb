@@ -62,8 +62,8 @@ direct declaration completion 由 recovered syntax owner 决定：task/event pro
 `"plumb fmt" 对 syntax-valid document canonicalize recursive owners。anonymous/marked parsed owner 的 children
 统一深一列；owner 与 first child 之间 one line ending，different sibling kinds 可保留一个 blank separator。
 已有 block InlineContents 的 source spelling 保持不变，包括 element间 SpaceRun width、group boundary padding、escape spelling
-与 inline verbatim delimiter strength。formatter 保留 continuation physical wrapping，只把 continuation structural
-indentation 规范化为 owner column 加一并移除 line-end padding；marker 与同一行首个 content element之间规范化为 one ASCII space。
+与 inline verbatim delimiter strength。formatter 保留 continuation physical wrapping 与 structural indentation，只移除
+line-end padding；marker 与同一行首个 content element之间规范化为 one ASCII space。
 explicit Align arguments 可以扩大 direct SpaceRun，formatter 不主动对齐或撤销对齐。
 
 新建或替换 syntax 由 plumb-edit 选择 canonical group/escape 与 minimal compact/full inline verbatim quote strength。

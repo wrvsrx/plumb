@@ -45,7 +45,7 @@ canonical rules 生成：
 已有 valid source 的 formatter 只管理 block layout。它保持 InlineContents 中现有的 Text、element间 SpaceRun、Group 与
 Verbatim source bytes，包括 group boundary padding、escape spelling 与 verbatim delimiter strength。formatter
 不插入、删除或折叠 physical wrapping；SoftBreak 的 line ending 保持 document style，其 structural indentation
-规范化为 owner column 加一 ASCII space。marked block 与同一 physical line 首个 content element之间规范化为 one
+保持 source spelling。marked block 与同一 physical line 首个 content element之间规范化为 one
 ASCII space；line-end padding 不保留。CRLF edits 保持 document line ending。
 
 `# 4. Spacing between blocks

@@ -88,9 +88,8 @@ repeated spaces 不产生 empty positional element。
  continues at the same column
 
 physical boundary 与 structural indentation losslessly 形成 SoftBreak，typed
-plain-text/argument projection把它视为一个 semantic space。formatter 保留 physical wrapping：structural indentation
-为空的 continuation 停留在 owner column，非空的规范化为 owner column 加一 ASCII space；line-end padding 移除，
-其余 inline source bytes 不变。
+plain-text/argument projection把它视为一个 semantic space。formatter 保留 physical wrapping 与 continuation 的
+structural indentation，只移除 line-end padding；其余 inline source bytes 不变。
 
 以 introducer 开头的行结束 preceding open block 并开始自己的 block：更深的缩进使它成为 preceding parsed owner
 的 child，同列的则是 sibling。marked/verbatim child 不要求前置 blank line。blank line 同样结束 open block，其后

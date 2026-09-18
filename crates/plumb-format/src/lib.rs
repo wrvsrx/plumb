@@ -756,10 +756,10 @@ impl<'a> Formatter<'a> {
             self.output.push('`');
             self.output.push_str(marker);
             if has_content {
-                self.block_content(&block.content, indent, true);
+                self.block_content(&block.content, true);
             }
         } else {
-            self.block_content(&block.content, indent, false);
+            self.block_content(&block.content, false);
         }
 
         if !block.children.is_empty() {
@@ -774,7 +774,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn block_content(&mut self, content: &InlineContent, indent: usize, marked: bool) {
+    fn block_content(&mut self, content: &InlineContent, marked: bool) {
         let first = content
             .items
             .iter()
@@ -796,12 +796,12 @@ impl<'a> Formatter<'a> {
             .iter()
             .find(|inline| matches!(inline, Inline::SoftBreak { .. }))
         {
-            self.soft_break(self.continuation_indent(leading, indent));
+            self.soft_break(self.continuation_indent(leading));
         }
         let body = &content.items[first..=last];
         for (index, inline) in body.iter().enumerate() {
             if matches!(inline, Inline::SoftBreak { .. }) {
-                self.soft_break(self.continuation_indent(inline, indent));
+                self.soft_break(self.continuation_indent(inline));
             } else if matches!(inline, Inline::Space { .. })
                 && body
                     .get(index + 1)
@@ -815,14 +815,14 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// A continuation line keeps the owner column when the source used no
-    /// structural indentation, and is otherwise normalized to owner column plus
-    /// one ASCII space.
-    fn continuation_indent(&self, inline: &Inline, indent: usize) -> usize {
-        match inline {
-            Inline::SoftBreak { range } if self.source[range.clone()].ends_with(' ') => indent + 1,
-            _ => indent,
-        }
+    /// A continuation line keeps its own structural indentation; the formatter
+    /// only removes line-end padding.
+    fn continuation_indent(&self, inline: &Inline) -> usize {
+        let Inline::SoftBreak { range } = inline else {
+            return 0;
+        };
+        let text = &self.source[range.clone()];
+        text.len() - text.trim_end_matches(' ').len()
     }
 
     fn soft_break(&mut self, indent: usize) {
@@ -947,12 +947,12 @@ mod tests {
     }
 
     #[test]
-    fn keeps_same_column_continuation_at_the_owner_column() {
+    fn preserves_continuation_structural_indentation() {
         assert_formats("para1\ncontinuation\n", "para1\ncontinuation\n");
         assert_formats("`note head\nwrapped\n", "`note head\nwrapped\n");
         assert_formats("`note\ncontent\n", "`note\ncontent\n");
-        assert_formats("para1\n   deeper\n", "para1\n deeper\n");
-        assert_formats("`note head\n      deeper\n", "`note head\n deeper\n");
+        assert_formats("para1\n   deeper\n", "para1\n   deeper\n");
+        assert_formats("`note head\n      deeper\n", "`note head\n      deeper\n");
     }
 
     #[test]
@@ -1004,7 +1004,7 @@ mod tests {
         );
         assert_formats(
             "`note First   \n    continuation   \n",
-            "`note First\n continuation\n",
+            "`note First\n    continuation\n",
         );
     }
 
