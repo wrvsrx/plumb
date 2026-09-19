@@ -69,6 +69,7 @@ import {
     agendaPositioned: false,
     agendaRange: null,
     workspaceRevision: createRevisionState(),
+    detailForms: { tasks: false, agenda: false },
   };
 
   const graphElement = document.getElementById('graph');
@@ -99,7 +100,164 @@ import {
   const agendaNowButton = document.getElementById('agenda-now');
   const eventEmpty = document.getElementById('event-empty');
   const eventPanel = document.getElementById('event-panel');
+  const shellMore = document.getElementById('shell-more');
+  const shellMenu = document.getElementById('shell-menu');
+  const sheet = document.getElementById('sheet');
+  const sheetBody = document.getElementById('sheet-body');
+  const sheetClose = document.getElementById('sheet-close');
+  const scrim = document.getElementById('scrim');
+  const detailBack = document.getElementById('detail-back');
+  const detailBackLabel = document.getElementById('detail-back-label');
+  const newEventFab = document.getElementById('new-event-fab');
+  const graphFilters = document.querySelector('.graph-filters');
+  const taskFilters = document.querySelector('.task-filters');
+  const graphSortLabel = graphFilters.querySelector('.query-sort-label');
+  const graphSortSelect = graphFilters.querySelector('.query-sort');
+  const celClauses = {
+    graph: graphFilters.querySelector('.cel-clauses'),
+    tasks: taskFilters.querySelector('.cel-clauses'),
+  };
+  const taskSort = taskFilters.querySelector('.task-sort');
+  const edgeOptions = graphFilters.querySelector('.edge-options');
+  const labelsLabel = graphFilters.querySelector('.labels-label');
+  const modeGroup = globalMode.closest('.mode');
+  const directionLabel = direction.closest('label');
+  const depthLabel = depth.closest('label');
+  const fitButton = document.getElementById('fit');
+  const viewHeads = Array.from(document.querySelectorAll('.view-head'));
+  const graphOnlyShell = [];
+  const taskOnlyShell = [];
+  const narrowQuery = window.matchMedia('(max-width: 899px)');
   let notificationTimer;
+  state.narrow = narrowQuery.matches;
+
+  // Narrow shell: controls move between the wide toolbar / filters rows and the
+  // overflow menu / filter sheet, while staying the same DOM nodes.
+  const shellMoves = [];
+  const shellHomes = new Map();
+
+  function registerShellMove(element, host) {
+    const home = element.parentNode;
+    if (!shellHomes.has(home)) shellHomes.set(home, Array.from(home.children));
+    shellMoves.push({ element, host, home });
+  }
+
+  graphOnlyShell.push(graphSortLabel, edgeOptions, labelsLabel, celClauses.graph);
+  taskOnlyShell.push(taskSort, celClauses.tasks);
+  registerShellMove(graphSortLabel, sheetBody);
+  registerShellMove(edgeOptions, sheetBody);
+  registerShellMove(labelsLabel, sheetBody);
+  registerShellMove(taskSort, sheetBody);
+  registerShellMove(modeGroup, shellMenu);
+  registerShellMove(directionLabel, shellMenu);
+  registerShellMove(depthLabel, shellMenu);
+  registerShellMove(fitButton, shellMenu);
+  registerShellMove(agendaNowButton, shellMenu);
+  registerShellMove(summary, shellMenu);
+  registerShellMove(taskSummary, document.querySelector('.task-list-pane .view-head-extra'));
+  for (const clauses of Object.values(celClauses)) registerShellMove(clauses, sheetBody);
+
+  function shellMenuHasItems() {
+    return Array.from(shellMenu.children).some((element) => !element.hidden);
+  }
+
+  function syncShell() {
+    state.narrow = narrowQuery.matches;
+    if (state.narrow) {
+      for (const move of shellMoves) move.host.append(move.element);
+      summary.hidden = state.view !== 'graph';
+      newEventFab.disabled = !config.eventMutations || !state.events?.documents.length;
+    } else {
+      for (const [home, order] of shellHomes) {
+        for (const child of order) home.append(child);
+      }
+      summary.hidden = false;
+      taskSummary.hidden = false;
+      agendaNowButton.hidden = false;
+      for (const element of graphOnlyShell) element.hidden = false;
+      for (const element of taskOnlyShell) element.hidden = false;
+    }
+    shellMore.hidden = !state.narrow || !shellMenuHasItems();
+    newEventFab.hidden = !state.narrow;
+    for (const head of viewHeads) head.hidden = !state.narrow;
+    document.querySelectorAll('.search-toggle, .filters-toggle').forEach((button) => {
+      button.hidden = !state.narrow;
+    });
+    closeShellMenu();
+    closeSheet();
+    syncDetail();
+  }
+
+  function openShellMenu() {
+    if (!state.narrow) return;
+    closeSheet();
+    shellMenu.hidden = false;
+    shellMore.setAttribute('aria-expanded', 'true');
+    syncScrim();
+  }
+
+  function closeShellMenu() {
+    shellMenu.hidden = true;
+    shellMore.setAttribute('aria-expanded', 'false');
+    syncScrim();
+  }
+
+  function openSheet() {
+    if (!state.narrow) return;
+    closeShellMenu();
+    sheet.hidden = false;
+    syncScrim();
+  }
+
+  function closeSheet() {
+    sheet.hidden = true;
+    syncScrim();
+  }
+
+  function syncScrim() {
+    if (!state.narrow) {
+      scrim.hidden = true;
+      return;
+    }
+    const modal = !sheet.hidden || !shellMenu.hidden;
+    const agendaSheet = state.view === 'agenda' && document.body.classList.contains('detail-open');
+    scrim.hidden = !(modal || agendaSheet);
+  }
+
+  function detailOpenFor(view) {
+    if (view === 'tasks') return Boolean(state.selectedTask) || state.detailForms.tasks;
+    if (view === 'agenda') return Boolean(state.selectedEvent) || state.detailForms.agenda;
+    return Boolean(state.selectedGraph || state.current);
+  }
+
+  // Narrow screens present the detail as a pushed page (or sheet for events);
+  /// wide screens keep it inline in the split layout.
+  function syncDetail() {
+    const open = state.narrow && detailOpenFor(state.view);
+    document.body.classList.toggle('detail-open', open);
+    // A bottom sheet already carries its own dismissal affordances.
+    detailBack.hidden = !open || state.view === 'agenda';
+    if (open) {
+      detailBackLabel.textContent = state.view === 'tasks' ? 'Tasks' : (state.view === 'agenda' ? 'Agenda' : 'Graph');
+    }
+    syncScrim();
+  }
+
+  function closeDetail() {
+    if (state.view === 'tasks') {
+      state.selectedTask = null;
+      renderTasks();
+    } else if (state.view === 'agenda') {
+      state.selectedEvent = null;
+      renderEvents();
+    } else {
+      state.current = null;
+      state.selectedGraph = null;
+      panel.innerHTML = '<div class="note-empty"><h1>Workspace graph</h1><p>Select a note to inspect its content and backlinks.</p></div>';
+    }
+    updateUrl();
+    syncDetail();
+  }
 
   function readUrlState() {
     state.view = viewFromPath(location.pathname);
@@ -119,7 +277,7 @@ import {
       depth.value = query.depth;
       direction.value = query.direction;
       if (query.kinds.length) {
-        document.querySelectorAll('.graph-filters .edge-options input[value]').forEach((input) => {
+        edgeOptions.querySelectorAll('input[value]').forEach((input) => {
           input.checked = query.kinds.includes(input.value);
         });
       }
@@ -146,7 +304,8 @@ import {
       direction: direction.value,
       kinds: state.view === 'graph' ? selectedKinds() : [],
     });
-    history[mode === 'push' ? 'pushState' : 'replaceState']({}, '', url);
+    const payload = mode === 'push' ? { plumb: true, detail: detailOpenFor(state.view) } : null;
+    history[mode === 'push' ? 'pushState' : 'replaceState'](payload, '', url);
   }
 
   function notify(message, error = false) {
@@ -303,10 +462,8 @@ import {
   function syncQueryControls(view) {
     search.value = state.query.graph;
     taskSearch.value = state.query.tasks;
-    const container = document.querySelector(`.${view === 'graph' ? 'graph' : 'task'}-filters`);
     renderCelClauses(view);
-    const sort = container.querySelector('.query-sort');
-    if (sort) sort.value = state.sort[view][0] || 'source';
+    if (view === 'graph') graphSortSelect.value = state.sort[view][0] || 'source';
     if (view === 'tasks') renderTaskSortKeys();
     renderPresetControls(view);
   }
@@ -361,7 +518,7 @@ import {
   }
 
   function renderCelClauses(view, { focusLast = false } = {}) {
-    const container = document.querySelector(`.${view === 'graph' ? 'graph' : 'task'}-filters .cel-clauses`);
+    const container = celClauses[view];
     container.replaceChildren();
     state.filters[view].forEach((value, index) => {
       const clause = document.createElement('label');
@@ -405,7 +562,7 @@ import {
   }
 
   function selectedKinds() {
-    return Array.from(document.querySelectorAll('.graph-filters .edge-options input[value]:checked')).map((input) => input.value);
+    return Array.from(edgeOptions.querySelectorAll('input[value]:checked')).map((input) => input.value);
   }
 
   function queryRequest(view, cursor = null) {
@@ -588,7 +745,7 @@ import {
       .linkTarget('target')
       .minZoom(0.1)
       .maxZoom(8)
-      .onNodeClick((node) => { if (isNodeVisible(node)) selectNode(node); })
+      .onNodeClick((node) => { if (isNodeVisible(node)) selectNode(node, { history: state.narrow ? 'push' : 'replace' }); })
       .onNodeHover(handleNodeHover)
       .onBackgroundClick(() => handleNodeHover(null));
     window.plumbGraph = state.graphView;
@@ -741,7 +898,10 @@ import {
   }
 
   function renderOverview(hubs, nodeCount, edgeCount) {
-    if (state.current) return;
+    if (state.current) {
+      syncDetail();
+      return;
+    }
     panel.innerHTML = '<div class="note-empty"><h1>Workspace graph</h1><p></p><h2>Most connected</h2><ol class="hub-list"></ol></div>';
     panel.querySelector('p').textContent = `${nodeCount} notes and ${edgeCount} connections`;
     const list = panel.querySelector('.hub-list');
@@ -755,7 +915,7 @@ import {
       button.addEventListener('click', () => {
         state.graphView.centerAt(node.x, node.y, 0);
         state.graphView.zoom(Math.max(1.4, state.graphView.zoom()), 0);
-        selectNode(node);
+        selectNode(node, { history: state.narrow ? 'push' : 'replace' });
       });
       item.append(button, count);
       list.append(item);
@@ -774,10 +934,11 @@ import {
     if (target) requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }));
   }
 
-  async function selectNode(node, { fragment = '' } = {}) {
+  async function selectNode(node, { fragment = '', history = 'replace' } = {}) {
     state.current = node.id;
     state.selectedGraph = node.id;
-    updateUrl();
+    updateUrl(history);
+    syncDetail();
     refreshStyles();
     if (node.unresolved) {
       panel.innerHTML = '<div class="note-empty"><h1></h1><p>Unresolved target</p></div>';
@@ -807,7 +968,7 @@ import {
     }
   }
 
-  async function selectDocument(documentId, fragment) {
+  async function selectDocument(documentId, fragment, history = 'replace') {
     let node = state.renderedNodes.find((candidate) => candidate.id === documentId && isNodeVisible(candidate));
     if (!node && state.query.graph) {
       state.query.graph = '';
@@ -822,7 +983,7 @@ import {
     }
     if (!node) return;
     state.graphView.centerAt(node.x, node.y, 300);
-    selectNode(node, { fragment });
+    selectNode(node, { fragment, history });
   }
 
   function setLocal(local) {
@@ -872,6 +1033,7 @@ import {
 
   function showView(view, { historyMode = null, load = true } = {}) {
     state.view = view;
+    document.body.dataset.view = view;
     const graphActive = view === 'graph';
     const tasksActive = view === 'tasks';
     const agendaActive = view === 'agenda';
@@ -880,12 +1042,22 @@ import {
     agendaWorkspace.hidden = !agendaActive;
     document.querySelectorAll('.graph-control, .graph-filters').forEach((element) => { element.hidden = !graphActive; });
     document.querySelectorAll('.task-control, .task-filters').forEach((element) => { element.hidden = !tasksActive; });
+    if (state.narrow) {
+      summary.hidden = !graphActive;
+      agendaNowButton.hidden = !agendaActive;
+      for (const element of graphOnlyShell) element.hidden = !graphActive;
+      for (const element of taskOnlyShell) element.hidden = !tasksActive;
+      shellMore.hidden = !shellMenuHasItems();
+    }
     graphViewButton.classList.toggle('active', graphActive);
     tasksViewButton.classList.toggle('active', tasksActive);
     agendaViewButton.classList.toggle('active', agendaActive);
     graphViewButton.setAttribute('aria-selected', String(graphActive));
     tasksViewButton.setAttribute('aria-selected', String(tasksActive));
     agendaViewButton.setAttribute('aria-selected', String(agendaActive));
+    closeShellMenu();
+    closeSheet();
+    document.querySelectorAll('.filters').forEach((element) => element.classList.remove('searching'));
     if (graphActive) {
       state.graphView?.width(graphElement.clientWidth).height(graphElement.clientHeight);
     }
@@ -896,6 +1068,7 @@ import {
       else if (tasksActive) loadTasks();
       else loadEvents();
     }
+    syncDetail();
   }
 
   async function loadTasks(cursor = null) {
@@ -1022,7 +1195,7 @@ import {
       source.textContent = event.path;
       identity.append(title, source);
       button.append(time, identity);
-      button.addEventListener('click', () => selectEvent(event, button));
+      button.addEventListener('click', () => selectEvent(event, button, { history: state.narrow ? 'push' : 'replace' }));
       eventList.append(button);
     });
     if (nowIndex === state.events.events.length) appendCurrentTime();
@@ -1030,6 +1203,7 @@ import {
     const selected = state.events.events.find((event) => event.key === state.selectedEvent);
     if (selected) renderEventDetail(selected);
     else renderNewEventPrompt();
+    syncDetail();
     if (positionNow) requestAnimationFrame(() => scrollAgendaToNow());
   }
 
@@ -1050,18 +1224,22 @@ import {
     return `${startLabel}-${end.toLocaleTimeString([], EVENT_TIME_OPTIONS)}`;
   }
 
-  function selectEvent(event, button = null) {
+  function selectEvent(event, button = null, { history = 'replace' } = {}) {
     eventList.querySelector('.event-row.selected')?.classList.remove('selected');
     state.selectedEvent = event.key;
     button?.classList.add('selected');
-    updateUrl();
+    updateUrl(history);
     renderEventDetail(event);
+    syncDetail();
   }
 
   function renderNewEventPrompt() {
+    state.detailForms.agenda = false;
     eventPanel.innerHTML = '<div class="note-empty"><h1>Workspace agenda</h1><p>Select an event or create a new one.</p><button id="new-event" type="button">New event</button></div>';
     eventPanel.querySelector('#new-event').disabled = !config.eventMutations || !state.events.documents.length;
     eventPanel.querySelector('#new-event').addEventListener('click', () => renderEventForm());
+    newEventFab.disabled = eventPanel.querySelector('#new-event').disabled;
+    syncDetail();
   }
 
   function localDateTimeValue(value) {
@@ -1072,6 +1250,7 @@ import {
   }
 
   function renderEventDetail(event) {
+    state.detailForms.agenda = false;
     eventPanel.innerHTML = `
       <article class="event-detail">
         <header><p class="document-path"></p><h1></h1></header>
@@ -1093,6 +1272,8 @@ import {
     eventPanel.querySelector('.edit-event').addEventListener('click', () => renderEventForm(event));
     eventPanel.querySelector('.delete-event').addEventListener('click', () => mutateEvent('delete', event));
     eventPanel.querySelector('.new-event').addEventListener('click', () => renderEventForm());
+    syncDetail();
+    newEventFab.disabled = eventPanel.querySelector('.new-event').disabled;
   }
 
   function renderEventForm(event = null) {
@@ -1139,6 +1320,8 @@ import {
       mutateEvent(event ? 'update' : 'create', event, form);
     });
     form.querySelector('.cancel-event').addEventListener('click', () => event ? renderEventDetail(event) : renderNewEventPrompt());
+    state.detailForms.agenda = true;
+    syncDetail();
   }
 
   async function mutateEvent(action, event = null, form = null) {
@@ -1295,7 +1478,7 @@ import {
     due.textContent = task.due ? task.due.slice(0, 10) : 'No due date';
     if (task.due) due.dateTime = task.due;
     button.append(stateLabel, identity, due);
-    button.addEventListener('click', () => selectTask(task));
+    button.addEventListener('click', () => selectTask(task, { history: state.narrow ? 'push' : 'replace' }));
     row.append(button);
     return row;
   }
@@ -1323,20 +1506,24 @@ import {
       if (selected) renderTaskDetail(selected);
       else clearTaskDetail('Task unavailable', 'This task is no longer in the workspace.');
     }
+    syncDetail();
   }
 
-  function selectTask(task) {
+  function selectTask(task, { history = 'replace' } = {}) {
     revealTask(state.collapsed, state.tasks.tasks, task);
     state.selectedTask = task.key;
-    updateUrl();
+    updateUrl(history);
     renderTasks();
     renderTaskDetail(task);
+    syncDetail();
   }
 
   function clearTaskDetail(title, message) {
+    state.detailForms.tasks = false;
     taskPanel.innerHTML = '<div class="note-empty"><h1></h1><p></p></div>';
     taskPanel.querySelector('h1').textContent = title;
     taskPanel.querySelector('p').textContent = message;
+    syncDetail();
   }
 
   function addTaskField(list, label, value, { editable = false, property = null, task = null } = {}) {
@@ -1360,6 +1547,7 @@ import {
   }
 
   function renderTaskDetail(task) {
+    state.detailForms.tasks = false;
     taskPanel.innerHTML = `
       <article class="task-detail">
         <header><p class="document-path"></p><h1></h1><span class="task-detail-state"></span></header>
@@ -1394,7 +1582,7 @@ import {
     taskPanel.querySelector('.edit-task').addEventListener('click', () => renderTaskForm(task));
     taskPanel.querySelector('.open-note').addEventListener('click', () => {
       showView('graph', { historyMode: 'push' });
-      selectDocument(task.documentId, '');
+      selectDocument(task.documentId, '', state.narrow ? 'push' : 'replace');
     });
     const missing = missingTaskProperties(task);
     const addProperty = taskPanel.querySelector('.add-task-property');
@@ -1423,7 +1611,7 @@ import {
         const button = document.createElement('button');
         button.type = 'button';
         button.textContent = `${taskStateLabel(child)}  ${child.title || '(untitled task)'}`;
-        button.addEventListener('click', () => selectTask(child));
+        button.addEventListener('click', () => selectTask(child, { history: state.narrow ? 'push' : 'replace' }));
         list.append(button);
       });
     }
@@ -1703,6 +1891,10 @@ import {
     form.elements.referenceSearch.addEventListener('input', searchReferences);
     form.addEventListener('submit', (event) => { event.preventDefault(); mutateTaskForm(task, form); });
     form.querySelector('.cancel-task-form').addEventListener('click', () => task ? renderTaskDetail(task) : clearTaskDetail('Workspace tasks', 'Select a task to inspect its fields and dependencies.'));
+    // A newly opened form is its own pushed detail on narrow screens.
+    state.detailForms.tasks = true;
+    form.elements.title.focus();
+    syncDetail();
   }
 
   function formDate(value) {
@@ -1828,7 +2020,7 @@ import {
   agendaNowButton.addEventListener('click', () => {
     loadEvents().then(() => scrollAgendaToNow('smooth'));
   });
-  document.querySelectorAll('.graph-filters .edge-options input[value]').forEach((input) => input.addEventListener('change', () => {
+  edgeOptions.querySelectorAll('input[value]').forEach((input) => input.addEventListener('change', () => {
     updateUrl();
     loadGraph();
   }));
@@ -1842,7 +2034,39 @@ import {
       state.sortsSpecified[view] = true;
       updateUrl(); runViewQuery(view);
     });
+    container.querySelector('.search-toggle')?.addEventListener('click', () => {
+      const open = !container.classList.contains('searching');
+      container.classList.toggle('searching', open);
+      container.querySelector('.search-toggle').setAttribute('aria-expanded', String(open));
+      if (open) container.querySelector('.fuzzy-clause input')?.focus();
+    });
+    container.querySelector('.filters-toggle')?.addEventListener('click', openSheet);
   });
+  shellMore.addEventListener('click', () => { if (shellMenu.hidden) openShellMenu(); else closeShellMenu(); });
+  shellMenu.addEventListener('click', (event) => { if (event.target.closest('button')) closeShellMenu(); });
+  sheetClose.addEventListener('click', closeSheet);
+  scrim.addEventListener('click', () => {
+    if (!sheet.hidden) return closeSheet();
+    if (!shellMenu.hidden) return closeShellMenu();
+    // The agenda sheet is the pushed detail, so dismissing the scrim closes it.
+    if (document.body.classList.contains('detail-open')) {
+      if (history.state && history.state.detail) history.back();
+      else closeDetail();
+    }
+  });
+  detailBack.addEventListener('click', () => {
+    if (history.state && history.state.detail) history.back();
+    else closeDetail();
+  });
+  newEventFab.addEventListener('click', () => { closeDetail(); renderNewEventPrompt(); renderEventForm(); });
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (!sheet.hidden) closeSheet();
+    else if (!shellMenu.hidden) closeShellMenu();
+  });
+  const onNarrowChange = () => syncShell();
+  if (narrowQuery.addEventListener) narrowQuery.addEventListener('change', onNarrowChange);
+  else narrowQuery.addListener(onNarrowChange);
   document.querySelector('.task-sort-add').addEventListener('change', (event) => {
     if (event.target.value) changeTaskSort(addSortKey(state.sort.tasks, event.target.value));
     event.target.value = '';
@@ -1859,7 +2083,7 @@ import {
     const link = event.target.closest('.note-content a[data-plumb-document]');
     if (!link || link.download || (link.target && link.target !== '_self')) return;
     event.preventDefault();
-    selectDocument(link.dataset.plumbDocument, new URL(link.href, location.href).hash);
+    selectDocument(link.dataset.plumbDocument, new URL(link.href, location.href).hash, state.narrow ? 'push' : 'replace');
   });
 
   if (config.eventsUrl && window.EventSource) {
@@ -1872,6 +2096,7 @@ import {
   });
 
   readUrlState();
+  syncShell();
   loadPresetRegistry().then(() => {
     showView(state.view, { load: false });
     const initialLoad = runViewQuery(state.view);

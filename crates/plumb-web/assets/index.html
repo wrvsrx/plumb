@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="color-scheme" content="light">
   <title>plumb workspace</title>
   <link rel="stylesheet" href="__ASSET_PREFIX__styles.css">
@@ -33,8 +33,19 @@
     </label>
     <button id="fit" class="graph-control" type="button">Fit graph</button>
     <button id="new-task" class="task-control" type="button" hidden>New task</button>
+    <button id="shell-more" class="icon-button shell-only" type="button" aria-label="More controls" aria-haspopup="true" aria-expanded="false" hidden>&#8943;</button>
   </header>
+  <div id="shell-menu" class="shell-menu" role="group" aria-label="View controls" hidden></div>
+  <button id="detail-back" class="detail-back shell-only" type="button" hidden><span aria-hidden="true">&#8249;</span><span id="detail-back-label">Back</span></button>
+  <div id="scrim" class="scrim" hidden></div>
+  <section id="sheet" class="sheet shell-only" role="dialog" aria-label="Filters and sort" hidden>
+    <header class="sheet-head"><h2>Filters and sort</h2><button id="sheet-close" type="button">Done</button></header>
+    <div id="sheet-body" class="sheet-body"></div>
+  </section>
   <div class="filters graph-filters" aria-label="Graph filters">
+    <button class="icon-button search-toggle shell-only" type="button" aria-label="Search notes" aria-expanded="false" hidden>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="7" cy="7" r="4.3" fill="none" stroke="currentColor" stroke-width="1.6"></circle><path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>
+    </button>
     <div class="preset-picker">
       <button class="preset-add" type="button" aria-label="Add graph filter" title="Add filter">+</button>
       <div class="preset-menu" role="menu" hidden></div>
@@ -44,17 +55,23 @@
       <label class="query-clause fuzzy-clause"><span>Fuzzy</span><input id="search" type="search" autocomplete="off" placeholder="Title or path"></label>
       <div class="cel-clauses"></div>
     </div>
-    <label><span>Sort</span><select class="query-sort"><option value="source">Source</option><option value="relevance">Relevance</option></select></label>
+    <label class="query-sort-label"><span>Sort</span><select class="query-sort"><option value="source">Source</option><option value="relevance">Relevance</option></select></label>
     <details class="edge-options"><summary>Edges</summary>
       <label><input type="checkbox" value="link" checked> Links</label>
       <label><input type="checkbox" value="task-prev" checked> Task history</label>
       <label><input type="checkbox" value="task-depends" checked> Dependencies</label>
     </details>
-    <label><input id="all-labels" type="checkbox" checked> Labels</label>
+    <label class="labels-label"><input id="all-labels" type="checkbox" checked> Labels</label>
+    <button class="icon-button filters-toggle shell-only" type="button" aria-label="Filters and sort" hidden>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2 4.6h12M2 11.4h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path><circle cx="6" cy="4.6" r="2" fill="var(--paper)" stroke="currentColor" stroke-width="1.6"></circle><circle cx="11" cy="11.4" r="2" fill="var(--paper)" stroke="currentColor" stroke-width="1.6"></circle></svg>
+    </button>
     <span class="query-error" role="alert"></span>
     <span id="summary" role="status"></span>
   </div>
   <div class="filters task-filters" aria-label="Task summary" hidden>
+    <button class="icon-button search-toggle shell-only" type="button" aria-label="Search tasks" aria-expanded="false" hidden>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="7" cy="7" r="4.3" fill="none" stroke="currentColor" stroke-width="1.6"></circle><path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>
+    </button>
     <div class="preset-picker">
       <button class="preset-add" type="button" aria-label="Add task filter" title="Add filter">+</button>
       <div class="preset-menu" role="menu" hidden></div>
@@ -70,6 +87,9 @@
       <div class="task-sort-keys"></div>
       <div class="task-sort-actions"><select class="task-sort-add" aria-label="Add sort key"><option value="">Add sort key</option><option value="priority">Priority</option><option value="due">Due</option><option value="relevance">Relevance</option></select><button class="task-sort-reset" type="button">Reset</button></div>
     </div>
+    <button class="icon-button filters-toggle shell-only" type="button" aria-label="Filters and sort" hidden>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2 4.6h12M2 11.4h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path><circle cx="6" cy="4.6" r="2" fill="var(--paper)" stroke="currentColor" stroke-width="1.6"></circle><circle cx="11" cy="11.4" r="2" fill="var(--paper)" stroke="currentColor" stroke-width="1.6"></circle></svg>
+    </button>
   </div>
   <main class="workspace">
     <section class="graph-stage" aria-label="Workspace graph">
@@ -85,6 +105,7 @@
   </main>
   <main class="task-workspace" hidden>
     <section class="task-list-pane" aria-label="Workspace tasks">
+      <div class="view-head" hidden><h1>Tasks</h1><span class="view-head-extra"></span></div>
       <div id="task-list" class="task-list"></div>
       <div id="task-empty" class="task-empty" hidden>No matching tasks</div>
     </section>
@@ -98,6 +119,7 @@
   <main class="agenda-workspace" hidden>
     <div class="agenda-actions"><button id="agenda-now" type="button" title="Jump to the current time">Now</button></div>
     <section class="event-list-pane" aria-label="Workspace events">
+      <div class="view-head" hidden><h1>Agenda</h1><span class="view-head-extra"></span></div>
       <div id="event-list" class="event-list"></div>
       <div id="event-empty" class="task-empty" hidden>No events</div>
     </section>
@@ -108,6 +130,7 @@
         <button id="new-event" type="button">New event</button>
       </div>
     </aside>
+    <button id="new-event-fab" class="fab shell-only" type="button" aria-label="New event" hidden><span aria-hidden="true">+</span></button>
   </main>
   <div id="notification" class="notification" role="status" hidden></div>
   <script src="__ASSET_PREFIX__vendor/force-graph.min.js"></script>
