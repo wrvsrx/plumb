@@ -60,7 +60,7 @@ try {
     const groupItems = (path) => {
       const children = Array.from(document.querySelector('#task-list').children);
       const start = children.indexOf(groupToggle(path)) + 1;
-      const end = children.findIndex((child, index) => index > start && child.classList.contains('task-document-toggle'));
+      const end = children.findIndex((child, index) => index >= start && child.classList.contains('task-document-toggle'));
       return children.slice(start, end === -1 ? undefined : end).filter((child) => child.classList.contains('task-list-item'));
     };
     // Clicking re-renders the list, so every DOM reference is re-queried by key.
