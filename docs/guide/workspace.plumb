@@ -59,6 +59,8 @@ Graph 的 fuzzy search 只隐藏当前基础图中未匹配的 nodes 和相关 e
 
 Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 
+窄屏（`"width < 900px"，包含横屏手机与窄窗口）保持同一套 views，但改变呈现：顶栏固定一行，只留 brand、 view tab 与 `"⋯" overflow menu，Direction/Depth/Fit/Workspace-Local/Now 与当前统计收进 menu；filters 收成一行 preset chips（`"🔍" 展开 fuzzy 输入、`"⚙" 打开 filters sheet，sort/edges/labels/CEL 都在 sheet 内）；列表占满可用高度。选择 note 或 task 后详情成为全屏 push 层，浏览器返回键、Android 返回手势与 edge swipe 都回到列表（窄屏 selection 使用 `"pushState"，宽屏仍是 replace），event 详情是底部 sheet； `"New task" 与 `"New event" 在窄屏是右下 FAB。graph 画布在触摸设备上自行处理单指平移与双指缩放。 布局以 `"100dvh" 与 safe-area inset 适配移动浏览器，宽屏继续使用左右分栏。
+
 `"plumb event --root DIR export-vdir --output DIR" 将 workspace events 原子投影到受管理 vdir，每个 event 对应一个 `"..ics" file。khal calendar 配置使用该目录并设置 `"readonly = true"；`".plumb" 仍是唯一 writable source，Calendar 修改不会回写。
 
 open task 无论是否具有 explicit id 都可以一键 complete 或 cancel，不弹 confirmation dialog；request pending 时当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 使用 server-issued id 或 source-offset locator，携带 document revision guard 并复用 shared task edit，因此 recurring completion 仍生成下一实例；success/error 使用 non-blocking notification，conflict 后重新读取 snapshot。

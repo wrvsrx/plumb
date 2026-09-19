@@ -1000,6 +1000,21 @@
  `note 新增 protocol-neutral `"task-tree.js" projection 与 `"task-tree.test.mjs" 单元测试，覆盖 document 折叠、subtree 折叠、嵌套折叠状态保留、跨 document 边界、无 subtasks、ancestor reveal 与缺失 fold state；server 增加 `"/task-tree.js" asset route。Browser E2E 覆盖 task 与 document 折叠、隐藏计数、detail 保留与选中隐藏 subtask 后自动展开。
  `note `->{{workspace 指南} workspace.plumb} 补充折叠行为说明；`"cargo check --workspace --all-targets"、`"cargo test -p plumb-web"、`"node --test crates/plumb-web/assets/*.test.mjs" 与 Chromium E2E 通过。
 
+`- 为窄屏重做 Web 壳层与详情呈现
+ `+ task
+
+ `@ web-narrow-shell
+
+ `= depends #web-task-folding
+ `= created 2026-09-20T02:31:27+08:00
+ `= done 2026-09-20T02:31:27+08:00
+
+ `note 窄屏（`"width < 900px"，含横屏手机与窄窗口）与宽屏共用同一套 routes、query state、组件与校验，只切换呈现：顶栏保持一行且只留 brand、view tab 与 `"⋯" overflow menu，view controls 与统计移入 menu；filters 收成一行 preset chips + `"🔍" 搜索展开 + `"⚙" filters sheet（sort/edges/labels/CEL 移入 sheet）；列表与 graph 画布占满可用高度。实测 chrome 从 240/242px 降到 91px，tasks 列表可用高度从 405px 升到约 690px。
+ `note 详情不再挤在列表下方：note/task 详情是覆盖屏幕的 push 层，event 详情是底部 sheet；窄屏 selection 使用 `"pushState" 并携带 `"history.state.detail"，因此浏览器返回键、Android 预测性返回与 edge swipe 都回到列表，back pill 在无历史条目时退化为直接清除 selection；sheet/menu 支持 scrim 与 Escape 关闭。`"New task"/`"New event" 在窄屏是右下 FAB，宽屏仍是 toolbar button。
+ `note 移动端基础修复：`"viewport-fit=cover" 与 `"interactive-widget=resizes-content"、`"100dvh" 与 safe-area inset、`"#graph{touch-action:none}" 让单指平移与双指缩放归画布、`"pointer: coarse" 下关键点击目标 ≥44px（chip 删除、排序箭头、disclosure 与 FAB），窄屏非触摸窗口也保证 ≥24px；同时修掉 `".edge-options[open]" 桌面写死 `"top:64px" 在窄屏压住顶栏的问题。
+ `note 实现上移动的是同一批 DOM node：可移动控件记录原 parent 的 child 顺序，窄屏 append 到 menu/sheet，宽屏按快照恢复，因此事件监听、`"syncQueryControls" 与 CEL 渲染都只有一份；被移出 filters row 的控件改用显式 ref（`"graphSortSelect"、`"celClauses"、`"edgeOptions"）避免 `".filters" 作用域查询失效。
+ `note 新增 `"mobile-shell.e2e.mjs"：390×844、844×390、1440×900 三种 viewport 断言无横向溢出、顶栏 ≤48、列表/画布高度、push 详情与返回、filters sheet 只含当前 view 控件、event sheet 与 scrim 关闭、以及不存在 <24px 点击目标；修复 `"task-folding.e2e.mjs" group helper 的 off-by-one（多 document workspace 下会跨组计数）。`"cargo test --workspace"、`"cargo check --workspace --all-targets"、node asset tests 与三个 browser E2E 通过。
+
 `# Workspace performance and maintenance
 
 `- Finish semantic reducer deltas and equality invalidation
