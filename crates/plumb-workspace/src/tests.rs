@@ -2207,6 +2207,66 @@ fn derives_mutually_exclusive_task_workflow_states_for_search_and_cel() {
 }
 
 #[test]
+fn search_records_expose_derived_focus_facts_with_overlay_precedence() {
+    let root = Path::new("tasks");
+    let now = DateTime::parse_from_rfc3339("2026-08-28T12:00:00Z").unwrap();
+    let source = concat!(
+        "`- Open\n\n `+ task\n\n `@ open\n\n `= focused 2026-09-20T09:00:00+08:00--\n\n",
+        "`- History\n\n `+ task\n\n `@ history\n\n",
+        " `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n",
+    );
+    let mut memory = Workspace::new();
+    memory.insert("tasks/tasks.plumb", 1, source);
+    let store = SqliteSemanticStore::open_in_memory().unwrap();
+    let mut persistent = Workspace::with_sqlite_store(store);
+    persistent.insert_disk("tasks/tasks.plumb", 1, source).unwrap();
+
+    let filtered = |workspace: &Workspace| {
+        workspace
+            .search_records_filtered(
+                root,
+                Some(SearchRecordKind::Task),
+                "",
+                20,
+                now,
+                Some("focused_since != null"),
+            )
+            .unwrap()
+            .value
+    };
+    let memory_items = filtered(&memory);
+    let persistent_items = filtered(&persistent);
+    assert_eq!(persistent_items, memory_items);
+    assert_eq!(memory_items.items.len(), 1);
+    assert_eq!(memory_items.items[0].id.as_deref(), Some("open"));
+    assert!(memory_items.items[0].focused);
+    assert!(memory_items.items[0].focus_valid);
+    assert_eq!(
+        memory_items.items[0].focused_since.as_deref(),
+        Some("2026-09-20T09:00:00+08:00")
+    );
+
+    let all = memory
+        .search_records(root, Some(SearchRecordKind::Task), "", 20, now)
+        .unwrap()
+        .value;
+    let history = all
+        .items
+        .iter()
+        .find(|record| record.id.as_deref() == Some("history"))
+        .unwrap();
+    assert!(!history.focused);
+    assert_eq!(history.focused_since, None);
+    assert!(history.focus_valid);
+
+    let closed = "`- Open\n\n `+ task\n\n `@ open\n\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n";
+    memory.open_document("tasks/tasks.plumb", 2, closed);
+    persistent.open_document("tasks/tasks.plumb", 2, closed);
+    assert_eq!(filtered(&persistent), filtered(&memory));
+    assert!(filtered(&memory).items.is_empty());
+}
+
+#[test]
 fn batches_reverse_task_relations_with_open_document_precedence() {
     let now = DateTime::parse_from_rfc3339("2026-08-11T12:00:00+08:00").unwrap();
     let store = SqliteSemanticStore::open_in_memory().unwrap();

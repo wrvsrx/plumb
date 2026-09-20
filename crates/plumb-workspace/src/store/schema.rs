@@ -69,6 +69,9 @@ diesel::table! {
         selection_end -> BigInt,
         recur_text -> Nullable<Text>,
         prev_text -> Nullable<Text>,
+        focused -> Bool,
+        focused_since_millis -> Nullable<BigInt>,
+        focus_valid -> Bool,
     }
 }
 

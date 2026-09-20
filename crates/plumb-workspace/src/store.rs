@@ -65,6 +65,9 @@ type TaskFactRow = (
     Option<i64>,
     Option<String>,
     Option<String>,
+    bool,
+    Option<i64>,
+    bool,
 );
 type EventFactRow = (Vec<u8>, i64, i64, i64, i64, Option<String>, String, i64);
 
@@ -106,11 +109,17 @@ struct TaskFactSqlRow {
     recur_text: Option<String>,
     #[diesel(sql_type = Nullable<Text>)]
     prev_text: Option<String>,
+    #[diesel(sql_type = Bool)]
+    focused: bool,
+    #[diesel(sql_type = Nullable<BigInt>)]
+    focused_since_millis: Option<i64>,
+    #[diesel(sql_type = Bool)]
+    focus_valid: bool,
 }
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -223,6 +232,13 @@ pub struct StoredTaskFact {
     pub parent_start: Option<usize>,
     pub recur: Option<String>,
     pub prev: Option<String>,
+    /// Derived cache of `TaskRecord::is_focused()`.
+    pub focused: bool,
+    /// Derived cache of `TaskRecord::focused_since()` as instant millis.
+    pub focused_since_millis: Option<i64>,
+    /// Derived cache of `TaskRecord::focus_valid()`. Kept separate from
+    /// `focused` so invalid history is not silently read as "not focused".
+    pub focus_valid: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -738,6 +754,9 @@ impl SqliteSemanticStore {
                 tasks::parent_start,
                 tasks::recur_text,
                 tasks::prev_text,
+                tasks::focused,
+                tasks::focused_since_millis,
+                tasks::focus_valid,
             ))
             .order((tasks::path, tasks::start))
             .load::<TaskFactRow>(&mut *connection)?;
@@ -762,7 +781,9 @@ impl SqliteSemanticStore {
              tasks.due_millis AS due_millis, tasks.wait_millis AS wait_millis, \
              tasks.done_millis AS done_millis, tasks.canceled_millis AS canceled_millis, \
              tasks.priority AS priority, tasks.depth AS depth, tasks.parent_start AS parent_start, \
-             tasks.recur_text AS recur_text, tasks.prev_text AS prev_text \
+             tasks.recur_text AS recur_text, tasks.prev_text AS prev_text, \
+             tasks.focused AS focused, tasks.focused_since_millis AS focused_since_millis, \
+             tasks.focus_valid AS focus_valid \
              FROM tasks INNER JOIN documents ON documents.path = tasks.path WHERE ",
         )
         .into_boxed::<Sqlite>();
@@ -1490,6 +1511,7 @@ fn append_task_comparison_sql<'a>(
         TaskPredicateField::Canceled => "tasks.canceled_millis",
         TaskPredicateField::Recur => "tasks.recur_text",
         TaskPredicateField::Prev => "tasks.prev_text",
+        TaskPredicateField::Focused => "tasks.focused",
     };
     if matches!(value, TaskPredicateValue::Null) {
         return query.sql(column).sql(match op {
@@ -1511,6 +1533,7 @@ fn append_task_comparison_sql<'a>(
     query = match value {
         TaskPredicateValue::String(value) => query.bind::<Text, _>(value.clone()),
         TaskPredicateValue::Integer(value) => query.bind::<BigInt, _>(*value),
+        TaskPredicateValue::Boolean(value) => query.bind::<Bool, _>(*value),
         TaskPredicateValue::Null => unreachable!(),
     };
     query.sql(suffix)
@@ -1608,6 +1631,12 @@ fn insert_output(
                 tasks::selection_end.eq(to_i64(task.selection_range.end)?),
                 tasks::recur_text.eq(task.recur.as_ref().map(|field| field.value.as_str())),
                 tasks::prev_text.eq(task.prev.as_ref().map(|field| field.value.as_str())),
+                tasks::focused.eq(task.is_focused()),
+                tasks::focused_since_millis.eq(task
+                    .focused_since()
+                    .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                    .map(|value| value.timestamp_millis())),
+                tasks::focus_valid.eq(task.focus_valid()),
             ))
             .execute(connection)?;
         task_ancestors.push(task.range.start);
@@ -1929,6 +1958,9 @@ fn decode_task_fact_sql_rows(
                 parent_start: row.parent_start.map(to_usize).transpose()?,
                 recur: row.recur_text,
                 prev: row.prev_text,
+                focused: row.focused,
+                focused_since_millis: row.focused_since_millis,
+                focus_valid: row.focus_valid,
             }))
         })
         .filter_map(Result::transpose)
@@ -1965,6 +1997,9 @@ fn decode_task_facts(
                 parent_start,
                 recur,
                 prev,
+                focused,
+                focused_since_millis,
+                focus_valid,
             )| {
                 (|| {
                     let path = path_from_bytes(path)?;
@@ -1989,6 +2024,9 @@ fn decode_task_facts(
                         parent_start: parent_start.map(to_usize).transpose()?,
                         recur,
                         prev,
+                        focused,
+                        focused_since_millis,
+                        focus_valid,
                     }))
                 })()
             },

@@ -17,6 +17,7 @@ pub(crate) enum TaskPredicateField {
     Canceled,
     Recur,
     Prev,
+    Focused,
 }
 
 impl TaskPredicateField {
@@ -32,6 +33,7 @@ impl TaskPredicateField {
             "canceled" => Self::Canceled,
             "recur" => Self::Recur,
             "prev" => Self::Prev,
+            "focused" => Self::Focused,
             _ => return None,
         })
     }
@@ -43,11 +45,12 @@ impl TaskPredicateField {
             Self::Created | Self::Due | Self::Wait | Self::Done | Self::Canceled => {
                 TaskPredicateFieldKind::Timestamp
             }
+            Self::Focused => TaskPredicateFieldKind::Boolean,
         }
     }
 
     fn nullable(self) -> bool {
-        self != Self::Title
+        self != Self::Title && self != Self::Focused
     }
 }
 
@@ -56,6 +59,7 @@ enum TaskPredicateFieldKind {
     String,
     Integer,
     Timestamp,
+    Boolean,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +93,7 @@ pub(crate) enum TaskPredicateValue {
     Null,
     String(String),
     Integer(i64),
+    Boolean(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -252,6 +257,7 @@ fn comparison_with_field(
         (TaskPredicateValue::Integer(_), TaskPredicateFieldKind::Integer) => {
             op.is_equality() || !field.nullable() || non_null.contains(&field)
         }
+        (TaskPredicateValue::Boolean(_), TaskPredicateFieldKind::Boolean) => op.is_equality(),
         _ => false,
     };
     compatible.then_some(TaskCandidatePredicate::Compare { field, op, value })
@@ -318,6 +324,7 @@ fn literal(expression: &IdedExpr) -> Option<TaskPredicateValue> {
         LiteralValue::Null => TaskPredicateValue::Null,
         LiteralValue::String(value) => TaskPredicateValue::String(value.inner().to_string()),
         LiteralValue::Int(value) => TaskPredicateValue::Integer(*value.inner()),
+        LiteralValue::Boolean(value) => TaskPredicateValue::Boolean(value.into_inner()),
         _ => return None,
     })
 }
@@ -367,5 +374,12 @@ mod tests {
         assert!(prefix("priority != null && priority < -2").complete);
         assert!(!prefix("state == 'ready'").complete);
         assert!(!prefix("state == 'blocked'").complete);
+    }
+
+    #[test]
+    fn translates_boolean_focus_equality() {
+        assert!(prefix("focused == true").complete);
+        assert!(prefix("focused != false").complete);
+        assert!(!prefix("focused > true").complete);
     }
 }

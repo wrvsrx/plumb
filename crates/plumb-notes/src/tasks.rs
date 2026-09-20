@@ -113,6 +113,7 @@ fn sort_task_subtrees(records: &mut Vec<plumb_workspace::SearchRecord>) {
         document: record.relative_path.clone(),
         source_start: record.range.start,
         depth: record.depth.unwrap_or_default(),
+        focused: record.focused,
         priority: record.effective_priority,
         due: record
             .due

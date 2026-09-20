@@ -72,6 +72,12 @@ pub struct SearchRecord {
     pub effective_priority: Option<i32>,
     pub blocked: Option<bool>,
     pub actionable: Option<bool>,
+    /// Derived focus facts for task records; `None` on non-task kinds. Invalid
+    /// focus history keeps `focused == false` but reports `focus_valid == false`
+    /// so callers do not treat it as an ordinary unfocused task.
+    pub focused: bool,
+    pub focused_since: Option<String>,
+    pub focus_valid: bool,
     pub depth: Option<usize>,
     pub at: Option<String>,
     pub start: Option<String>,
@@ -212,6 +218,9 @@ impl Workspace {
                                 effective_priority: None,
                                 blocked: None,
                                 actionable: None,
+                                focused: false,
+                                focused_since: None,
+                                focus_valid: true,
                                 depth: None,
                                 at: None,
                                 start: None,
@@ -237,12 +246,17 @@ impl Workspace {
                     let (task_state, wait_reasons) =
                         derive_task_workflow_state(&task, blocked, now);
                     let actionable = task_state == TaskWorkflowState::Ready;
+                    let focused = task.is_focused();
+                    let focused_since = task.focused_since().map(str::to_string);
+                    let focus_valid = task.focus_valid();
                     if let Some(filter) = &filter {
                         let facts = TaskMatchFacts {
                             state: task_state,
                             wait_reasons: &wait_reasons,
                             blocked,
                             actionable,
+                            focused,
+                            focused_since: focused_since.clone(),
                         };
                         if !filter.task_matches(
                             &root,
@@ -272,6 +286,9 @@ impl Workspace {
                             effective_priority: None,
                             blocked: Some(blocked),
                             actionable: Some(actionable),
+                            focused,
+                            focused_since,
+                            focus_valid,
                             depth: Some(task.depth),
                             at: None,
                             start: None,
@@ -315,6 +332,9 @@ impl Workspace {
                             effective_priority: None,
                             blocked: None,
                             actionable: None,
+                            focused: false,
+                            focused_since: None,
+                            focus_valid: true,
                             depth: Some(event.depth),
                             at: event.at.as_ref().map(|field| field.value.clone()),
                             start: event.start.as_ref().map(|field| field.value.clone()),
@@ -374,6 +394,9 @@ impl Workspace {
                                 effective_priority: None,
                                 blocked: None,
                                 actionable: None,
+                                focused: false,
+                                focused_since: None,
+                                focus_valid: true,
                                 depth: None,
                                 at: None,
                                 start: None,
@@ -417,12 +440,17 @@ impl Workspace {
                     let (task_state, wait_reasons) =
                         derive_task_workflow_state(&task, blocked, now);
                     let actionable = task_state == TaskWorkflowState::Ready;
+                    let focused = task.is_focused();
+                    let focused_since = task.focused_since().map(str::to_string);
+                    let focus_valid = task.focus_valid();
                     if let Some(filter) = &filter {
                         let facts = TaskMatchFacts {
                             state: task_state,
                             wait_reasons: &wait_reasons,
                             blocked,
                             actionable,
+                            focused,
+                            focused_since: focused_since.clone(),
                         };
                         if !filter.task_matches(
                             &root,
@@ -452,6 +480,9 @@ impl Workspace {
                             effective_priority: None,
                             blocked: Some(blocked),
                             actionable: Some(actionable),
+                            focused,
+                            focused_since,
+                            focus_valid,
                             depth: Some(task.depth),
                             at: None,
                             start: None,
@@ -503,6 +534,9 @@ impl Workspace {
                             effective_priority: None,
                             blocked: None,
                             actionable: None,
+                            focused: false,
+                            focused_since: None,
+                            focus_valid: true,
                             depth: Some(event.depth),
                             at: event.at.map(|field| field.value),
                             start: event.start.map(|field| field.value),
@@ -592,6 +626,9 @@ impl Workspace {
                             .map(|value| value.timestamp_millis()),
                         priority: task.priority,
                         depth: task.depth,
+                        focused: task.is_focused(),
+                        focused_since: task.focused_since().map(str::to_string),
+                        focus_valid: task.focus_valid(),
                     });
                     for dependency in &task.depends {
                         if let Some(target) = search_task_ref(&entry.path, &dependency.target) {
@@ -653,6 +690,9 @@ impl Workspace {
                         wait_millis: fact.wait_millis,
                         priority: fact.priority,
                         depth: fact.depth,
+                        focused: fact.focused,
+                        focused_since: fact.focused_since_millis.and_then(rfc3339_from_millis),
+                        focus_valid: fact.focus_valid,
                     }
                 }));
                 task_relations.extend(
@@ -735,6 +775,9 @@ impl Workspace {
                         effective_priority: None,
                         blocked: Some(is_blocked),
                         actionable: Some(state == TaskWorkflowState::Ready),
+                        focused: fact.focused,
+                        focused_since: fact.focused_since.clone(),
+                        focus_valid: fact.focus_valid,
                         depth: Some(fact.depth),
                         at: None,
                         start: None,
@@ -800,6 +843,9 @@ impl Workspace {
                             effective_priority: None,
                             blocked: None,
                             actionable: None,
+                            focused: false,
+                            focused_since: None,
+                            focus_valid: true,
                             depth: Some(fact.depth),
                             at: None,
                             start: None,
@@ -940,6 +986,9 @@ struct SearchTaskFact {
     wait_millis: Option<i64>,
     priority: Option<i32>,
     depth: usize,
+    focused: bool,
+    focused_since: Option<String>,
+    focus_valid: bool,
 }
 
 struct SearchTaskRelation {
@@ -976,6 +1025,9 @@ fn note_search_record(
         effective_priority: None,
         blocked: None,
         actionable: None,
+        focused: false,
+        focused_since: None,
+        focus_valid: true,
         depth: None,
         at: None,
         start: None,
@@ -1005,6 +1057,9 @@ fn event_search_record(
         effective_priority: None,
         blocked: None,
         actionable: None,
+        focused: false,
+        focused_since: None,
+        focus_valid: true,
         depth: Some(event.depth),
         at: event.at.as_ref().map(|field| field.value.clone()),
         start: event.start.as_ref().map(|field| field.value.clone()),
@@ -1362,6 +1417,8 @@ struct TaskMatchFacts<'a> {
     wait_reasons: &'a [TaskWaitReason],
     blocked: bool,
     actionable: bool,
+    focused: bool,
+    focused_since: Option<String>,
 }
 
 impl SemanticSearchFilter {
@@ -1499,6 +1556,11 @@ impl SemanticSearchFilter {
         );
         context.add_variable_from_value("blocked", facts.blocked);
         context.add_variable_from_value("actionable", facts.actionable);
+        context.add_variable_from_value("focused", facts.focused);
+        context.add_variable_from_value(
+            "focused_since",
+            search_rfc3339_value(facts.focused_since.as_deref()),
+        );
         context.add_variable_from_value("now", Value::Timestamp(self.now));
         execute_search_filter(&self.program, &context, path).map_err(Into::into)
     }
@@ -1616,6 +1678,16 @@ fn search_datetime_value(field: Option<&plumb_semantics::TaskField>) -> Value {
     field
         .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())
         .map_or(Value::Null, Value::Timestamp)
+}
+
+fn search_rfc3339_value(value: Option<&str>) -> Value {
+    value
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map_or(Value::Null, Value::Timestamp)
+}
+
+fn rfc3339_from_millis(millis: i64) -> Option<String> {
+    DateTime::from_timestamp_millis(millis).map(|value| value.to_rfc3339())
 }
 
 fn event_search_datetime_value(field: &Option<plumb_semantics::EventField>) -> Value {

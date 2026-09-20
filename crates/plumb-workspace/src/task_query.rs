@@ -128,6 +128,16 @@ struct TaskFact {
     parent_start: Option<usize>,
     recur: Option<String>,
     prev: Option<String>,
+    /// Derived focus facts. `focused` mirrors `TaskRecord::is_focused()`,
+    /// `focused_since_millis` is the current open interval start, and
+    /// `focus_valid` keeps invalid focus history observable instead of
+    /// collapsing it into `focused == false`.
+    focused: bool,
+    focused_since_millis: Option<i64>,
+    /// Read by the protocol-neutral `next` shortlist to skip invalid-focus
+    /// tasks instead of treating them as `focused == false` candidates.
+    #[allow(dead_code)]
+    focus_valid: bool,
     state: TaskWorkflowState,
     wait_reasons: Vec<TaskWaitReason>,
     blocked: bool,
@@ -240,6 +250,7 @@ impl Workspace {
             document: fact.document_order.clone(),
             source_start: fact.key.start,
             depth: fact.depth,
+            focused: fact.focused,
             priority: Some(fact.effective_priority),
             due: fact.due_millis.and_then(datetime_from_millis),
             relevance: Some(fact.relevance),
@@ -534,6 +545,9 @@ fn fact_from_record(
         parent_start,
         recur: task.recur.as_ref().map(|field| field.value.clone()),
         prev: task.prev.as_ref().map(|field| field.value.clone()),
+        focused: task.is_focused(),
+        focused_since_millis: task.focused_since().and_then(focus_since_millis),
+        focus_valid: task.focus_valid(),
         state: TaskWorkflowState::Ready,
         wait_reasons: Vec::new(),
         blocked: false,
@@ -570,6 +584,9 @@ fn fact_from_stored(stored: StoredTaskFact) -> TaskFact {
         parent_start: stored.parent_start,
         recur: stored.recur,
         prev: stored.prev,
+        focused: stored.focused,
+        focused_since_millis: stored.focused_since_millis,
+        focus_valid: stored.focus_valid,
         state: TaskWorkflowState::Ready,
         wait_reasons: Vec::new(),
         blocked: false,
@@ -757,6 +774,11 @@ fn filter_groups_match(
                     .clone()
                     .map_or(Value::Null, |value| Value::String(value.into())),
             );
+            context.add_variable_from_value("focused", fact.focused);
+            context.add_variable_from_value(
+                "focused_since",
+                timestamp_value(fact.focused_since_millis),
+            );
             if filter.variables.contains("depends_on") {
                 context.add_variable_from_value(
                     "depends_on",
@@ -883,7 +905,7 @@ fn apply_cursor(
     let signature = parts.next();
     let document = parts.next();
     let expected = query_signature(query);
-    if version != Some("v1")
+    if version != Some("v2")
         || revision != Some(query.workspace_revision)
         || signature != Some(hex(&expected).as_str())
         || document.is_none()
@@ -907,7 +929,7 @@ fn apply_cursor(
 
 fn encode_cursor(query: &TaskPageQuery, path: &Path) -> String {
     format!(
-        "v1:{}:{}:{}",
+        "v2:{}:{}:{}",
         query.workspace_revision,
         hex(&query_signature(query)),
         hex(&path_identity(path))
@@ -916,6 +938,10 @@ fn encode_cursor(query: &TaskPageQuery, path: &Path) -> String {
 
 fn query_signature(query: &TaskPageQuery) -> [u8; 32] {
     let mut digest = Sha256::new();
+    // The shared Tasks ordering now depends on the fixed subtree-focus rule in
+    // addition to the caller's keys, so cursors issued before that rule must not
+    // be accepted as if they described the same order.
+    hash_field(&mut digest, b"subtree-focused-first-v1");
     hash_field(&mut digest, &path_identity(&query.root));
     hash_field(&mut digest, query.text.as_bytes());
     hash_field(&mut digest, &query.limit.to_le_bytes());
@@ -973,6 +999,12 @@ fn hex(bytes: &[u8]) -> String {
 fn field_millis(field: Option<&plumb_semantics::TaskField>) -> Option<i64> {
     field
         .and_then(|field| DateTime::parse_from_rfc3339(&field.value).ok())
+        .map(|value| value.timestamp_millis())
+}
+
+fn focus_since_millis(value: &str) -> Option<i64> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
         .map(|value| value.timestamp_millis())
 }
 
@@ -1471,5 +1503,201 @@ mod tests {
             persistent.query_task_page(&filtered).unwrap().value,
             memory.query_task_page(&filtered).unwrap().value
         );
+    }
+
+    const FOCUS_SOURCE: &str = concat!(
+        "`- Open focus\n\n `+ task\n\n `@ open-focus\n\n `= focused 2026-09-20T09:00:00+08:00--\n",
+        "`- Finished history\n\n `+ task\n\n `@ finished-history\n\n",
+        " `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n",
+        "`- Waiting focus\n\n `+ task\n\n `@ waiting-focus\n\n `= wait 2026-08-29T12:00:00Z\n",
+        " `= focused 2026-09-20T09:00:00+08:00--\n",
+        "`- Blocked focus\n\n `+ task\n\n `@ blocked-focus\n\n `= depends #open-focus\n",
+        " `= focused 2026-09-20T09:00:00+08:00--\n",
+    );
+
+    fn focus_query(expression: &str) -> TaskPageQuery {
+        let mut filtered = query();
+        filtered.sort = vec![TaskSortOrder::Source];
+        filtered.filter_groups = vec![TaskQueryFilterGroup {
+            filters: vec![TaskQueryFilter {
+                source: "focus".to_string(),
+                expression: expression.to_string(),
+            }],
+        }];
+        filtered
+    }
+
+    fn page_ids(page: &TaskPage) -> Vec<&str> {
+        page.tasks
+            .iter()
+            .map(|task| task.task.id.as_ref().unwrap().value.as_str())
+            .collect()
+    }
+
+    /// A finished-only history is not focused and has no `focused_since`; an
+    /// open interval on an open task is focused; waiting and blocked tasks
+    /// stay focused at the query instant.
+    #[test]
+    fn cel_focus_facts_follow_open_and_finished_history() {
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 1, FOCUS_SOURCE);
+
+        let focused = workspace
+            .query_task_page(&focus_query("focused"))
+            .unwrap()
+            .value;
+        assert_eq!(page_ids(&focused), ["open-focus", "waiting-focus", "blocked-focus"]);
+
+        let since = workspace
+            .query_task_page(&focus_query("focused_since != null"))
+            .unwrap()
+            .value;
+        assert_eq!(page_ids(&since), page_ids(&focused));
+
+        let waiting = workspace
+            .query_task_page(&focus_query("state == 'waiting' && focused"))
+            .unwrap()
+            .value;
+        assert_eq!(page_ids(&waiting), ["waiting-focus"]);
+
+        let blocked = workspace
+            .query_task_page(&focus_query("state == 'blocked' && focused"))
+            .unwrap()
+            .value;
+        assert_eq!(page_ids(&blocked), ["blocked-focus"]);
+
+        let unfocused = workspace
+            .query_task_page(&focus_query("!focused"))
+            .unwrap()
+            .value;
+        assert_eq!(page_ids(&unfocused), ["finished-history"]);
+
+        let (facts, _) = task_facts(&workspace, None, now().timestamp_millis()).unwrap();
+        let finished = facts
+            .iter()
+            .find(|fact| fact.id.as_deref() == Some("finished-history"))
+            .unwrap();
+        assert!(!finished.focused);
+        assert_eq!(finished.focused_since_millis, None);
+        assert!(finished.focus_valid);
+        let open = facts
+            .iter()
+            .find(|fact| fact.id.as_deref() == Some("open-focus"))
+            .unwrap();
+        assert!(open.focused);
+        assert_eq!(
+            open.focused_since_millis,
+            Some(
+                DateTime::parse_from_rfc3339("2026-09-20T09:00:00+08:00")
+                    .unwrap()
+                    .timestamp_millis()
+            )
+        );
+    }
+
+    /// Invalid focus history parses as `focused == false`, so the validity fact
+    /// must stay observable through the fact layer and semantic diagnostics.
+    #[test]
+    fn invalid_focus_history_is_not_silently_treated_as_unfocused() {
+        let source = concat!(
+            "`- Open\n\n `+ task\n\n `@ open\n\n `= focused 2026-09-20T09:00:00+08:00--\n",
+            "`- Invalid\n\n `+ task\n\n `@ invalid\n\n `= focused nonsense--\n",
+        );
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 1, source);
+
+        let unfocused = workspace.query_task_page(&focus_query("!focused")).unwrap().value;
+        assert_eq!(page_ids(&unfocused), ["invalid"]);
+
+        let (facts, _) = task_facts(&workspace, None, now().timestamp_millis()).unwrap();
+        let invalid = facts
+            .iter()
+            .find(|fact| fact.id.as_deref() == Some("invalid"))
+            .unwrap();
+        assert!(!invalid.focused);
+        assert!(!invalid.focus_valid, "invalid history must stay observable");
+        let open = facts
+            .iter()
+            .find(|fact| fact.id.as_deref() == Some("open"))
+            .unwrap();
+        assert!(open.focus_valid);
+
+        let diagnostics = workspace.diagnostics("tasks.plumb").unwrap().value;
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "task.invalid-focus"),
+            "the invalid focus diagnostic must still be published: {diagnostics:?}"
+        );
+    }
+
+    /// Memory, persistent store, and open-document overlay agree on the focus
+    /// derived facts, and the persisted typed columns are used by the CEL
+    /// candidate pushdown.
+    #[test]
+    fn focus_facts_match_memory_persistent_and_open_overlays() {
+        let mut memory = Workspace::new();
+        memory.insert("tasks.plumb", 1, FOCUS_SOURCE);
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut persistent = Workspace::with_sqlite_store(store);
+        persistent.insert_disk("tasks.plumb", 1, FOCUS_SOURCE).unwrap();
+
+        for expression in [
+            "focused",
+            "focused == true",
+            "focused == false",
+            "focused_since != null",
+            "!focused",
+        ] {
+            let memory_page = memory.query_task_page(&focus_query(expression)).unwrap().value;
+            let persistent_page = persistent
+                .query_task_page(&focus_query(expression))
+                .unwrap()
+                .value;
+            assert_eq!(
+                persistent_page, memory_page,
+                "memory and persistent focus facts diverged for {expression}"
+            );
+        }
+
+        let closed = concat!(
+            "`- Closed focus\n\n `+ task\n\n `@ closed-focus\n\n",
+            " `= done 2026-09-19T12:00:00Z\n",
+            " `= focused 2026-09-20T09:00:00+08:00--\n",
+        );
+        memory.open_document("tasks.plumb", 2, closed);
+        persistent.open_document("tasks.plumb", 2, closed);
+        let overlay = focus_query("focused");
+        assert_eq!(
+            persistent.query_task_page(&overlay).unwrap().value,
+            memory.query_task_page(&overlay).unwrap().value
+        );
+        assert!(memory
+            .query_task_page(&overlay)
+            .unwrap()
+            .value
+            .tasks
+            .is_empty());
+    }
+
+    /// The Tasks page ordering is a fixed shared rule, so cursors issued before
+    /// the rule existed must be rejected rather than re-served in a new order.
+    #[test]
+    fn pre_focus_first_cursors_are_rejected() {
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 1, FOCUS_SOURCE);
+        let mut cursor_query = query();
+        cursor_query.sort = vec![TaskSortOrder::Source];
+        cursor_query.limit = 1;
+        let first = workspace.query_task_page(&cursor_query).unwrap().value;
+        let cursor = first.next_cursor.unwrap();
+        assert!(cursor.starts_with("v2:"));
+
+        let mut stale = cursor_query.clone();
+        stale.cursor = Some(cursor.replacen("v2:", "v1:", 1));
+        assert!(matches!(
+            workspace.query_task_page(&stale),
+            Err(TaskPageQueryError::Cursor(_))
+        ));
     }
 }
