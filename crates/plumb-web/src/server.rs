@@ -308,6 +308,9 @@ async fn query(State(state): State<AppState>, Json(query): Json<WebQuery>) -> Re
         WebView::Tasks => workspace
             .query_tasks(&query)
             .map(|snapshot| json!({ "view": "tasks", "tasks": snapshot })),
+        WebView::Next => workspace
+            .query_next(query.limit, query.cursor.as_deref())
+            .map(|snapshot| json!({ "view": "next", "next": snapshot })),
     };
     match result {
         Ok(result) => Json(result).into_response(),
@@ -370,6 +373,17 @@ async fn update_task(
                             TaskStatus::Canceled
                         },
                     )
+                }),
+            "focus" | "unfocus" => request
+                .locator
+                .as_ref()
+                .ok_or_else(|| "task focus action requires a locator".to_string())
+                .and_then(|locator| {
+                    if action == "focus" {
+                        workspace.focus_task(&document_id, locator, &request.revision)
+                    } else {
+                        workspace.unfocus_task(&document_id, locator, &request.revision)
+                    }
                 }),
             "create" => request
                 .task
@@ -1332,6 +1346,219 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["source"], "custom");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn next_query_and_focus_actions_share_the_task_read_rules() {
+        let root = temp_dir();
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        std::fs::write(
+            &path,
+            concat!(
+                "`- In flight\n\n `+ task\n\n `@ in-flight\n\n `= focused 2026-09-18T09:00:00+08:00--\n",
+                "`- Ready one\n\n `+ task\n\n `@ ready-one\n\n `= priority 3\n",
+                "`- Ready two\n\n `+ task\n\n `@ ready-two\n\n `= priority 2\n",
+                "`- Ready three\n\n `+ task\n\n `@ ready-three\n\n `= priority 1\n",
+                "`- Ready four\n\n `+ task\n\n `@ ready-four\n",
+            ),
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let document_id = workspace
+            .document_id(root.join("tasks.plumb"))
+            .unwrap()
+            .to_string();
+        let revision = workspace
+            .tasks()
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|task| task.id.as_deref() == Some("ready-one"))
+            .unwrap()
+            .revision
+            .clone();
+        let (changes, _) = broadcast::channel(4);
+        let app = router(AppState {
+            workspace: Arc::new(RwLock::new(Arc::new(workspace))),
+            html_cache: Arc::new(Mutex::new(HashMap::new())),
+            changes,
+            current: None,
+            exclude: None,
+            allow_mutations: true,
+            public_origin: None,
+            listen_addr: "127.0.0.1:3000".parse().unwrap(),
+        });
+
+        // The shared shortlist is served by the existing query endpoint, so it
+        // inherits the task query's read rules and error mapping.
+        let query = |body: &'static str| {
+            Request::post("/api/query")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let response = app
+            .clone()
+            .oneshot(query(r#"{"view":"next","traversal":{}}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["view"], "next");
+        assert_eq!(value["next"]["revision"], 1);
+        assert_eq!(value["next"]["focused"].as_array().unwrap().len(), 1);
+        assert_eq!(value["next"]["focusedTotal"], 1);
+        assert_eq!(value["next"]["focusedComplete"], true);
+        assert_eq!(value["next"]["candidateLimit"], 3);
+        assert_eq!(value["next"]["candidates"].as_array().unwrap().len(), 3);
+        assert_eq!(value["next"]["candidatesComplete"], false);
+        assert_eq!(value["next"]["complete"], true);
+        assert!(
+            ["memory", "persistent", "persistentWithOverlay"]
+                .contains(&value["next"]["provenance"].as_str().unwrap()),
+            "{}",
+            value["next"]["provenance"]
+        );
+        assert!(value["next"]["skippedInvalid"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        // An explicit limit is honored and clamped by the shared query.
+        let response = app
+            .clone()
+            .oneshot(query(r#"{"view":"next","limit":1,"traversal":{}}"#))
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["next"]["candidateLimit"], 1);
+        assert_eq!(value["next"]["candidates"].as_array().unwrap().len(), 1);
+        assert_eq!(value["next"]["candidates"][0]["id"], "ready-one");
+
+        let response = app
+            .clone()
+            .oneshot(query(r#"{"view":"next","limit":99,"traversal":{}}"#))
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["next"]["candidateLimit"], 10);
+
+        // Cross-origin focus requests are refused before any edit.
+        let focus_body = json!({
+            "revision": revision,
+            "locator": { "kind": "id", "id": "ready-one" },
+        })
+        .to_string();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/api/task/{document_id}/focus"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::HOST, "127.0.0.1:4242")
+                    .header(header::ORIGIN, "https://example.test")
+                    .body(Body::from(focus_body.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        // Same-origin focus writes one open interval.
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/api/task/{document_id}/focus"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::HOST, "127.0.0.1:4242")
+                    .header(header::ORIGIN, "http://127.0.0.1:4242")
+                    .body(Body::from(focus_body.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(response.headers()["x-plumb-revision"], "2");
+        let source = std::fs::read_to_string(&path).unwrap();
+        assert!(source.contains("`= focused "), "{source}");
+        assert_eq!(source.matches("`= focused").count(), 2, "{source}");
+
+        // The stale revision is now rejected instead of overwriting the file.
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/api/task/{document_id}/unfocus"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::HOST, "127.0.0.1:4242")
+                    .header(header::ORIGIN, "http://127.0.0.1:4242")
+                    .body(Body::from(focus_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+
+        // A refreshed unfocus closes the interval.
+        let refreshed = app
+            .clone()
+            .oneshot(query(r#"{"view":"tasks","limit":100,"traversal":{}}"#))
+            .await
+            .unwrap();
+        let body = to_bytes(refreshed.into_body(), usize::MAX).await.unwrap();
+        let tasks: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let focused = tasks["tasks"]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["id"] == "ready-one")
+            .unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/api/task/{document_id}/unfocus"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::HOST, "127.0.0.1:4242")
+                    .header(header::ORIGIN, "http://127.0.0.1:4242")
+                    .body(Body::from(
+                        json!({ "revision": focused["revision"], "locator": focused["locator"] })
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let response = app
+            .clone()
+            .oneshot(query(r#"{"view":"next","traversal":{}}"#))
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // Only the original in-flight task stays focused, and the unfocused
+        // task returns to the candidate section.
+        assert_eq!(value["next"]["focused"].as_array().unwrap().len(), 1);
+        assert_eq!(value["next"]["focused"][0]["id"], "in-flight");
+        assert_eq!(value["next"]["candidates"][0]["id"], "ready-one");
+        // Unknown actions keep their 404 contract.
+        let response = app
+            .oneshot(
+                Request::post(format!("/api/task/{document_id}/explode"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::HOST, "127.0.0.1:4242")
+                    .header(header::ORIGIN, "http://127.0.0.1:4242")
+                    .body(Body::from(json!({ "revision": "1" }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -260,6 +260,63 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-children h2 { font-size: 15px; margin: 0 0 8px; }
 .task-children > div { display: grid; }
 .task-children button { border: 0; border-top: 1px solid var(--border); border-radius: 0; text-align: left; }
+
+/* Task list / Next shortlist. Focus is an extra fact: focused rows carry a
+   marker and an age, and the two Next sections are rendered verbatim from the
+   shared query. */
+.task-modes { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: #efefec; }
+.task-modes button {
+  min-height: 34px; padding: 4px 14px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--paper); color: var(--muted); font-weight: 650;
+}
+.task-modes button.active { border-color: var(--teal); background: var(--teal); color: #fff; }
+.task-sort-focus-note {
+  align-self: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--teal); background: #e9f3f1; font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.task-focus-age {
+  justify-self: start; width: fit-content; padding: 1px 7px; border-radius: 999px;
+  background: #e9f3f1; color: var(--teal); font-size: 12px; font-weight: 650;
+}
+.task-list-item.focused { box-shadow: inset 3px 0 var(--teal); background: #f2f8f7; }
+.task-list-item.focused.selected { background: #e5efed; }
+.next-list-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; border-bottom: 1px solid var(--border); }
+.next-list-item.focused { box-shadow: inset 3px 0 var(--teal); background: #f2f8f7; }
+.next-list-item.selected { background: #e5efed; }
+.task-focus-toggle {
+  align-self: center; margin-right: 12px; min-height: 34px; padding: 4px 12px;
+  border: 1px solid var(--teal); border-radius: 6px; background: var(--paper); color: var(--teal); font-weight: 650;
+}
+.task-focus-toggle:disabled, .focus-task:disabled { cursor: not-allowed; opacity: .48; }
+.next-section-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 16px;
+  border-bottom: 1px solid var(--border); background: #e7e8e4; color: var(--muted);
+  font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+}
+.next-section-head strong { color: var(--ink); }
+.next-section-note { text-transform: none; letter-spacing: 0; font-weight: 600; }
+.next-limit { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; text-transform: none; letter-spacing: 0; }
+.next-limit select { min-height: 30px; padding: 2px 6px; }
+.next-notice { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+.next-notice.next-incomplete { color: var(--red); font-weight: 650; }
+.next-skipped { display: grid; gap: 6px; padding: 12px 16px; border-top: 2px solid var(--yellow); background: #fdf7e6; }
+.next-skipped strong { color: #7a5a12; }
+.next-skipped-row { display: grid; gap: 2px; }
+.next-skipped-row small { color: var(--muted); overflow-wrap: anywhere; }
+.next-skipped-codes { color: var(--red) !important; }
+.task-mutation-error { margin: 0 0 12px; color: var(--red); font-size: 13px; font-weight: 650; }
+.task-focus-history { margin-top: 22px; }
+.task-focus-history h2 { font-size: 15px; margin: 0 0 8px; }
+.focus-interval-list { border-top: 1px solid var(--border); }
+.focus-interval-list summary { min-height: 38px; display: flex; align-items: center; cursor: pointer; color: var(--teal); font-weight: 650; }
+.focus-interval {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 0;
+  border-top: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+}
+.focus-interval > * { min-width: 0; overflow-wrap: anywhere; }
+.focus-interval span { color: var(--muted); }
+.focus-interval-span { margin-left: auto; text-align: right; color: var(--ink); }
+.focus-interval.open .focus-interval-span { color: var(--teal); font-weight: 650; }
 .notification {
   position: fixed; right: 18px; top: 76px; z-index: 20; max-width: min(440px, calc(100vw - 36px));
   padding: 10px 14px; border: 1px solid #276b45; border-radius: 4px; background: #edf7f0;
@@ -404,6 +461,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .task-disclosure { width: 32px; min-height: 32px; }
   .task-list-item { grid-template-columns: 32px minmax(0, 1fr); }
   .task-row, .task-document-toggle { min-height: 44px; }
+  .task-modes button, .task-focus-toggle, .focus-task, .next-limit select, .focus-interval-list summary { min-height: 44px; }
+  .next-list-item { min-height: 44px; }
   .event-row { min-height: 64px; }
   .load-more-tasks, .agenda-page-control { min-height: 44px; }
   .detail-back { min-height: 40px; }

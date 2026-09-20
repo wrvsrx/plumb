@@ -54,6 +54,104 @@ impl WebWorkspace {
             .map_err(|error| format!("cannot write {}: {error}", path.display()))
     }
 
+    /// Focus a task by appending one open interval, or close its open interval.
+    ///
+    /// Both actions reuse the status-change guard: document identity, live
+    /// revision, on-disk source equality, one operation instant, and a
+    /// revision-bound locator. The protocol-neutral workspace operation owns the
+    /// idempotence and rejection rules; this layer only projects them over the
+    /// Web locator and writes the guarded result.
+    pub fn focus_task(
+        &self,
+        document_id: &str,
+        locator: &WebTaskLocator,
+        revision: &str,
+    ) -> Result<(), String> {
+        self.mutate_task_focus(document_id, locator, revision, true)
+    }
+
+    pub fn unfocus_task(
+        &self,
+        document_id: &str,
+        locator: &WebTaskLocator,
+        revision: &str,
+    ) -> Result<(), String> {
+        self.mutate_task_focus(document_id, locator, revision, false)
+    }
+
+    fn mutate_task_focus(
+        &self,
+        document_id: &str,
+        locator: &WebTaskLocator,
+        revision: &str,
+        focus: bool,
+    ) -> Result<(), String> {
+        let path = self
+            .document_path(document_id)
+            .ok_or_else(|| "unknown task document".to_string())?;
+        let entry = self
+            .document_entry(path)?
+            .filter(|entry| entry.current.is_some())
+            .ok_or_else(|| "task document is invalid".to_string())?;
+        if entry.revision.to_string() != revision {
+            return Err("task document changed; refresh before retrying".to_string());
+        }
+        let disk_source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        if disk_source != entry.parsed.source() {
+            return Err("task document changed on disk; refresh before retrying".to_string());
+        }
+        // One operation takes one instant, so a focus span never mixes two
+        // clock reads, and a rejected operation writes nothing.
+        let timestamp = Local::now()
+            .fixed_offset()
+            .to_rfc3339_opts(SecondsFormat::Secs, false);
+        let operation_workspace = self.operation_workspace(path)?;
+        let edit = match locator {
+            WebTaskLocator::Id { id } => {
+                if focus {
+                    operation_workspace.focus_task_by_id(path, id, &timestamp)
+                } else {
+                    operation_workspace.unfocus_task_by_id(path, id, &timestamp)
+                }
+            }
+            WebTaskLocator::Offset { offset } => {
+                let indexed = entry
+                    .current
+                    .as_ref()
+                    .expect("current output checked")
+                    .output
+                    .tasks()
+                    .tasks
+                    .iter()
+                    .any(|task| task.range.start == *offset);
+                if !indexed {
+                    return Err("task position changed; refresh before retrying".to_string());
+                }
+                if focus {
+                    operation_workspace.focus_task(path, *offset, &timestamp)
+                } else {
+                    operation_workspace.unfocus_task(path, *offset, &timestamp)
+                }
+            }
+        }
+        .map_err(|error| error.to_string())?;
+        // Idempotent operations (already focused, or no open interval to close)
+        // succeed without touching the file: the shared operation returns an
+        // empty edit, and a no-op must not be reported as a failed mutation.
+        if edit
+            .document_changes
+            .iter()
+            .all(|change| change.edits.is_empty())
+        {
+            return Ok(());
+        }
+        let updated = apply_guarded_edit(disk_source, path, entry.revision, edit, "task")?;
+        validate_generated_source(path, entry.revision, &updated, "task")?;
+        std::fs::write(path, updated)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))
+    }
+
     pub fn create_task(
         &self,
         document_id: &str,

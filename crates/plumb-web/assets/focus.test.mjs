@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  candidateHeading,
   focusAge,
   focusBadge,
   focusHistory,
+  focusInstantLabel,
   focusIntervals,
   formatFocusSpan,
+  inFlightHeading,
   isFocused,
   nextSections,
+  nextSummary,
 } from './focus.js';
 
 const NOW = Date.parse('2026-09-20T12:00:00+08:00');
@@ -97,6 +101,8 @@ test('splits the shared next result into its two sections', () => {
     focusedComplete: false,
     candidates: [{ key: 'd' }],
     candidateLimit: 3,
+    candidatesComplete: false,
+    skippedInvalid: [{ id: 'bad' }],
     complete: false,
   });
   assert.equal(sections.inFlight.length, 3);
@@ -104,6 +110,8 @@ test('splits the shared next result into its two sections', () => {
   assert.equal(sections.inFlightTruncated, true);
   assert.equal(sections.candidates.length, 1);
   assert.equal(sections.candidateLimit, 3);
+  assert.equal(sections.candidatesComplete, false);
+  assert.equal(sections.skippedInvalid.length, 1);
   assert.equal(sections.complete, false);
 });
 
@@ -114,6 +122,8 @@ test('tolerates a missing or partial next result', () => {
     inFlightTotal: 0,
     inFlightTruncated: false,
     candidateLimit: 0,
+    candidatesComplete: true,
+    skippedInvalid: [],
     complete: true,
   });
   assert.deepEqual(nextSections({ focused: [{ key: 'a' }] }), {
@@ -122,8 +132,55 @@ test('tolerates a missing or partial next result', () => {
     inFlightTotal: 1,
     inFlightTruncated: false,
     candidateLimit: 0,
+    candidatesComplete: true,
+    skippedInvalid: [],
     complete: true,
   });
+});
+
+test('states the in-flight total and the requested candidate limit', () => {
+  const full = nextSections({ focused: [{ key: 'a' }], focusedTotal: 1, candidateLimit: 3 });
+  assert.equal(inFlightHeading(full), 'In flight (1)');
+  assert.equal(candidateHeading(full), 'Ready to start (limit 3)');
+  const paged = nextSections({
+    focused: [{ key: 'a' }, { key: 'b' }],
+    focusedTotal: 9,
+    focusedComplete: false,
+    candidateLimit: 5,
+  });
+  assert.equal(inFlightHeading(paged), 'In flight (2 of 9)');
+  assert.equal(candidateHeading(paged), 'Ready to start (limit 5)');
+  // A truncated section is named even when the flag is the only signal.
+  const flagged = nextSections({ focused: [{ key: 'a' }], focusedComplete: false });
+  assert.equal(inFlightHeading(flagged), 'In flight (1 of 1)');
+});
+
+test('summarizes both sections and every completeness signal', () => {
+  assert.equal(
+    nextSummary(nextSections({ focused: [{ key: 'a' }], focusedTotal: 4, candidates: [{ key: 'b' }], candidateLimit: 3, candidatesComplete: false })),
+    '4 in flight · 1 ready to start · limit applied',
+  );
+  assert.equal(
+    nextSummary(nextSections({
+      focused: [],
+      focusedTotal: 0,
+      candidates: [],
+      candidateLimit: 3,
+      candidatesComplete: true,
+      complete: false,
+      skippedInvalid: [{ id: 'bad' }, { id: 'worse' }],
+    })),
+    '0 in flight · 0 ready to start · index incomplete · 2 skipped (invalid focus)',
+  );
+});
+
+test('labels instants without dropping the recorded offset', () => {
+  assert.equal(focusInstantLabel('2026-09-20T09:00:00+08:00'), '2026-09-20 09:00 +08:00');
+  assert.equal(focusInstantLabel('2026-09-20T09:00:00Z'), '2026-09-20 09:00 Z');
+  assert.equal(focusInstantLabel('2026-09-20T09:00'), '2026-09-20 09:00');
+  assert.equal(focusInstantLabel(''), '');
+  assert.equal(focusInstantLabel(undefined), '');
+  assert.equal(focusInstantLabel('not-a-timestamp'), '');
 });
 
 test('keeps instants in the order the document recorded them', () => {

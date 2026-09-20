@@ -18,6 +18,17 @@ import {
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 import { revealTask, taskListItems } from './task-tree.js';
 import {
+  candidateHeading,
+  focusAge,
+  focusBadge,
+  focusHistory,
+  focusInstantLabel,
+  inFlightHeading,
+  isFocused,
+  nextSections,
+  nextSummary,
+} from './focus.js';
+import {
   beginMutation,
   createRevisionState,
   endMutation,
@@ -52,6 +63,9 @@ import {
     searchTimer: null,
     view: initialView,
     tasks: null,
+    next: null,
+    taskMode: 'list',
+    nextLimit: 3,
     selectedTask: null,
     collapsed: { documents: new Set(), tasks: new Set() },
     presets: { graph: [], tasks: ['ready', 'blocked'], agenda: [] },
@@ -92,6 +106,8 @@ import {
   const taskList = document.getElementById('task-list');
   const taskEmpty = document.getElementById('task-empty');
   const taskPanel = document.getElementById('task-panel');
+  const taskModeList = document.getElementById('task-mode-list');
+  const taskModeNext = document.getElementById('task-mode-next');
   const newTaskButton = document.getElementById('new-task');
   const notification = document.getElementById('notification');
   const agendaWorkspace = document.querySelector('.agenda-workspace');
@@ -554,7 +570,11 @@ import {
 
   function runViewQuery(view) {
     if (view === 'graph') return loadGraph();
-    if (view === 'tasks') return loadTasks();
+    if (view === 'tasks') {
+      // Next owns its own sections; refresh the ordinary task snapshot first so
+      // the detail, documents, and revisions stay consistent with it.
+      return state.taskMode === 'next' ? loadTasks().then(() => loadNext()) : loadTasks();
+    }
     return loadEvents();
   }
 
@@ -1062,7 +1082,7 @@ import {
     if (historyMode) updateUrl(historyMode);
     if (load) {
       if (graphActive) loadGraph();
-      else if (tasksActive) loadTasks();
+      else if (tasksActive) runViewQuery('tasks');
       else loadEvents();
     }
     syncDetail();
@@ -1082,6 +1102,51 @@ import {
       setQueryError('tasks', error);
       if (!state.tasks) taskSummary.textContent = 'Tasks unavailable';
     }
+  }
+
+  // The shared `next` shortlist. The server owns both sections, their order,
+  // and their limits; the client only pages the in-flight section and reads the
+  // completeness signals.
+  async function loadNext(cursor = null) {
+    try {
+      const result = await executeQuery('next', null, {
+        view: 'next',
+        query: '',
+        presets: [],
+        filters: [],
+        sort: [],
+        limit: state.nextLimit,
+        cursor,
+        traversal: {},
+      });
+      observeRevision(state.workspaceRevision, result.next.revision);
+      state.next = cursor && state.next ? {
+        ...result.next,
+        focused: [...state.next.focused, ...result.next.focused],
+      } : result.next;
+      mergeNextTasks(state.next);
+      setQueryError('tasks', null);
+      renderTasks();
+    } catch (error) {
+      setQueryError('tasks', error);
+      renderTasks();
+    }
+  }
+
+  // Keep Next-only tasks resolvable by key (selection, detail, mutations)
+  // without pretending they are part of the ordinary task page.
+  function mergeNextTasks(next) {
+    if (!state.tasks) return;
+    const known = new Map((state.tasks.allTasks || []).map((task) => [task.key, task]));
+    [...next.focused, ...next.candidates].forEach((task) => known.set(task.key, task));
+    state.tasks.allTasks = Array.from(known.values());
+  }
+
+  function setTaskMode(mode) {
+    if (state.taskMode === mode) return;
+    state.taskMode = mode;
+    if (mode === 'next' && !state.next) loadNext();
+    else renderTasks();
   }
 
   async function searchTaskCandidates({ query = '', documentId = null, limit = 50 } = {}) {
@@ -1437,6 +1502,7 @@ import {
     row.className = 'task-list-item';
     row.classList.toggle('selected', task.key === state.selectedTask);
     row.classList.toggle('collapsed', item.collapsed);
+    row.classList.toggle('focused', isFocused(task));
     row.style.setProperty('--task-depth', Math.min(task.depth, 5));
     if (item.childCount > 0) {
       row.append(disclosureButton({
@@ -1465,6 +1531,7 @@ import {
     const source = document.createElement('small');
     source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
     identity.append(title, source);
+    if (isFocused(task)) identity.append(focusAgeBadge(task));
     if (item.collapsed && item.hiddenCount > 0) {
       const hidden = document.createElement('small');
       hidden.className = 'task-hidden-count';
@@ -1480,13 +1547,53 @@ import {
     return row;
   }
 
+  // Focus badge: only a task that is *currently* focused is marked, and the
+  // label is the age of the span, never "time worked".
+  function focusAgeBadge(task) {
+    const badge = document.createElement('small');
+    badge.className = 'task-focus-age';
+    badge.dataset.focusSince = isFocused(task) ? (task.focusedSince || '') : '';
+    badge.textContent = focusBadge(task) || 'focused';
+    badge.title = 'In this focus span — not time worked';
+    return badge;
+  }
+
+  function taskMutationBlocked(task, action) {
+    if (!config.taskMutations) return true;
+    if (state.pendingTask === task.key) return true;
+    // Focus rejects a closed task; unfocus stays available in any closure state.
+    return action === 'focus' && ['done', 'canceled', 'conflicted'].includes(task.state);
+  }
+
+  function focusToggleButton(task, className = 'focus-task') {
+    const action = isFocused(task) ? 'unfocus' : 'focus';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.textContent = action === 'focus' ? 'Focus' : 'Unfocus';
+    button.title = action === 'focus'
+      ? 'Mark this task as in flight'
+      : 'End the current focus span';
+    button.disabled = taskMutationBlocked(task, action);
+    button.addEventListener('click', () => mutateFocus(task, action));
+    return button;
+  }
+
   function renderTasks() {
     if (!state.tasks) return;
+    const inNext = state.taskMode === 'next';
+    taskModeList.classList.toggle('active', !inNext);
+    taskModeNext.classList.toggle('active', inNext);
+    taskModeList.setAttribute('aria-pressed', String(!inNext));
+    taskModeNext.setAttribute('aria-pressed', String(inNext));
+    if (inNext) return renderNext();
     const tasks = state.tasks.tasks;
     taskList.replaceChildren();
     taskEmpty.hidden = tasks.length > 0;
     newTaskButton.disabled = !config.taskMutations || !state.tasks.documents?.length || Boolean(state.pendingTask);
-    taskSummary.textContent = `${tasks.length} tasks${state.tasks.complete ? '' : ' (truncated)'}`;
+    // Focused-first is the fixed primary order; the ordinary sort keys apply
+    // only inside each focused group.
+    taskSummary.textContent = `${tasks.length} tasks${state.tasks.complete ? '' : ' (truncated)'} · focused first`;
     taskListItems(tasks, state.collapsed).forEach((item) => {
       taskList.append(item.kind === 'document' ? taskDocumentItem(item) : taskListItem(item));
     });
@@ -1504,6 +1611,249 @@ import {
       else clearTaskDetail('Task unavailable', 'This task is no longer in the workspace.');
     }
     syncDetail();
+  }
+
+  function nextNotice(message, className) {
+    const note = document.createElement('p');
+    note.className = `next-notice ${className}`;
+    note.textContent = message;
+    return note;
+  }
+
+  function nextSectionHeading(heading, note = null, control = null) {
+    const element = document.createElement('div');
+    element.className = 'next-section-head';
+    const title = document.createElement('strong');
+    title.textContent = heading;
+    element.append(title);
+    if (note) {
+      const hint = document.createElement('span');
+      hint.className = 'next-section-note';
+      hint.textContent = note;
+      element.append(hint);
+    }
+    if (control) element.append(control);
+    return element;
+  }
+
+  // The requested candidate limit is explicit: 1–10, default 3, owned here and
+  // clamped by the shared query.
+  function nextLimitControl() {
+    const label = document.createElement('label');
+    label.className = 'next-limit';
+    const text = document.createElement('span');
+    text.textContent = 'Limit';
+    const select = document.createElement('select');
+    for (let value = 1; value <= 10; value += 1) select.add(new Option(String(value), String(value)));
+    select.value = String(state.nextLimit);
+    select.disabled = Boolean(state.pendingTask);
+    select.addEventListener('change', () => {
+      state.nextLimit = Number(select.value);
+      loadNext();
+    });
+    label.append(text, select);
+    return label;
+  }
+
+  function nextTaskRow(task, { focused }) {
+    const row = document.createElement('div');
+    row.className = 'next-list-item';
+    row.classList.toggle('selected', task.key === state.selectedTask);
+    row.classList.toggle('focused', focused);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'task-row';
+    const stateLabel = document.createElement('span');
+    stateLabel.className = `task-state state-${task.state}${task.blocked ? ' blocked' : ''}`;
+    // In-flight rows keep their real workflow state; focus is an extra fact.
+    stateLabel.textContent = taskStateLabel(task);
+    const identity = document.createElement('span');
+    identity.className = 'task-identity';
+    const title = document.createElement('strong');
+    title.textContent = task.title || '(untitled task)';
+    const source = document.createElement('small');
+    source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
+    identity.append(title, source);
+    if (focused) identity.append(focusAgeBadge(task));
+    const due = document.createElement('time');
+    due.textContent = task.due ? task.due.slice(0, 10) : 'No due date';
+    if (task.due) due.dateTime = task.due;
+    button.append(stateLabel, identity, due);
+    button.addEventListener('click', () => selectTask(task, { history: state.narrow ? 'push' : 'replace' }));
+    row.append(button, focusToggleButton(task, 'task-focus-toggle'));
+    return row;
+  }
+
+  function nextSkippedNotice(skipped) {
+    const section = document.createElement('section');
+    section.className = 'next-skipped';
+    const heading = document.createElement('strong');
+    heading.textContent = `${countLabel(skipped.length, 'task')} skipped: invalid focus history`;
+    section.append(heading);
+    skipped.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'next-skipped-row';
+      const title = document.createElement('span');
+      title.textContent = item.title || '(untitled task)';
+      const where = document.createElement('small');
+      where.textContent = `${item.id ? `${item.path}#${item.id}` : item.path} · byte ${item.location.start}`;
+      const codes = document.createElement('small');
+      codes.className = 'next-skipped-codes';
+      codes.textContent = (item.codes || []).map((code) => code.replace(/^task\./, '')).join(', ');
+      row.append(title, where, codes);
+      section.append(row);
+    });
+    return section;
+  }
+
+  function renderNext() {
+    taskList.replaceChildren();
+    if (!state.next) {
+      taskEmpty.hidden = false;
+      taskSummary.textContent = 'Next unavailable';
+      syncDetail();
+      return;
+    }
+    const sections = nextSections(state.next);
+    taskEmpty.hidden = true;
+    newTaskButton.disabled = !config.taskMutations || !state.tasks.documents?.length || Boolean(state.pendingTask);
+    taskSummary.textContent = nextSummary(sections);
+    if (!sections.complete) {
+      taskList.append(nextNotice(
+        'Workspace index incomplete: this shortlist may omit tasks.',
+        'next-incomplete',
+      ));
+    }
+    taskList.append(nextSectionHeading(inFlightHeading(sections), 'Oldest focus first'));
+    if (sections.inFlight.length === 0) {
+      taskList.append(nextNotice('Nothing in flight.', 'next-empty'));
+    }
+    sections.inFlight.forEach((task) => {
+      taskList.append(nextTaskRow(task, { focused: true }));
+    });
+    if (state.next.focusedNextCursor) {
+      const remaining = Math.max(0, sections.inFlightTotal - sections.inFlight.length);
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'load-more-tasks';
+      more.textContent = `Load more in flight (${countLabel(remaining, 'older task')})`;
+      more.disabled = Boolean(state.pendingTask);
+      more.addEventListener('click', () => loadNext(state.next.focusedNextCursor));
+      taskList.append(more);
+    }
+    taskList.append(nextSectionHeading(candidateHeading(sections), null, nextLimitControl()));
+    if (sections.candidates.length === 0) {
+      taskList.append(nextNotice('No ready candidates.', 'next-empty'));
+    }
+    sections.candidates.forEach((task) => {
+      taskList.append(nextTaskRow(task, { focused: false }));
+    });
+    if (sections.skippedInvalid.length > 0) {
+      taskList.append(nextSkippedNotice(sections.skippedInvalid));
+    }
+    if (state.selectedTask) {
+      const selected = taskByKey(state.tasks, state.selectedTask);
+      if (selected) renderTaskDetail(selected);
+      else clearTaskDetail('Task unavailable', 'This task is no longer in the workspace.');
+    }
+    syncDetail();
+  }
+
+  // Expandable interval history. The document stays authoritative: this only
+  // projects the intervals the server returned and never rewrites them.
+  function renderFocusHistory(task) {
+    const rows = focusHistory(task);
+    if (rows.length === 0) return;
+    const section = taskPanel.querySelector('.task-focus-history');
+    const host = section.querySelector('div');
+    section.hidden = false;
+    const details = document.createElement('details');
+    details.className = 'focus-interval-list';
+    const summary = document.createElement('summary');
+    summary.textContent = `${countLabel(rows.length, 'interval')}`;
+    details.append(summary);
+    rows.forEach((row) => {
+      const item = document.createElement('div');
+      item.className = 'focus-interval';
+      item.classList.toggle('open', row.open);
+      const start = document.createElement('time');
+      start.dateTime = row.start || '';
+      start.textContent = focusInstantLabel(row.start) || row.start || 'unknown';
+      const end = document.createElement('span');
+      end.className = 'focus-interval-end';
+      end.textContent = row.open ? '→ now' : `→ ${focusInstantLabel(row.end) || row.end || 'unknown'}`;
+      const span = document.createElement('span');
+      span.className = 'focus-interval-span';
+      if (row.open) span.dataset.focusOpenStart = row.start;
+      span.textContent = row.future ? 'future start' : (row.label || '—');
+      item.append(start, end, span);
+      details.append(item);
+    });
+    host.append(details);
+  }
+
+  // Durations tick without writing anything: only the rendered text changes.
+  function updateFocusDurations() {
+    const now = Date.now();
+    taskList.querySelectorAll('[data-focus-since]').forEach((element) => {
+      element.textContent = focusBadge(
+        { focused: true, focusedSince: element.dataset.focusSince },
+        now,
+      ) || 'focused';
+    });
+    taskPanel.querySelectorAll('[data-focus-since]').forEach((element) => {
+      element.textContent = focusBadge(
+        { focused: true, focusedSince: element.dataset.focusSince },
+        now,
+      ) || 'focused';
+    });
+    taskPanel.querySelectorAll('[data-focus-open-start]').forEach((element) => {
+      const age = focusAge(element.dataset.focusOpenStart, now);
+      element.textContent = age === null ? '—' : (age.future ? 'future start' : (age.label || 'just now'));
+    });
+  }
+
+  async function mutateFocus(task, action) {
+    if (state.pendingTask) return;
+    state.pendingTask = task.key;
+    beginMutation(state.workspaceRevision);
+    renderTaskDetail(task);
+    try {
+      const response = await fetch(`${config.taskActionBase}${encodeURIComponent(task.documentId)}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision: task.revision, locator: task.locator }),
+      });
+      const body = await response.text();
+      if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
+      observeMutationResponse(response);
+      await loadTasks();
+      if (state.taskMode === 'next') await loadNext();
+      notify(action === 'focus' ? 'Task focused.' : 'Task unfocused.');
+    } catch (error) {
+      // Never flip focus optimistically: reload the server facts and surface the
+      // failure instead of overwriting the file.
+      await loadTasks();
+      if (state.taskMode === 'next') await loadNext();
+      const message = String(error);
+      const latest = taskByKey(state.tasks, task.key);
+      if (latest) {
+        renderTaskDetail(latest);
+        const line = taskPanel.querySelector('.task-mutation-error');
+        if (line) {
+          line.textContent = message;
+          line.hidden = false;
+        }
+      }
+      notify(message, true);
+    } finally {
+      state.pendingTask = null;
+      endMutation(state.workspaceRevision);
+      void flushWorkspaceRevision();
+      renderTasks();
+      const latest = taskByKey(state.tasks, task.key);
+      if (latest && latest.key === state.selectedTask) renderTaskDetail(latest);
+    }
   }
 
   function selectTask(task, { history = 'replace' } = {}) {
@@ -1545,11 +1895,14 @@ import {
 
   function renderTaskDetail(task) {
     state.detailForms.tasks = false;
+    const pending = state.pendingTask === task.key;
     taskPanel.innerHTML = `
       <article class="task-detail">
         <header><p class="document-path"></p><h1></h1><span class="task-detail-state"></span></header>
-        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="edit-task" type="button">Edit</button><button class="open-note" type="button">Open note</button></div>
+        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="focus-task" type="button">Focus</button><button class="edit-task" type="button">Edit</button><button class="open-note" type="button">Open note</button></div>
+        <p class="task-mutation-error" role="alert" hidden></p>
         <dl class="task-fields"></dl>
+        <section class="task-focus-history" hidden><h2>Focus history</h2><div></div></section>
         <div class="task-property-actions"><button class="add-task-property" type="button">Add property</button><select class="task-property-picker" aria-label="Property to add" hidden></select></div>
         <section class="task-children" hidden><h2>Child tasks</h2><div></div></section>
       </article>`;
@@ -1558,6 +1911,7 @@ import {
     const stateLabel = taskPanel.querySelector('.task-detail-state');
     stateLabel.textContent = taskStateLabel(task);
     stateLabel.className = `task-detail-state state-${task.state}`;
+    if (isFocused(task)) stateLabel.after(focusAgeBadge(task));
     const fields = taskPanel.querySelector('.task-fields');
     addTaskField(fields, 'Created', task.created, { editable: true, property: 'created', task });
     addTaskField(fields, 'Due', task.due, { editable: true, property: 'due', task });
@@ -1565,15 +1919,22 @@ import {
     addTaskField(fields, 'Wait', task.wait, { editable: true, property: 'wait', task });
     addTaskField(fields, 'Done', task.done);
     addTaskField(fields, 'Canceled', task.canceled);
+    addTaskField(
+      fields,
+      'Focused since',
+      isFocused(task) && task.focusedSince ? focusInstantLabel(task.focusedSince) : null,
+    );
     addTaskField(fields, 'Recurrence', task.recur, { editable: true, property: 'recur', task });
     addTaskField(fields, 'Previous task', task.prev, { editable: true, property: 'prev', task });
     addTaskField(fields, 'Dependencies', task.depends, { editable: true, property: 'depends', task });
     addTaskField(fields, 'Waiting for', task.waitReasons);
+    renderFocusHistory(task);
     const mutable = Boolean(config.taskMutations && task.locator && ['ready', 'waiting'].includes(task.state));
-    const pending = state.pendingTask === task.key;
     taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked || pending;
     taskPanel.querySelector('.cancel-task').disabled = !mutable || pending;
     taskPanel.querySelector('.edit-task').disabled = !config.taskMutations || pending;
+    const focusToggle = focusToggleButton(task, 'focus-task');
+    taskPanel.querySelector('.focus-task').replaceWith(focusToggle);
     taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));
     taskPanel.querySelector('.cancel-task').addEventListener('click', () => updateTask(task, 'cancel'));
     taskPanel.querySelector('.edit-task').addEventListener('click', () => renderTaskForm(task));
@@ -2012,6 +2373,8 @@ import {
   });
   graphViewButton.addEventListener('click', () => showView('graph', { historyMode: 'push' }));
   tasksViewButton.addEventListener('click', () => showView('tasks', { historyMode: 'push' }));
+  taskModeList.addEventListener('click', () => setTaskMode('list'));
+  taskModeNext.addEventListener('click', () => setTaskMode('next'));
   newTaskButton.addEventListener('click', () => renderTaskForm());
   agendaViewButton.addEventListener('click', () => showView('agenda', { historyMode: 'push' }));
   agendaNowButton.addEventListener('click', () => {
@@ -2082,6 +2445,10 @@ import {
     const events = new EventSource(config.eventsUrl);
     events.addEventListener('workspace', workspaceChanged);
   }
+  // Focus ages tick in place; nothing is written to any document.
+  setInterval(() => {
+    if (state.view === 'tasks') updateFocusDurations();
+  }, 30000);
   window.addEventListener('popstate', () => {
     readUrlState();
     showView(state.view, { load: true });
