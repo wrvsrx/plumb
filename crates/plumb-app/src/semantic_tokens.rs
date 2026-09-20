@@ -31,6 +31,18 @@ pub(crate) fn closed_task_token_ranges(
     let mut output = Vec::new();
     let mut ancestors: Vec<(usize, std::ops::Range<usize>, u32)> = Vec::new();
     for task in tasks.views() {
+        if task.owner() == plumb_semantics::TaskOwner::Document {
+            let modifiers = match task.state() {
+                TaskState::Open => 0,
+                TaskState::Done => 1,
+                TaskState::Canceled => 2,
+                TaskState::Conflicted => 3,
+            };
+            if modifiers != 0 {
+                output.push((task.selection_range(), modifiers));
+            }
+            continue;
+        }
         while ancestors
             .last()
             .is_some_and(|(depth, _, _)| *depth >= task.depth())
@@ -61,12 +73,24 @@ pub(crate) fn closed_task_token_ranges(
             output.push((remaining, modifiers));
         }
     }
+    output.sort_by_key(|(range, _)| range.start);
     output
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closed_document_task_highlights_selection_without_body_or_children() {
+        let source = "正文保持普通高亮。\n\n`- Open child\n `+ task\n\n`+ task\n`= title Project\n`= done 2026-09-21T10:00:00+08:00\n";
+        let parsed = plumb_syntax::parse(source);
+        let output = plumb_semantics::analyze_document(parsed.valid_syntax().unwrap());
+        let tasks = output.tasks();
+        let ranges = closed_task_token_ranges(&tasks.tasks);
+        assert_eq!(ranges, vec![(tasks.document_task().unwrap().selection_range(), 1)]);
+        assert_eq!(&source[ranges[0].0.clone()], "Project");
+    }
 
     #[test]
     fn token_ranges_follow_deepest_task_state_for_all_nested_closure_combinations() {

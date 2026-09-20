@@ -118,6 +118,7 @@ pub struct NoteDocument {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum WebTaskLocator {
+    Document,
     Id { id: String },
     Offset { offset: usize },
 }
@@ -798,16 +799,7 @@ impl WebWorkspace {
             else {
                 continue;
             };
-            let key = record.id.as_ref().map_or_else(
-                || format!("{document_id}:{}", task.range.start),
-                |id| format!("{document_id}:{id}"),
-            );
-            let locator = record.id.as_ref().map_or_else(
-                || WebTaskLocator::Offset {
-                    offset: task.range.start,
-                },
-                |id| WebTaskLocator::Id { id: id.clone() },
-            );
+            let (key, locator) = web_task_identity(&document_id, &task);
             let depends_on = if include_relations {
                 self.workspace
                     .task_dependencies(&record.path, &task)
@@ -946,16 +938,7 @@ impl WebWorkspace {
             else {
                 continue;
             };
-            let key = record.id.as_ref().map_or_else(
-                || format!("{document_id}:{}", task.range.start),
-                |id| format!("{document_id}:{id}"),
-            );
-            let locator = record.id.as_ref().map_or_else(
-                || WebTaskLocator::Offset {
-                    offset: task.range.start,
-                },
-                |id| WebTaskLocator::Id { id: id.clone() },
-            );
+            let (key, locator) = web_task_identity(&document_id, &task);
             candidates.push(WebTaskCandidate {
                 key,
                 document_id,
@@ -1718,8 +1701,9 @@ impl WebWorkspace {
         locator: &WebTaskLocator,
     ) -> Option<TaskRecord> {
         output.tasks().tasks.iter().find(|task| match locator {
+            WebTaskLocator::Document => task.owner == plumb_semantics::TaskOwner::Document,
             WebTaskLocator::Id { id } => task.id.as_ref().is_some_and(|field| field.value == *id),
-            WebTaskLocator::Offset { offset } => task.range.start == *offset,
+            WebTaskLocator::Offset { offset } => task.owner == plumb_semantics::TaskOwner::ListItem && task.range.start == *offset,
         })
     }
 
@@ -1903,6 +1887,16 @@ fn relative_web_path(from: &Path, target: &Path) -> Option<String> {
     relative.to_str().map(str::to_string)
 }
 
+fn web_task_identity(document_id: &str, task: &TaskRecord) -> (String, WebTaskLocator) {
+    if task.owner == plumb_semantics::TaskOwner::Document {
+        (format!("{document_id}/document-task"), WebTaskLocator::Document)
+    } else if let Some(id) = &task.id {
+        (format!("{document_id}:{}", id.value), WebTaskLocator::Id { id: id.value.clone() })
+    } else {
+        (format!("{document_id}:{}", task.source_key()), WebTaskLocator::Offset { offset: task.source_key() })
+    }
+}
+
 fn task_range_in(
     workspace: &Workspace,
     path: &Path,
@@ -1918,8 +1912,9 @@ fn task_range_in(
         .tasks
         .iter()
         .find(|task| match locator {
+            WebTaskLocator::Document => task.owner == plumb_semantics::TaskOwner::Document,
             WebTaskLocator::Id { id } => task.id.as_ref().is_some_and(|field| field.value == *id),
-            WebTaskLocator::Offset { offset } => task.range.start == *offset,
+            WebTaskLocator::Offset { offset } => task.owner == plumb_semantics::TaskOwner::ListItem && task.range.start == *offset,
         })
         .map(|task| task.range.clone())
         .ok_or_else(|| "task is no longer available".to_string())
@@ -3503,6 +3498,55 @@ mod tests {
             history.focus_intervals[0].end.as_deref(),
             Some("2026-09-19T11:00:00+08:00")
         );
+    }
+
+    #[test]
+    fn document_task_facet_mutations_preserve_children_and_reject_stale_revisions() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("project.plumb");
+        let source = "`= title Project\n\nBody.\n\n`- Child\n `+ task\n `@ child\n";
+        std::fs::write(&path, source).unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let child = workspace.tasks().unwrap().tasks.remove(0);
+        assert!(workspace.set_document_task_facet(&child.document_id, "stale", true).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+        workspace.set_document_task_facet(&child.document_id, &child.revision, true).unwrap();
+        let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        let document = refreshed.tasks().unwrap().tasks.into_iter().find(|task| task.locator == WebTaskLocator::Document).unwrap();
+        assert!(document.created.is_some());
+        refreshed.set_document_task_facet(&document.document_id, &document.revision, false).unwrap();
+        let updated = std::fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("`= created "));
+        assert!(updated.ends_with("Body.\n\n`- Child\n `+ task\n `@ child\n"));
+        let refreshed = WebWorkspace::load_with_revision(&root, 3).unwrap();
+        assert_eq!(refreshed.tasks().unwrap().tasks.len(), 1);
+    }
+
+    #[test]
+    fn document_task_locator_focuses_only_the_document_and_supports_path_references() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("document.plumb");
+        let original = "`+ task\n`= title Document\n\n`- Child\n `+ task\n `@ child\n";
+        std::fs::write(&path, original).unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let snapshot = workspace.tasks().unwrap();
+        let task = snapshot.tasks.iter().find(|task| task.locator == WebTaskLocator::Document).unwrap();
+        let child = snapshot.tasks.iter().find(|task| task.id.as_deref() == Some("child")).unwrap();
+        assert_ne!(task.key, child.key);
+        assert_eq!(child.parent_key.as_deref(), Some(task.key.as_str()));
+        assert_eq!(serde_json::to_value(&task.locator).unwrap(), serde_json::json!({"kind": "document"}));
+        let reference = workspace.task_reference_input(&path, &WebTaskReferenceInput {
+            document_id: task.document_id.clone(), locator: WebTaskLocator::Document,
+        }).unwrap();
+        assert_eq!(reference, "document.plumb");
+        workspace.focus_task(&task.document_id, &task.locator, &task.revision).unwrap();
+        let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        let snapshot = refreshed.tasks().unwrap();
+        assert!(snapshot.tasks.iter().find(|task| task.locator == WebTaskLocator::Document).unwrap().focused);
+        assert!(!snapshot.tasks.iter().find(|task| task.id.as_deref() == Some("child")).unwrap().focused);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("`- Child\n `+ task\n `@ child\n"));
     }
 
     #[test]

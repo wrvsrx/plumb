@@ -1727,6 +1727,33 @@ import {
     list.append(term, detail);
   }
 
+  async function mutateDocumentTask(documentId, revision, present) {
+    if (state.pendingTask) return;
+    state.pendingTask = 'document-facet';
+    beginMutation(state.workspaceRevision);
+    try {
+      const action = present ? 'mark-document' : 'unmark-document';
+      const response = await fetch(`${config.taskActionBase}${encodeURIComponent(documentId)}/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      observeMutationResponse(response);
+      state.detailForms.tasks = false;
+      await loadTasks();
+      const task = state.tasks.tasks.find((candidate) => candidate.documentId === documentId && candidate.locator.kind === 'document');
+      if (task) selectTask(task);
+      else clearTaskDetail('Document task removed', 'The document and its child tasks are preserved.');
+      notify(present ? 'Document marked as task.' : 'Document task facet removed.');
+    } catch (error) {
+      notify(String(error), true);
+    } finally {
+      state.pendingTask = null;
+      endMutation(state.workspaceRevision);
+      void flushWorkspaceRevision();
+    }
+  }
+
   function renderTaskDetail(task) {
     state.detailForms.tasks = false;
     const pending = state.pendingTask === task.key;
@@ -1742,6 +1769,15 @@ import {
       </article>`;
     taskPanel.querySelector('.document-path').textContent = task.id ? `${task.path}#${task.id}` : task.path;
     taskPanel.querySelector('h1').textContent = task.title || '(untitled task)';
+    if (task.locator.kind === 'document') {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = 'Remove task facet';
+      remove.disabled = pending;
+      remove.addEventListener('click', () => mutateDocumentTask(task.documentId, task.revision, false));
+      taskPanel.querySelector('.task-actions').append(remove);
+    }
+
     const stateLabel = taskPanel.querySelector('.task-detail-state');
     stateLabel.textContent = taskStateLabel(task);
     stateLabel.className = `task-detail-state state-${task.state}`;
@@ -1758,7 +1794,7 @@ import {
       'Focused since',
       isFocused(task) && task.focusedSince ? focusInstantLabel(task.focusedSince) : null,
     );
-    addTaskField(fields, 'Recurrence', task.recur, { editable: true, property: 'recur', task });
+    if (task.locator.kind !== 'document') addTaskField(fields, 'Recurrence', task.recur, { editable: true, property: 'recur', task });
     addTaskField(fields, 'Previous task', task.prev, { editable: true, property: 'prev', task });
     addTaskField(fields, 'Dependencies', task.depends, { editable: true, property: 'depends', task });
     addTaskField(fields, 'Waiting for', task.waitReasons);
@@ -1811,7 +1847,7 @@ import {
 
   function taskReferenceByIdentity(identity) {
     return (state.tasks.allTasks || state.tasks.tasks).find((candidate) => (
-      candidate.id && `${candidate.path}#${candidate.id}` === identity
+      taskReferencePath(candidate) === identity
     ));
   }
 
@@ -1849,7 +1885,7 @@ import {
       control.multiple = property === 'depends';
       if (!control.multiple) control.add(new Option('None', ''));
       (state.tasks.allTasks || state.tasks.tasks)
-        .filter((candidate) => candidate.id && candidate.key !== task.key)
+        .filter((candidate) => taskReferencePath(candidate) && candidate.key !== task.key)
         .forEach((candidate) => control.add(new Option(taskOptionLabel(candidate), candidate.key)));
       if (property === 'prev') {
         const previous = taskReferenceByIdentity(task.prevOn);
@@ -1858,7 +1894,7 @@ import {
         const selected = new Set(task.dependsOn || []);
         Array.from(control.options).forEach((option) => {
           const candidate = taskByKey(state.tasks, option.value);
-          option.selected = candidate ? selected.has(`${candidate.path}#${candidate.id}`) : false;
+          option.selected = candidate ? selected.has(taskReferencePath(candidate)) : false;
         });
       }
     }
@@ -1944,6 +1980,11 @@ import {
     }
   }
 
+  function taskReferencePath(task) {
+    if (task.locator?.kind === 'document') return task.path;
+    return task.id ? `${task.path}#${task.id}` : null;
+  }
+
   function taskIdentity(task) {
     return { documentId: task.documentId, locator: task.locator };
   }
@@ -1987,6 +2028,17 @@ import {
     const form = taskPanel.querySelector('form');
     documents.forEach((document) => form.elements.document.add(new Option(document.path, document.id)));
     if (task) { form.elements.document.value = task.documentId; form.elements.document.disabled = true; }
+    if (!task) {
+      const mark = document.createElement('button');
+      mark.type = 'button';
+      mark.textContent = 'Use selected document as task';
+      mark.addEventListener('click', () => {
+        const selected = documents.find((document) => document.id === form.elements.document.value);
+        if (selected) void mutateDocumentTask(selected.id, selected.revision, true);
+      });
+      form.elements.document.closest('label').after(mark);
+    }
+
     let all = state.tasks.allTasks || state.tasks.tasks;
     const updatePlacement = () => {
       const documentId = form.elements.document.value;
@@ -2022,10 +2074,10 @@ import {
       const results = await searchTaskCandidates({ query });
       const pinned = new Set([task?.prevOn, ...(task?.dependsOn || [])].filter(Boolean));
       const referencesByKey = new Map(results
-        .filter((candidate) => candidate.id && candidate.key !== task?.key)
+        .filter((candidate) => taskReferencePath(candidate) && candidate.key !== task?.key)
         .map((candidate) => [candidate.key, candidate]));
       (state.tasks.allTasks || []).forEach((candidate) => {
-        if (candidate.id && pinned.has(`${candidate.path}#${candidate.id}`)) {
+        if (taskReferencePath(candidate) && pinned.has(taskReferencePath(candidate))) {
           referencesByKey.set(candidate.key, candidate);
         }
       });
@@ -2048,6 +2100,13 @@ import {
     };
     await updateReferences();
     if (task) {
+      if (task.locator.kind === 'document') {
+        form.elements.parent.closest('.task-form-grid').hidden = true;
+        for (const name of ['parent', 'after', 'recur']) {
+          form.elements[name].closest('label').hidden = true;
+          form.elements[name].disabled = true;
+        }
+      }
       form.elements.title.value = task.title;
       form.elements.created.value = localDateTimeValue(task.created);
       form.elements.due.value = localDateTimeValue(task.due);
@@ -2065,11 +2124,11 @@ import {
       const resolved = new Set(task.dependsOn || []);
       Array.from(form.elements.depends.options).forEach((option) => {
         const candidate = taskByKey(state.tasks, option.value);
-        option.selected = resolved.has(`${candidate.path}#${candidate.id}`);
+        option.selected = resolved.has(taskReferencePath(candidate));
       });
       const references = state.tasks.allTasks || [];
       const prev = references.find((candidate) => (
-        task.prevOn === `${candidate.path}#${candidate.id}`
+        task.prevOn === taskReferencePath(candidate)
       ));
       if (prev) form.elements.prev.value = prev.key;
     }
@@ -2120,7 +2179,7 @@ import {
     const changedPlacement = !task
       || form.elements.parent.value !== (form.dataset.originalParent || '')
       || form.elements.after.value !== (form.dataset.originalAfter || '');
-    const placement = changedPlacement ? { parent: parent?.locator || null, after: after?.locator || null } : null;
+    const placement = changedPlacement && task?.locator.kind !== 'document' ? { parent: parent?.locator || null, after: after?.locator || null } : null;
     const action = task ? 'update' : 'create';
     state.pendingTask = task?.key || 'create';
     beginMutation(state.workspaceRevision);

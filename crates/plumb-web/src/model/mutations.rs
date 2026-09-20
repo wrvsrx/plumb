@@ -1,6 +1,28 @@
 use super::*;
 
 impl WebWorkspace {
+    pub fn set_document_task_facet(
+        &self,
+        document_id: &str,
+        revision: &str,
+        present: bool,
+    ) -> Result<(), String> {
+        let path = self.guarded_document(document_id, revision, "task")?;
+        let source = std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        let workspace = self.operation_workspace(path)?;
+        let edit = if present {
+            let timestamp = Local::now().fixed_offset().to_rfc3339_opts(SecondsFormat::Secs, false);
+            workspace.mark_document_task(path, &timestamp)
+        } else {
+            workspace.remove_document_task(path)
+        }.map_err(|error| error.to_string())?;
+        if edit.document_changes.iter().all(|change| change.edits.is_empty()) {
+            return Ok(());
+        }
+        self.write_workspace_edit(path, source, edit, "task")
+    }
+
     pub fn set_task_status(
         &self,
         document_id: &str,
@@ -28,6 +50,7 @@ impl WebWorkspace {
             .to_rfc3339_opts(SecondsFormat::Secs, false);
         let operation_workspace = self.operation_workspace(path)?;
         let edit = match locator {
+            WebTaskLocator::Document => operation_workspace.set_document_task_status(path, status, &timestamp),
             WebTaskLocator::Id { id } => {
                 operation_workspace.set_task_status_by_id(path, id, status, &timestamp)
             }
@@ -40,7 +63,7 @@ impl WebWorkspace {
                     .tasks()
                     .tasks
                     .iter()
-                    .any(|task| task.range.start == *offset);
+                    .any(|task| task.owner == plumb_semantics::TaskOwner::ListItem && task.range.start == *offset);
                 if !indexed {
                     return Err("task position changed; refresh before retrying".to_string());
                 }
@@ -108,6 +131,13 @@ impl WebWorkspace {
             .to_rfc3339_opts(SecondsFormat::Secs, false);
         let operation_workspace = self.operation_workspace(path)?;
         let edit = match locator {
+            WebTaskLocator::Document => {
+                if focus {
+                    operation_workspace.focus_document_task(path, &timestamp)
+                } else {
+                    operation_workspace.unfocus_document_task(path, &timestamp)
+                }
+            }
             WebTaskLocator::Id { id } => {
                 if focus {
                     operation_workspace.focus_task_by_id(path, id, &timestamp)
@@ -124,7 +154,7 @@ impl WebWorkspace {
                     .tasks()
                     .tasks
                     .iter()
-                    .any(|task| task.range.start == *offset);
+                    .any(|task| task.owner == plumb_semantics::TaskOwner::ListItem && task.range.start == *offset);
                 if !indexed {
                     return Err("task position changed; refresh before retrying".to_string());
                 }
@@ -246,7 +276,7 @@ impl WebWorkspace {
         })
     }
 
-    fn task_reference_input(
+    pub(super) fn task_reference_input(
         &self,
         source_path: &Path,
         reference: &WebTaskReferenceInput,
@@ -261,6 +291,10 @@ impl WebWorkspace {
         let task = self
             .task_for_locator(entry.output.as_ref(), &reference.locator)
             .ok_or_else(|| "task reference is no longer available".to_string())?;
+        if task.owner == plumb_semantics::TaskOwner::Document {
+            return relative_web_path(source_path, target_path)
+                .ok_or_else(|| "task reference path is not valid UTF-8".to_string());
+        }
         let id = task
             .id
             .as_ref()

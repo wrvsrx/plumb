@@ -14,5 +14,5 @@ export function taskPropertyHasValue(task, key) {
 }
 
 export function missingTaskProperties(task) {
-  return EDITABLE_TASK_PROPERTIES.filter(({ key }) => !taskPropertyHasValue(task, key));
+  return EDITABLE_TASK_PROPERTIES.filter(({ key }) => !(task.locator?.kind === 'document' && key === 'recur') && !taskPropertyHasValue(task, key));
 }

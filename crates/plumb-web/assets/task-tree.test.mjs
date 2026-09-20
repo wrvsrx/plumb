@@ -206,3 +206,36 @@ test('display depth comes from tree edges and groups add one parent level', () =
   assert.equal(filtered.find((item) => item.kind === 'task').depth, 1);
   assert.equal(focusedTasks[2].depth, 2, 'source depth is unchanged');
 });
+
+test('document task replaces the virtual file row and retains foldable children', () => {
+  const records = [
+    { ...task('project.plumb', 'document', 0), locator: { kind: 'document' } },
+    task('project.plumb', 'child', 1, 'document'),
+    task('other.plumb', 'other', 0),
+  ];
+  const rows = taskListItems(records);
+  assert.deepEqual(rows.map((row) => [row.kind, row.task?.key || row.path, row.depth]), [
+    ['task', 'document', 0], ['task', 'child', 1],
+    ['document', 'other.plumb', 0], ['task', 'other', 1],
+  ]);
+  const collapsed = { tasks: new Set(['document']) };
+  assert.equal(taskListItems(records, collapsed)[0].hiddenCount, 1);
+  assert.equal(revealTask(collapsed, records, records[1]), true);
+  assert.equal(collapsed.tasks.size, 0);
+});
+
+test('focused document task groups unfocused children at their sibling depth', () => {
+  const records = [
+    { ...task('project.plumb', 'document', 0), locator: { kind: 'document' }, focused: true },
+    task('project.plumb', 'child', 1, 'document'),
+  ];
+  const rows = taskListItems(records);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].task.key, 'document');
+  assert.equal(rows[0].depth, 0);
+  assert.equal(rows[1].kind, 'group');
+  assert.equal(rows[1].depth, 1);
+  const collapsed = {};
+  revealTask(collapsed, records, records[1]);
+  assert.equal(taskListItems(records, collapsed).at(-1).task.key, 'child');
+});

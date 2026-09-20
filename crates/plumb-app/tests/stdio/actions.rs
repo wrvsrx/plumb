@@ -1139,3 +1139,42 @@ fn focused_task_offers_unfocus_instead_of_focus() {
     assert!(new_text.contains("2026-09-20T09:00:00+08:00--2"));
 }
 
+
+#[test]
+fn document_task_actions_use_root_declarations_without_capturing_child_tasks() {
+    let uri = "file:///tmp/document-task-actions.plumb";
+    let source = "`+ task\n`= title Project\n\n`- Child\n `+ task\n";
+    for (line, document) in [(0, true), (3, false)] {
+        let messages = [
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                "processId":null,"rootUri":null,"capabilities":{
+                    "workspace":{"workspaceEdit":{"documentChanges":true}}
+                }
+            }}),
+            json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+            json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+                "textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":source}
+            }}),
+            json!({"jsonrpc":"2.0","id":2,"method":"textDocument/codeAction","params":{
+                "textDocument":{"uri":uri},
+                "range":{"start":{"line":line,"character":0},"end":{"line":line,"character":0}},
+                "context":{"diagnostics":[]}
+            }}),
+            json!({"jsonrpc":"2.0","id":3,"method":"shutdown","params":null}),
+            json!({"jsonrpc":"2.0","method":"exit","params":null}),
+        ];
+        let output = run_server(&messages);
+        let actions = response(&output, 2)["result"].as_array().unwrap();
+        assert_eq!(actions.iter().any(|action| action["title"] == "Remove document task facet"), document);
+        let focus = actions.iter().find(|action| action["title"] == "Focus task").unwrap();
+        let edits = focus["edit"]["documentChanges"][0]["edits"].as_array().unwrap();
+        let text = edits.iter().map(|edit| edit["newText"].as_str().unwrap()).collect::<String>();
+        assert!(text.contains("`= focused "));
+        if document {
+            assert!(!text.contains("`- Child"));
+            assert!(!text.contains(" `= focused"));
+        } else {
+            assert!(text.contains(" `= focused"));
+        }
+    }
+}

@@ -64,7 +64,11 @@ const FILES_GROUP = JSON.stringify(['files']);
 // Transform the presentation tree before flattening. Groups are real display
 // parents; source task parentKey/depth never changes.
 export function taskDisplayTree(tasks) {
-  const { documents } = taskForest(tasks);
+  const forest = taskForest(tasks);
+  // A document task owns the file's tree; it replaces the virtual file row.
+  const documents = forest.documents.map((document) => (
+    document.children.find((node) => node.task.locator?.kind === 'document') || document
+  ));
   if (!documents.some((node) => node.focusedCount > 0)) return documents;
   const root = { children: documents };
   const work = [root];
@@ -105,7 +109,7 @@ export function taskListItems(tasks, collapsed = {}) {
       const childCount = node.children.reduce((sum, child) => sum + (child.kind === 'group' ? child.children.length : 1), 0);
       folded = childCount > 0 && keySet(collapsed.tasks).has(node.task.key);
       const hiddenCount = folded ? node.total - 1 : 0;
-      documentRow.hidden += hiddenCount;
+      if (documentRow) documentRow.hidden += hiddenCount;
       items.push({ kind: 'task', task: node.task, depth, childCount,
         collapsed: folded, hiddenCount, focusedCount: node.focusedCount });
     }

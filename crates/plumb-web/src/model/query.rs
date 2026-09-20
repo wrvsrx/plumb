@@ -77,16 +77,7 @@ impl WebWorkspace {
         let revision = self.documents.get(&item.path)?.revision;
         let task = item.task;
         let id = task.id.as_ref().map(|field| field.value.clone());
-        let key = id.as_ref().map_or_else(
-            || format!("{document_id}:{}", task.range.start),
-            |id| format!("{document_id}:{id}"),
-        );
-        let locator = id.as_ref().map_or_else(
-            || WebTaskLocator::Offset {
-                offset: task.range.start,
-            },
-            |id| WebTaskLocator::Id { id: id.clone() },
-        );
+        let (key, locator) = super::web_task_identity(&document_id, &task);
         let focused = task.is_focused();
         let focused_since = task.focused_since().map(str::to_string);
         let focus_intervals = super::web_focus_intervals(&task);

@@ -2376,6 +2376,23 @@ impl LanguageServer for ServerState {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(entry.parsed.source(), params.range.start);
                 let selection_end = position_to_offset(entry.parsed.source(), params.range.end);
+                if document_task_action_context(entry.parsed.green(), offset) {
+                    let existing = self.workspace.document_task(&path).is_some();
+                    let edit = if existing {
+                        self.workspace.remove_document_task(&path)
+                    } else {
+                        self.workspace.mark_document_task(&path, &timestamp)
+                    };
+                    if let Some(edit) = edit.ok().and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit)) {
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: if existing { "Remove document task facet" } else { "Mark document as task" }.into(),
+                            kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                            edit: Some(edit),
+                            ..CodeAction::default()
+                        }));
+                    }
+                }
+
                 if let Some(title) = path.file_stem().and_then(|stem| stem.to_str()) {
                     if let Some(edit) = self
                         .workspace
@@ -2478,23 +2495,28 @@ impl LanguageServer for ServerState {
         if code_action_kind_requested(params.context.only.as_deref(), &CodeActionKind::QUICKFIX) {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(entry.parsed.source(), params.range.start);
-                let focus = entry.current.as_ref().and_then(|current| {
+                let document_context = document_task_action_context(entry.parsed.green(), offset);
+                let focus = if document_context {
+                    self.workspace.document_task(&path)
+                } else { entry.current.as_ref().and_then(|current| {
                     current
                         .output
                         .tasks()
                         .tasks
                         .iter()
-                        .filter(|task| task.range.start <= offset && offset <= task.range.end)
+                        .filter(|task| task.owner == plumb_semantics::TaskOwner::ListItem && task.range.start <= offset && offset <= task.range.end)
                         .max_by_key(|task| task.range.start)
-                });
+                }) };
                 for (status, title, preferred) in [
                     (TaskStatus::Done, "Complete task", true),
                     (TaskStatus::Canceled, "Cancel task", false),
                 ] {
-                    if let Some(edit) = self
-                        .workspace
-                        .set_task_status(&path, offset, status, &timestamp)
-                        .ok()
+                    let edit = if document_context {
+                        self.workspace.set_document_task_status(&path, status, &timestamp)
+                    } else {
+                        self.workspace.set_task_status(&path, offset, status, &timestamp)
+                    };
+                    if let Some(edit) = edit.ok()
                         .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
                     {
                         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
@@ -2520,7 +2542,13 @@ impl LanguageServer for ServerState {
                     }
                 });
                 if let Some((title, preferred)) = focus_action {
-                    let edit = if title == "Focus task" {
+                    let edit = if document_context {
+                        if title == "Focus task" {
+                            self.workspace.focus_document_task(&path, &timestamp)
+                        } else {
+                            self.workspace.unfocus_document_task(&path, &timestamp)
+                        }
+                    } else if title == "Focus task" {
                         self.workspace.focus_task(&path, offset, &timestamp)
                     } else {
                         self.workspace.unfocus_task(&path, offset, &timestamp)
@@ -5117,4 +5145,17 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, ErrorCode::INTERNAL_ERROR);
     }
+}
+
+// Document actions belong to root declarations, never to a child task's body.
+fn document_task_action_context(document: &plumb_syntax::GreenDocument, offset: usize) -> bool {
+    if document.source().trim().is_empty() { return true; }
+    document.shards().any(|shard| {
+        let local = offset.checked_sub(shard.offset());
+        shard.shard().parsed().syntax.blocks.iter().any(|block| {
+            let plumb_syntax::Block::Parsed(block) = block else { return false; };
+            block.mark.as_ref().is_some_and(|mark| matches!(mark.marker.as_str(), "+" | "="))
+                && local.is_some_and(|local| block.range.start <= local && local <= block.content.range.end)
+        })
+    })
 }

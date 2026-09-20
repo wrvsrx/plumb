@@ -355,6 +355,9 @@ async fn update_task(
     let (path, revision) = {
         let workspace = state.workspace.read().await;
         let result = match action.as_str() {
+            "mark-document" | "unmark-document" => workspace.set_document_task_facet(
+                &document_id, &request.revision, action == "mark-document",
+            ),
             "complete" | "cancel" => request
                 .locator
                 .as_ref()

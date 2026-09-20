@@ -152,6 +152,9 @@ pub(crate) fn task_labels(
         .tasks
         .iter()
         .filter_map(|task| {
+            if task.owner == plumb_semantics::TaskOwner::Document {
+                return None;
+            }
             let state = match task_label_state(workspace, path, &task, now, index_complete) {
                 Ok(Some(state)) => state,
                 Ok(None) => return None,
@@ -823,6 +826,17 @@ mod tests {
                 expected,
             );
         }
+    }
+
+    #[test]
+    fn document_task_does_not_create_a_list_fold_label_or_decode_body_as_marker() {
+        let mut workspace = plumb_workspace::Workspace::new();
+        let path = std::path::Path::new("document-fold.plumb");
+        workspace.open_document(path, 1, "正文。\n\n`+ task\n\n`- Child\n `+ task\n");
+        let entry = workspace.get(path).unwrap();
+        let labels = super::task_labels(&workspace, path, entry, true);
+        assert_eq!(labels.len(), 1);
+        assert!(labels.values().all(|label| label.text.contains("Child")));
     }
 
     #[test]
