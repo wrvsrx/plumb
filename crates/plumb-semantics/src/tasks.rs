@@ -297,6 +297,19 @@ pub struct TaskOutput {
 }
 
 impl TaskOutput {
+    /// A list task at its syntax owner start, even when the document task also starts at zero.
+    pub fn list_task_at(&self, start: usize) -> Option<crate::SemanticRecordView<'_, TaskRecord>> {
+        let candidate = self.tasks.view_at_start(start)?;
+        match candidate.owner() {
+            TaskOwner::ListItem => Some(candidate),
+            TaskOwner::Document => {
+                self.tasks.views().nth(1).filter(|task| {
+                    task.owner() == TaskOwner::ListItem && task.range().start == start
+                })
+            }
+        }
+    }
+
     pub fn document_task(&self) -> Option<crate::SemanticRecordView<'_, TaskRecord>> {
         self.tasks
             .views()
@@ -415,6 +428,15 @@ pub fn analyze_green_tasks(valid: ValidGreenDocument<'_>) -> TaskOutput {
         }
     }
     prepend_document_task(document_task, &mut output);
+    output
+}
+
+/// Analyze only the document task and its own field diagnostics.
+/// This is useful when validating a root edit independently of existing child issues.
+pub fn analyze_green_document_task(valid: ValidGreenDocument<'_>) -> TaskOutput {
+    let metadata = crate::metadata::analyze_green_metadata(valid);
+    let mut output = TaskOutput::default();
+    prepend_document_task(green_document_task_record(valid, &metadata), &mut output);
     output
 }
 

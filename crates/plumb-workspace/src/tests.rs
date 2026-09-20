@@ -5782,3 +5782,218 @@ fn updates_and_moves_task_subtrees_in_one_original_revision_operation() {
         cross_root_updated
     );
 }
+
+#[test]
+fn document_task_identity_and_focus_operations_preserve_children_and_revision_guards() {
+    let source = "`- Child\n `+ task\n `@ child\n\n`= title Project\n\nDetails   stay `!{exact}.\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("project.plumb", 1, source);
+    let mark = workspace
+        .mark_document_task("project.plumb", "2026-09-21T09:00:00+08:00")
+        .unwrap();
+    assert_eq!(
+        apply_document_edit(source.into(), "project.plumb", 2, mark.clone()),
+        Err(ApplyDocumentEditError::RevisionMismatch)
+    );
+    let mut source = apply_document_edit(source.into(), "project.plumb", 1, mark).unwrap();
+    assert!(source.contains("Details   stay `!{exact}."));
+    workspace.insert("project.plumb", 2, source.clone());
+    assert_eq!(
+        workspace
+            .document_task("project.plumb")
+            .unwrap()
+            .created
+            .unwrap()
+            .value,
+        "2026-09-21T09:00:00+08:00"
+    );
+    assert!(workspace
+        .mark_document_task("project.plumb", "2026-09-21T10:00:00+08:00")
+        .unwrap()
+        .document_changes[0]
+        .edits
+        .is_empty());
+    let focus = workspace
+        .focus_document_task("project.plumb", "2026-09-21T10:00:00+08:00")
+        .unwrap();
+    source = apply_document_edit(source, "project.plumb", 2, focus).unwrap();
+    workspace.insert("project.plumb", 3, source.clone());
+    assert!(workspace
+        .document_task("project.plumb")
+        .unwrap()
+        .is_focused());
+    assert!(!workspace
+        .task_at("project.plumb", source.find("Child").unwrap())
+        .unwrap()
+        .is_focused());
+    assert!(workspace
+        .focus_document_task("project.plumb", "2026-09-21T11:00:00+08:00")
+        .unwrap()
+        .document_changes[0]
+        .edits
+        .is_empty());
+    let unfocus = workspace
+        .unfocus_document_task("project.plumb", "2026-09-21T11:00:00+08:00")
+        .unwrap();
+    source = apply_document_edit(source, "project.plumb", 3, unfocus).unwrap();
+    workspace.insert("project.plumb", 4, source.clone());
+    let focus = workspace
+        .focus_document_task("project.plumb", "2026-09-21T12:00:00+08:00")
+        .unwrap();
+    source = apply_document_edit(source, "project.plumb", 4, focus).unwrap();
+    workspace.insert("project.plumb", 5, source.clone());
+    let task = workspace.document_task("project.plumb").unwrap();
+    assert_eq!(task.focused.intervals.len(), 2);
+    assert!(task.focused.list_form);
+    let done = workspace
+        .set_document_task_status(
+            "project.plumb",
+            TaskStatus::Done,
+            "2026-09-21T13:00:00+08:00",
+        )
+        .unwrap();
+    source = apply_document_edit(source, "project.plumb", 5, done).unwrap();
+    workspace.insert("project.plumb", 6, source.clone());
+    let task = workspace.document_task("project.plumb").unwrap();
+    assert_eq!(task.state(), plumb_semantics::TaskState::Done);
+    assert!(!task.has_open_focus_interval());
+    assert_eq!(
+        workspace
+            .task_at("project.plumb", source.find("Child").unwrap())
+            .unwrap()
+            .state(),
+        plumb_semantics::TaskState::Open
+    );
+    let remove = workspace.remove_document_task("project.plumb").unwrap();
+    let result = apply_document_edit(source.clone(), "project.plumb", 6, remove).unwrap();
+    assert_eq!(result, source.replacen("`+ task\n", "", 1));
+    workspace.insert("project.plumb", 7, result);
+    assert!(workspace.document_task("project.plumb").is_none());
+    assert!(workspace
+        .remove_document_task("project.plumb")
+        .unwrap()
+        .document_changes[0]
+        .edits
+        .is_empty());
+}
+
+#[test]
+fn document_task_mark_rejects_invalid_root_fields_but_not_existing_child_diagnostics() {
+    let mut workspace = Workspace::new();
+    for fields in [
+        "`= created bad\n",
+        "`= due\n `- bad\n",
+        "`= recur P1D\n",
+        "`= priority nope\n",
+        "`= focused bad\n",
+        "`= priority 1\n`= priority 2\n",
+    ] {
+        let source = format!("`= title Project\n{fields}\nBody.\n");
+        workspace.insert("project.plumb", 1, source.clone());
+        assert!(
+            workspace
+                .mark_document_task("project.plumb", "2026-09-21T09:00:00+08:00")
+                .is_err(),
+            "{fields}"
+        );
+        assert_eq!(
+            workspace.get("project.plumb").unwrap().parsed.source(),
+            source
+        );
+    }
+    workspace.insert(
+        "project.plumb",
+        1,
+        "`- Invalid child\n `+ task\n `= due bad\n\n`- Conflict child\n `+ task\n `+ event\n",
+    );
+    assert!(workspace
+        .mark_document_task("project.plumb", "2026-09-21T09:00:00+08:00")
+        .is_ok());
+}
+
+#[test]
+fn document_task_closure_is_atomic_on_clock_regression() {
+    let source = "`+ task\n`= title Project\n\nBody.\n\n`= focused 2026-09-21T12:00:00+08:00--\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("project.plumb", 1, source);
+    for status in [TaskStatus::Done, TaskStatus::Canceled] {
+        assert!(matches!(
+            workspace.set_document_task_status(
+                "project.plumb",
+                status,
+                "2026-09-21T11:00:00+08:00"
+            ),
+            Err(WorkspaceOperationError::Operation(
+                TaskEditError::ClockRegression
+            ))
+        ));
+        assert_eq!(
+            workspace.get("project.plumb").unwrap().parsed.source(),
+            source
+        );
+    }
+}
+
+#[test]
+fn explicit_document_task_actions_do_not_target_adjacent_or_closed_children() {
+    let source = "`- Closed child\n `+ task\n `= done 2026-09-21T09:00:00+08:00\n`+ task\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("project.plumb", 1, source);
+    let timestamp = "2026-09-21T10:00:00+08:00";
+    assert!(matches!(
+        workspace.focus_task("project.plumb", source.find("Closed").unwrap(), timestamp),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::TaskAlreadyClosed
+        ))
+    ));
+    assert!(matches!(
+        workspace.set_task_status(
+            "project.plumb",
+            source.find("Closed").unwrap(),
+            TaskStatus::Done,
+            timestamp
+        ),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::TaskAlreadyClosed
+        ))
+    ));
+    let edit = workspace
+        .focus_document_task("project.plumb", timestamp)
+        .unwrap();
+    let updated = apply_document_edit(source.into(), "project.plumb", 1, edit).unwrap();
+    workspace.insert("project.plumb", 2, updated.clone());
+    assert!(workspace
+        .document_task("project.plumb")
+        .unwrap()
+        .is_focused());
+    assert!(!workspace
+        .task_at("project.plumb", updated.find("Closed").unwrap())
+        .unwrap()
+        .is_focused());
+}
+
+#[test]
+fn document_task_cannot_complete_while_its_first_list_task_dependency_is_open() {
+    let source = "`- Child\n `+ task\n `@ child\n`+ task\n`= depends #child\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("project.plumb", 1, source);
+    let task = workspace.document_task("project.plumb").unwrap();
+    assert_eq!(
+        workspace
+            .task_dependencies("project.plumb", &task)
+            .unwrap()
+            .value
+            .len(),
+        1
+    );
+    assert!(matches!(
+        workspace.set_document_task_status(
+            "project.plumb",
+            TaskStatus::Done,
+            "2026-09-21T10:00:00+08:00"
+        ),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::TaskBlocked
+        ))
+    ));
+}

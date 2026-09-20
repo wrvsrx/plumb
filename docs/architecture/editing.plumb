@@ -169,4 +169,4 @@ LSP、CLI 和 Web 使用同一 document task locator 与 revision guard。docume
 
 transaction 在原位置替换已有声明，在根层插入新声明；根层 facet removal 不匹配 nested facets。source byte zero 的 insertion 与 replacement 合并为一个 edit。返回 edits 按 source order 排列且不重叠，并以 next green revision 验证 batch syntax validity。未修改的 body、opaque declarations、focus history 和 line ending 保持原样；任何失败不返回部分编辑。green_root_declaration 提供同一 revision 上的 scalar/list property 查询，拒绝 ambiguous duplicate key。
 
-Document task 的显式操作按 document owner 定位，不转成任意 list offset。cursor 操作只选择包含位置的最深 task，再检查状态；命中已关闭的 child 时不能退回开放的 document parent 并修改它。
+Document task 的显式操作按 document owner 定位，不转成任意 list offset。cursor 操作保留原有 list task 向开放 list ancestor 回退的规则，但命中 child 时不能进一步退回 document parent 并修改整个文件任务。
