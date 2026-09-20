@@ -236,3 +236,32 @@ focused 优先是固定的首排序规则，不因用户调换普通 sort keys �
 完成权威规范、实现、测试和用户文档的一致性检查，运行仓库要求的 warning gate 与相关测试。若更改 README 源，按仓库流程生成对应 Markdown。
 
 交付说明列出实现内容、验证结果及任何未完成项。不得把仅有共享层或 CLI 的实现视为本需求完成。
+
+## 交付说明
+
+实现完成于分支 `docs/task-focus-requirements`（在本文档提交之后追加 19 个提交）。
+
+### 实现内容
+
+- **权威规范先行**：`standard-semantics` §10 定义 `focused` property（单个区间或 direct `-` 子项列表、按 instant 比较、升序不重叠可相接、end 不早于 start、最多一个 open interval 且最后）、派生事实与 focus/unfocus/Complete/Cancel 语义；`diagnostics` §6 增加 focus interval 诊断归类；`semantic-analysis` §8–§9 定义 CEL `focused`/`focused_since`、shared `next` 两区查询与操作契约；`editing` §6 说明 single↔list 由 edit layer 渲染。
+- **共享语义**：`TaskFocus`/`FocusInterval`/`FocusProblem` 与派生 `is_focused`/`focused_since`/`focus_valid`；六个诊断码（`task.invalid-focus`、`duplicate-focus`、`unordered-focus`、`overlapping-focus`、`multiple-open-focus`、`focus-on-closed`）都不改写源文档；child-bearing `= focused` 对 attribute view 不可见，解析直接读 block children（含空属性）。
+- **plumb-edit 前置能力**：带 children 的 `=` 声明的定位/替换/删除与 scalar↔list 转换（`OwnedDeclaration`、`declaration`、`set_declaration`、`append_declaration_item`、`remove_declaration` 及 revision/green 入口）。
+- **操作**：`focus_task`/`unfocus_task`（offset 与 id 两种定位）幂等、拒绝 closed task、允许 waiting/blocked 的未关闭任务；无效历史或时钟回拨失败且不写入；complete/cancel 在同一次单 revision 编辑中关闭 open 区间；周期任务旧实例保留历史、新实例不继承。
+- **查询与存储**：shared `next` 两区（进行中按关注起点升序且不受候选上限限制、可分页给总数；待开工在完整关系图上传播 effective priority 后过滤、按优先级降序、默认 3 可请求 1–10、严格按 task 计数）；CEL `focused`/`focused_since`；store 派生列 + migration，`SCHEMA_VERSION` 升到 11，cursor 升到 v2；无效 focus 数据被跳过并报告。
+- **Tasks 树**：展示聚合 `subtree_focused` 固定首排序（document 虚拟节点同样聚合、折叠隐藏计入、被过滤不计入、清空/重排 keys 仍生效、祖先不被写入标记）。
+- **适配器**：CLI `plumb task next --limit`、`plumb task focus|unfocus`；LSP `Focus task`/`Unfocus task` code action、folding 标签保留状态符号并追加关注标识、`plumb/next` schema version 1 + capability；Neovim `:PlumbNext`（两区 picker、跳转、focus/unfocus 复用 code action、只显示关注时长）；Web `List`/`Next` 两种模式与两段结果、行内与详情关注操作、可展开区间历史、随时间刷新的时长显示、`Focused first` 提示。
+- **用户文档**：`docs/guide/{semantics,workspace,toolchain,editor-integration}.plumb`、`contrib/nvim/README.plumb`（README.md 已按仓库管线重新生成）、`contrib/nvim/doc/plumb.txt`、`docs/project/completed-tasks.plumb` 记录。
+
+### 验证结果
+
+- `cargo test --workspace`：全绿（协议无关测试覆盖三种文档形态、时区等价、零长度与相接、六类非法输入、幂等/单值转列表/历史保留、Complete/Cancel 原子关闭与失败无修改、周期不继承、两区排序与严格上限、内存/持久/open-overlay 一致、无效 focus 跳过、取消关注后的树聚合）。
+- `cargo check --workspace --all-targets`：无 error/warning。
+- `node --test crates/plumb-web/assets/*.test.mjs`：38 passed。
+- Neovim headless：`next_e2e.lua`、`setup_unit.lua`、`folding_unit.lua` 通过。
+- Chromium CDP e2e：`mobile-shell.e2e.mjs`（含 Next 两区、聚焦/取消聚焦、详情区间历史）、`task-folding.e2e.mjs`、`task-authoring.e2e.mjs` 通过。
+
+### 未完成项与已知问题
+
+- **提交签名**：SSH agent 转发会话在实现中途中断，`b1a5386`、`7cd356b`、`72be3b0`、`6505065`、`1178488` 五个提交未签名（其余 15 个已签名）。socket 恢复后可统一补签：`git rebase --exec 'git commit --amend --no-edit -S' 5aad2bb`。
+- **既有测试失败**：`contrib/nvim/tests/search_e2e.lua` 在本机超时失败（`complete native note search`）；在本次改动之前的基线提交上同样失败，属既有环境/Neovim 版本问题，未在本次修复。
+- **e2e fixture 契约**：`mobile-shell.e2e.mjs` 的 Next 与关注断言要求被服务的工作区至少含一个当前聚焦任务与一个 ready 候选（测试头部已声明）；它同时会自己通过 UI 完成一次聚焦/取消聚焦往返。
