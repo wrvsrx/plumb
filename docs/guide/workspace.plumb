@@ -68,7 +68,7 @@ Agenda 按 at 或 start、path 和 source position 显示 point/closed/running e
 
 窄屏（`"width < 900px"，包含横屏手机与窄窗口）保持同一套 views，但改变呈现：顶栏固定一行，只留 brand、 view tab 与 `"⋯" overflow menu，Direction/Depth/Fit/Workspace-Local/Now 与当前统计收进 menu；filters 收成一行 preset chips（`"🔍" 展开 fuzzy 输入、`"⚙" 打开 filters sheet，sort/edges/labels/CEL 都在 sheet 内）；列表占满可用高度。note、task 与 event 的详情统一是覆盖屏幕的 push 层，共用同一个返回控件：浏览器返回键、Android 返回手势、edge swipe 与 `"‹" button 都回到列表（窄屏 selection 使用 `"pushState"，宽屏仍是 replace）；底部 sheet 只承载 filters 与 `"⋯" menu 这类临时控件。`"New task" 与 `"New event" 在窄屏是右下 FAB。
 
-Tasks 使用单一任务树。当前结果有关注任务时，默认显示 focused tasks 及必要祖先路径；每层其余完整子树整体收进一个 `"Unfocused tasks" 分组，完全未关注的文件整体收进 `"Unfocused files"，点击即可展开。没有关注任务时正常展示全部结果。分组里的任务保持原有结构和排序，手动展开在当前浏览器 session 的查询刷新间保留；选择被隐藏任务会展开对应分组与祖先，新关注任务也会展开其祖先路径。分页仍可 Load more，分组数量只统计已加载结果。
+Tasks 使用单一任务树。当前结果有关注任务时，默认显示 focused tasks 及必要祖先路径；每层其余完整子树整体收进一个 `"Unfocused tasks" 分组，完全未关注的文件整体收进 `"Unfocused files"，点击即可展开。没有关注任务时正常展示全部结果。分组作为展示树节点，与同层任务对齐；每深入一级固定缩进 20px，展开后的任务位于分组下一级。任务状态显示在标题右侧。分组里的任务保持原有结构和排序，手动展开在当前浏览器 session 的查询刷新间保留；选择被隐藏任务会展开对应分组与祖先，新关注任务也会展开其祖先路径。分页仍可 Load more，分组数量只统计已加载结果。
 
 任务树把已关注任务及其祖先子树固定排在前面，排序控件旁的 `"Focused first" 说明这一点；该规则在用户清空或重排 Priority/Due/Relevance keys 后仍然生效，也不绕过当前筛选，另一个 document 里的关注子任务会带动整个 document group 前移。文件路径显示筛选后树中的 focused 数量，文件折叠后仍保留标记；未关注但包含 focused 后代的父任务显示聚合数量，不改变父任务自身的关注状态。折叠隐藏的任务仍参与聚合，被筛选掉的任务不参与。
 

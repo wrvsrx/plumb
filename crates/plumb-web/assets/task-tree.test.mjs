@@ -190,3 +190,19 @@ test('appending an unfocused page keeps one outer group and its manual expansion
   assert.equal(items.find((item) => item.kind === 'group' && item.documents).documents, 2);
   assert.deepEqual(visibleKeys(items), ['a', 'b', 'c', 'e', 'f', 'g']);
 });
+
+test('display depth comes from tree edges and groups add one parent level', () => {
+  const initial = taskListItems(focusedTasks);
+  const parent = initial.find((item) => item.task?.key === 'a');
+  const branch = initial.find((item) => item.task?.key === 'b');
+  const group = initial.find((item) => item.kind === 'group' && !item.documents);
+  assert.equal(parent.depth, 1);
+  assert.equal(branch.depth, 2);
+  assert.equal(group.depth, branch.depth);
+  const folds = { expandedGroups: new Set([group.key]) };
+  const expanded = taskListItems(focusedTasks, folds);
+  assert.equal(expanded.find((item) => item.task?.key === 'd').depth, group.depth + 1);
+  const filtered = taskListItems([focusedTasks[2]]);
+  assert.equal(filtered.find((item) => item.kind === 'task').depth, 1);
+  assert.equal(focusedTasks[2].depth, 2, 'source depth is unchanged');
+});

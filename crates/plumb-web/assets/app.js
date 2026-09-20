@@ -1433,7 +1433,7 @@ import {
     button.type = 'button';
     button.className = 'task-unfocused-group';
     button.dataset.groupKey = item.key;
-    button.style.setProperty('--task-depth', Math.min(item.depth, 5));
+    button.style.setProperty('--task-depth', item.depth);
     button.setAttribute('aria-expanded', String(!item.collapsed));
     button.classList.toggle('task-unfocused-files', Boolean(item.documents));
     const mark = document.createElement('span');
@@ -1457,6 +1457,7 @@ import {
     const heading = document.createElement('button');
     heading.type = 'button';
     heading.className = 'task-document-group task-document-toggle';
+    heading.style.setProperty('--task-depth', item.depth);
     heading.classList.toggle('collapsed', item.collapsed);
     heading.setAttribute('aria-expanded', String(!item.collapsed));
     heading.title = item.collapsed ? `Expand ${item.path}` : `Collapse ${item.path}`;
@@ -1488,7 +1489,7 @@ import {
     row.classList.toggle('selected', task.key === state.selectedTask);
     row.classList.toggle('collapsed', item.collapsed);
     row.classList.toggle('focused', isFocused(task));
-    row.style.setProperty('--task-depth', Math.min(task.depth, 5));
+    row.style.setProperty('--task-depth', item.depth);
     if (item.childCount > 0) {
       row.append(disclosureButton({
         expanded: !item.collapsed,
