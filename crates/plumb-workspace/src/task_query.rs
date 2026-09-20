@@ -2176,6 +2176,35 @@ mod tests {
     }
 
     #[test]
+    fn next_shortlist_obeys_open_document_overlay_precedence() {
+        let mut memory = Workspace::new();
+        memory.insert("focus.plumb", 1, shortlist_source());
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut persistent = Workspace::with_sqlite_store(store);
+        persistent
+            .insert_disk("focus.plumb", 1, shortlist_source())
+            .unwrap();
+
+        // The unsaved revision puts a ready candidate into flight.
+        let overlay_source = shortlist_source().replace(
+            "`- Ready low\n\n `+ task\n\n `@ ready-low\n `= priority 1\n",
+            "`- Ready low\n\n `+ task\n\n `@ ready-low\n `= priority 1\n `= focused 2026-09-21T09:00:00Z--\n",
+        );
+        assert_ne!(overlay_source, shortlist_source());
+        memory.open_document("focus.plumb", 2, &overlay_source);
+        persistent.open_document("focus.plumb", 2, &overlay_source);
+
+        let in_memory = memory.query_next(&next_query()).unwrap().value;
+        let stored = persistent.query_next(&next_query()).unwrap().value;
+        assert_eq!(ids(&stored.focused), ids(&in_memory.focused));
+        assert_eq!(ids(&stored.candidates), ids(&in_memory.candidates));
+        assert_eq!(stored.focused_total, in_memory.focused_total);
+        // The overlay wins over the persisted generation.
+        assert!(ids(&in_memory.focused).contains(&"ready-low"));
+        assert!(!ids(&in_memory.candidates).contains(&"ready-low"));
+    }
+
+    #[test]
     fn next_shortlist_matches_memory_and_persistent_store() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let mut persistent = Workspace::with_sqlite_store(store);
