@@ -1015,6 +1015,24 @@
  `note 实现上移动的是同一批 DOM node：可移动控件记录原 parent 的 child 顺序，窄屏 append 到 menu/sheet，宽屏按快照恢复，因此事件监听、`"syncQueryControls" 与 CEL 渲染都只有一份；被移出 filters row 的控件改用显式 ref（`"graphSortSelect"、`"celClauses"、`"edgeOptions"）避免 `".filters" 作用域查询失效。
  `note 新增 `"mobile-shell.e2e.mjs"：390×844、844×390、1440×900 三种 viewport 断言无横向溢出、顶栏 ≤48、列表/画布高度、三个 view 走同一套 push 详情与返回契约（全屏、返回控件、历史 +1）、filters sheet 只含当前 view 控件、FAB 打开的创建表单同样落在 push 层、以及不存在 <24px 点击目标；修复 `"task-folding.e2e.mjs" group helper 的 off-by-one（多 document workspace 下会跨组计数）。`"cargo test --workspace"、`"cargo check --workspace --all-targets"、node asset tests 与三个 browser E2E 通过。
 
+`- 为 task 增加 focus 区间历史与 next 短名单
+ `+ task
+
+ `@ task-focus-history
+
+ `= depends #web-narrow-shell
+ `= created 2026-09-20T20:03:24+08:00
+ `= done 2026-09-20T20:03:24+08:00
+
+ `note 规范先行：`"standard-semantics" §10 定义 `"focused" property（单个区间 `"start--end" 或开放的 `"start--"，或 direct `"-" 子项区间列表；endpoint 按 instant 比较、升序不重叠可相接、end 不早于 start、最多一个 open interval 且必须最后）、派生事实与 focus/unfocus/Complete/Cancel 语义；`"diagnostics" §6 增加 focus interval 的诊断归类；`"semantic-analysis" §8–§9 定义 CEL `"focused"/`"focused_since"、protocol-neutral `"next" 两区查询与操作契约；`"editing" §6 说明 single↔list 由 edit layer 渲染。
+ `note 共享语义：`"TaskFocus"/`"FocusInterval"/`"FocusProblem" 承载区间历史与源范围，派生 `"is_focused"/`"focused_since"/`"focus_valid"；新诊断码 `"task.invalid-focus"、`"task.duplicate-focus"、`"task.unordered-focus"、`"task.overlapping-focus"、`"task.multiple-open-focus" 与 `"task.focus-on-closed"，都不自动改写源文档；child-bearing `"=" 声明对 attribute view 不可见，解析直接读 block children（连空属性也报告）。
+ `note plumb-edit 前置能力：`"OwnedDeclaration"/`"OwnedDeclarationValue" 与 `"declaration"/`"set_declaration"/`"append_declaration_item"/`"remove_declaration" 及 revision/green 入口，让带 children 的 `"=" 声明可以定位、替换、删除并在 scalar 与 list 之间转换；规范化输出在声明 head 与首个 `"-" 子项之间保留空行，语义层同样接受该形态。
+ `note 操作：`"focus_task`/`"unfocus_task"（offset 与 id 两种定位）幂等、拒绝 closed task、允许 waiting/blocked 的未关闭任务；无效历史或时钟回拨明确失败且不写入；complete/cancel 在同一次单 revision 编辑中关闭 open 区间，关闭被拒绝时 focus history 不变；周期任务保留旧实例历史、新实例不继承。
+ `note 查询：`"next" 返回两区——进行中是 `"focused" 且未关闭的任务（含 waiting/blocked，按关注起点升序、不受候选上限限制、可分页并给出总数），待开工是 `"state == ready" 且未 focused 的任务（先在完整关系图上传播 effective priority 再过滤，按优先级降序、默认 3 条可请求 1–10、严格按 task 计数、全局平铺并携带 document/parent 上下文）；focus 数据无效的任务被跳过并作为 `"skippedInvalid" 报告；两区来自同一 snapshot 且区分「按请求取前 N」与「索引不完整」；CEL 增加 `"focused"/`"focused_since"，store 增加派生列与 migration，`"SCHEMA_VERSION" 提升到 11，cursor 版本升到 v2。
+ `note Tasks 树按展示聚合 `"subtree_focused" 固定首排序：自底向上聚合（折叠隐藏的任务仍计入、被过滤的不计入、document 虚拟节点同样聚合），在用户 sort keys 之前生效且不因清空/重排 keys 失效；聚合只影响展示，不向祖先写入 focus 标记。
+ `note 适配器：CLI `"plumb task next --limit"、`"plumb task focus|unfocus"；LSP 的 `"Focus task"/`"Unfocus task" code action 按当前事实提供、folding 标签在保留 workflow 状态符号的前提下追加关注标识、`"plumb/next" 使用 schema version 1 与自己的 capability；Neovim `":PlumbNext" 提供两区 picker、跳转与 focus/unfocus（复用 server code action，只显示关注时长）；Web 提供 `"Next" 两区入口、`"POST /api/query" 的 next view 与 `"focus|unfocus" 变更、行内关注标识与可展开区间历史，时长随时间刷新。
+ `note 验证：协议无关测试覆盖三种文档形态、时区等价、零长度与相接、六类非法输入、幂等/单值转列表/历史保留、Complete/Cancel 原子关闭与失败无修改、周期不继承、两区排序与严格上限、内存/持久/open-overlay 一致、无效 focus 跳过、取消关注后的树聚合；另覆盖 CLI、LSP stdio、Neovim headless 与 Web 的 Rust/JS 测试。`"cargo test --workspace"、`"cargo check --workspace --all-targets" 与 node asset tests 通过。
+
 `# Workspace performance and maintenance
 
 `- Finish semantic reducer deltas and equality invalidation

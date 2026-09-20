@@ -66,7 +66,11 @@ Graph 的 fuzzy search 只隐藏当前基础图中未匹配的 nodes 和相关 e
 
 Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 
-窄屏（`"width < 900px"，包含横屏手机与窄窗口）保持同一套 views，但改变呈现：顶栏固定一行，只留 brand、 view tab 与 `"⋯" overflow menu，Direction/Depth/Fit/Workspace-Local/Now 与当前统计收进 menu；filters 收成一行 preset chips（`"🔍" 展开 fuzzy 输入、`"⚙" 打开 filters sheet，sort/edges/labels/CEL 都在 sheet 内）；列表占满可用高度。note、task 与 event 的详情统一是覆盖屏幕的 push 层，共用同一个返回控件：浏览器返回键、Android 返回手势、edge swipe 与 `"‹" button 都回到列表（窄屏 selection 使用 `"pushState"，宽屏仍是 replace）；底部 sheet 只承载 filters 与 `"⋯" menu 这类临时控件。`"New task" 与 `"New event" 在窄屏是右下 FAB。graph 画布在触摸设备上自行处理单指平移与双指缩放。布局以 `"100dvh" 与 safe-area inset 适配移动浏览器，宽屏继续使用左右分栏。
+窄屏（`"width < 900px"，包含横屏手机与窄窗口）保持同一套 views，但改变呈现：顶栏固定一行，只留 brand、 view tab 与 `"⋯" overflow menu，Direction/Depth/Fit/Workspace-Local/Now 与当前统计收进 menu；filters 收成一行 preset chips（`"🔍" 展开 fuzzy 输入、`"⚙" 打开 filters sheet，sort/edges/labels/CEL 都在 sheet 内）；列表占满可用高度。note、task 与 event 的详情统一是覆盖屏幕的 push 层，共用同一个返回控件：浏览器返回键、Android 返回手势、edge swipe 与 `"‹" button 都回到列表（窄屏 selection 使用 `"pushState"，宽屏仍是 replace）；底部 sheet 只承载 filters 与 `"⋯" menu 这类临时控件。`"New task" 与 `"New event" 在窄屏是右下 FAB。
+
+Tasks pane 另有 `"List" 与 `"Next" 两种模式。`"Next" 直接展示 shared `"next" 查询的两段结果：`"In flight" 是当前列入工作线的任务（含 waiting/blocked，按关注起点排序；超过一页时标题给出 shown of total 并继续加载），`"Ready to start" 是 `"ready" 且未关注的候选（默认 3 条，沿用共享层的 1–10 上限与严格 task 计数）。候选段不会被进行中的数量挤占，标题写明 limit 以便区分「取前 N 条」与「没有更多」；索引不完整或存在无效关注历史时会显式提示并列出被跳过的任务与诊断码。
+
+`"List" 模式的树把已关注任务及其祖先子树固定排在前面，排序控件旁的 `"Focused first" 说明这一点；该规则在用户清空或重排 Priority/Due/Relevance keys 后仍然生效，也不绕过当前筛选，折叠隐藏的任务仍参与聚合，另一个 document 里的关注子任务会带动整个 document group 前移。任务行与详情都有"关注/取消关注"操作，详情可展开完整关注区间历史；显示的是"已关注多久"或标记时间，不表示工作时长，且只有按下操作才会写入文档。graph 画布在触摸设备上自行处理单指平移与双指缩放。布局以 `"100dvh" 与 safe-area inset 适配移动浏览器，宽屏继续使用左右分栏。
 
 `"plumb event --root DIR export-vdir --output DIR" 将 workspace events 原子投影到受管理 vdir，每个 event 对应一个 `"..ics" file。khal calendar 配置使用该目录并设置 `"readonly = true"；`".plumb" 仍是唯一 writable source，Calendar 修改不会回写。
 
