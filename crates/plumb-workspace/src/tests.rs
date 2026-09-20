@@ -3,6 +3,150 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::*;
 
 #[test]
+fn grouped_and_sequence_references_match_persistent_task_and_event_queries() {
+    let source = "`+ task\n`= depends\n `+ Project Plan.plumb\n `+ Project Plan.plumb#review\n\n`- 2026-09-21T10:00 Work\n `+ event\n `= tasks {Project Plan.plumb} {Project Plan.plumb#review}\n";
+    for disk in [false, true] {
+        let mut workspace = if disk {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else {
+            Workspace::new()
+        };
+        for (path, text) in [
+            (
+                "Project Plan.plumb",
+                "`+ task\n\n`- Review\n `+ task\n `@ review\n",
+            ),
+            ("source.plumb", source),
+        ] {
+            if disk {
+                workspace.insert_disk(path, 0, text).unwrap();
+            } else {
+                workspace.insert(path, 0, text);
+            }
+        }
+        let task = workspace
+            .tasks_for_path(Path::new("source.plumb"))
+            .unwrap()
+            .remove(0);
+        let dependencies = workspace
+            .task_dependencies("source.plumb", &task)
+            .unwrap()
+            .value;
+        assert_eq!(dependencies.len(), 2);
+        assert!(dependencies
+            .iter()
+            .any(|reference| reference.target.id.is_none()));
+        assert!(dependencies
+            .iter()
+            .any(|reference| reference.target.id.as_deref() == Some("review")));
+        for dependency in dependencies {
+            assert_eq!(
+                workspace
+                    .events_for_task(&dependency.target)
+                    .unwrap()
+                    .value
+                    .len(),
+                1
+            );
+        }
+    }
+}
+
+#[test]
+fn authoring_multiple_document_references_preserves_paths_and_replaces_sequences() {
+    let mut workspace = Workspace::new();
+    let source = "Body.\n";
+    workspace.insert("source.plumb", 1, source);
+    let paths = vec![
+        "Project Plan.plumb".to_owned(),
+        "archive.plumb notes.plumb".to_owned(),
+    ];
+    for path in &paths {
+        workspace.insert(path, 1, "`+ task\n");
+    }
+    let input = TaskAuthoringInput {
+        title: "Dependent".into(),
+        depends: paths.clone(),
+        ..TaskAuthoringInput::default()
+    };
+    let edit = workspace
+        .create_task(
+            "source.plumb",
+            &input,
+            &TaskPlacement::default(),
+            "2026-09-21T12:00:00Z",
+        )
+        .unwrap();
+    let updated = apply_single_edit(source, &edit);
+    workspace.insert("source.plumb", 2, &updated);
+    let task = workspace
+        .tasks_for_path(Path::new("source.plumb"))
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        task.depends
+            .iter()
+            .map(|reference| reference.source.clone())
+            .collect::<Vec<_>>(),
+        paths
+    );
+    assert_eq!(
+        workspace
+            .task_dependencies("source.plumb", &task)
+            .unwrap()
+            .value
+            .len(),
+        2
+    );
+    let edit = workspace
+        .update_task_patch(
+            "source.plumb",
+            task.range,
+            &TaskAuthoringPatch {
+                depends: Some(vec![paths[1].clone()]),
+                ..TaskAuthoringPatch::default()
+            },
+            "2026-09-21T13:00:00Z",
+        )
+        .unwrap();
+    let updated = apply_single_edit(&updated, &edit);
+    workspace.insert("source.plumb", 3, &updated);
+    let task = workspace
+        .tasks_for_path(Path::new("source.plumb"))
+        .unwrap()
+        .remove(0);
+    assert_eq!(task.depends.len(), 1);
+    assert_eq!(task.depends[0].source, paths[1]);
+
+    let input = EventInput {
+        title: "Work".into(),
+        at: Some("2026-09-21T14:00:00Z".into()),
+        start: None,
+        end: None,
+        tasks: paths.clone(),
+    };
+    let edit = workspace.create_event("source.plumb", &input).unwrap();
+    let updated = apply_single_edit(&updated, &edit);
+    workspace.insert("source.plumb", 4, &updated);
+    let event = workspace
+        .current_output(Path::new("source.plumb"))
+        .unwrap()
+        .events()
+        .events
+        .get(0)
+        .unwrap();
+    assert!(event.tasks_override);
+    assert_eq!(
+        event
+            .tasks
+            .iter()
+            .map(|reference| reference.source.clone())
+            .collect::<Vec<_>>(),
+        paths
+    );
+}
+
+#[test]
 fn document_task_path_references_match_memory_disk_and_target_overlays() {
     let target_source = "`- Anonymous child\n `+ task\n\n`+ task\n`= title Project\n";
     let source = "`+ task\n`= depends ../Project Plan.plumb\n`= prev ../Project Plan.plumb\n`= priority 9\n\n`- 2026-09-21T10:00 Explicit\n `+ event\n `= tasks ../Project Plan.plumb\n\n`- 2026-09-21T11:00 Linked `->{Project ../Project Plan.plumb}\n `+ event\n";
@@ -4943,7 +5087,7 @@ fn metadata_insertion_requires_cursor_at_document_start() {
 }
 
 #[test]
-fn resolves_event_task_associations_and_queries_time_ranges() {
+fn explicit_event_tasks_override_links_including_empty_declarations() {
     let mut workspace = Workspace::new();
     workspace.insert(
         "tasks.plumb",
@@ -4958,13 +5102,13 @@ fn resolves_event_task_associations_and_queries_time_ranges() {
         id: Some("write".to_string()),
     };
     let associated = workspace.events_for_task(&target).unwrap().value;
-    assert_eq!(associated.len(), 3);
+    assert_eq!(associated.len(), 2);
     assert_eq!(
         associated
             .iter()
             .map(|event| event.event.title.as_str())
             .collect::<Vec<_>>(),
-        ["Write", "Write", "Review"]
+        ["Write", "Review"]
     );
 
     let day_start = DateTime::parse_from_rfc3339("2026-07-30T05:00:00Z").unwrap();

@@ -328,18 +328,20 @@ pub enum OwnedValue {
 ///
 /// A declaration is authored either as a leaf association carrying one scalar
 /// token on its head, or as a `=` owner whose direct `-` children each carry one
-/// authored item. This layer only owns the spelling, separators and
+/// authored item. Sequence uses direct `+` children with complete scalar content.
+/// This layer only owns the spelling, separators and
 /// indentation; whether the items are meaningful is not its concern.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnedDeclarationValue {
     Scalar(String),
     List(Vec<String>),
+    Sequence(Vec<String>),
 }
 
 /// A direct `=` declaration located on an owned block.
 ///
 /// Unlike [`OwnedAttribute`], this representation covers the child-bearing list
-/// form (`= key` with direct `-` children), which has no `AttrItem` range.
+/// forms (`= key` with direct `-` or `+` children), which have no `AttrItem` range.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedDeclaration {
     pub key: String,
@@ -365,22 +367,36 @@ impl OwnedDeclaration {
         }
     }
 
+    pub fn sequence<I, S>(key: impl Into<String>, items: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            key: key.into(),
+            value: OwnedDeclarationValue::Sequence(items.into_iter().map(Into::into).collect()),
+        }
+    }
+
     /// The authored item strings in source order; a scalar is a one-element
     /// sequence.
     pub fn items(&self) -> Vec<&str> {
         match &self.value {
             OwnedDeclarationValue::Scalar(value) => vec![value.as_str()],
-            OwnedDeclarationValue::List(items) => items.iter().map(String::as_str).collect(),
+            OwnedDeclarationValue::List(items) | OwnedDeclarationValue::Sequence(items) => {
+                items.iter().map(String::as_str).collect()
+            }
         }
     }
 
     /// Render this declaration as an owned `=` block, choosing the leaf or the
-    /// direct-`-`-children spelling from the value shape. Empty keys, empty
+    /// direct-children spelling from the value shape. Empty keys, empty
     /// scalars, empty lists, and empty items are rejected rather than rendered.
     pub fn into_block(self) -> Result<OwnedBlock, EditError> {
         if self.key.is_empty() {
             return Err(EditError::GeneratedInvalid);
         }
+        let sequence = matches!(self.value, OwnedDeclarationValue::Sequence(_));
         match self.value {
             OwnedDeclarationValue::Scalar(value) => {
                 if value.is_empty() {
@@ -388,14 +404,18 @@ impl OwnedDeclaration {
                 }
                 Ok(OwnedBlock::padded_association(self.key, value))
             }
-            OwnedDeclarationValue::List(items) => {
+            OwnedDeclarationValue::List(items) | OwnedDeclarationValue::Sequence(items) => {
                 if items.is_empty() || items.iter().any(String::is_empty) {
                     return Err(EditError::GeneratedInvalid);
                 }
                 let mut block = OwnedBlock::marked("=", "");
                 block.set_head_text_arguments([self.key]);
                 if let Some(children) = block.children_mut() {
-                    children.extend(items.into_iter().map(|item| OwnedBlock::marked("-", item)));
+                    children.extend(
+                        items
+                            .into_iter()
+                            .map(|item| OwnedBlock::marked(if sequence { "+" } else { "-" }, item)),
+                    );
                 }
                 Ok(block)
             }
@@ -790,10 +810,9 @@ impl OwnedBlock {
         let Self::Parsed { children, .. } = self else {
             return Ok(false);
         };
-        if let Some(index) = children
-            .iter()
-            .position(|child| owned_declaration_key(child).as_deref() == Some(declaration.key.as_str()))
-        {
+        if let Some(index) = children.iter().position(|child| {
+            owned_declaration_key(child).as_deref() == Some(declaration.key.as_str())
+        }) {
             let Some(existing) = owned_block_declaration(&children[index]) else {
                 return Err(EditError::GeneratedInvalid);
             };
@@ -861,12 +880,14 @@ impl OwnedBlock {
             return Err(EditError::GeneratedInvalid);
         };
         let value = match existing.value {
-            OwnedDeclarationValue::Scalar(value) => {
-                OwnedDeclarationValue::List(vec![value, item])
-            }
+            OwnedDeclarationValue::Scalar(value) => OwnedDeclarationValue::List(vec![value, item]),
             OwnedDeclarationValue::List(mut items) => {
                 items.push(item);
                 OwnedDeclarationValue::List(items)
+            }
+            OwnedDeclarationValue::Sequence(mut items) => {
+                items.push(item);
+                OwnedDeclarationValue::Sequence(items)
             }
         };
         children[index] = OwnedDeclaration {
@@ -1006,6 +1027,7 @@ fn owned_declaration_key(block: &OwnedBlock) -> Option<String> {
     let OwnedBlock::Parsed {
         marker: Some(marker),
         head,
+        children,
         raw: None,
         ..
     } = block
@@ -1014,6 +1036,9 @@ fn owned_declaration_key(block: &OwnedBlock) -> Option<String> {
     };
     if marker != "=" {
         return None;
+    }
+    if !children.is_empty() {
+        return plain_owned_argument(head).filter(|key| !key.is_empty());
     }
     let element = head.get(*owned_positional_indices(head).first()?)?;
     let key = plain_owned_element(element)?;
@@ -1057,24 +1082,27 @@ fn owned_block_declaration(block: &OwnedBlock) -> Option<OwnedDeclaration> {
             value: OwnedDeclarationValue::Scalar(value),
         });
     }
-    if owned_positional_indices(head).len() != 1 {
-        // Mixed inline value and direct children have no representative shape.
-        return None;
-    }
+    let sequence = children.iter().all(
+        |child| matches!(child, OwnedBlock::Parsed { marker: Some(marker), .. } if marker == "+"),
+    );
     let items = children
         .iter()
-        .map(owned_declaration_item)
+        .map(|child| owned_declaration_item(child, if sequence { "+" } else { "-" }))
         .collect::<Option<Vec<_>>>()?;
     if items.is_empty() {
         return None;
     }
     Some(OwnedDeclaration {
         key,
-        value: OwnedDeclarationValue::List(items),
+        value: if sequence {
+            OwnedDeclarationValue::Sequence(items)
+        } else {
+            OwnedDeclarationValue::List(items)
+        },
     })
 }
 
-fn owned_declaration_item(block: &OwnedBlock) -> Option<String> {
+fn owned_declaration_item(block: &OwnedBlock, expected_marker: &str) -> Option<String> {
     let OwnedBlock::Parsed {
         marker: Some(marker),
         head,
@@ -1084,7 +1112,10 @@ fn owned_declaration_item(block: &OwnedBlock) -> Option<String> {
     else {
         return None;
     };
-    if marker != "-" || !children.is_empty() || owned_positional_indices(head).len() != 1 {
+    if marker != expected_marker
+        || !children.is_empty()
+        || (expected_marker == "-" && owned_positional_indices(head).len() != 1)
+    {
         return None;
     }
     let item = plain_owned_argument(head)?;
@@ -1821,14 +1852,16 @@ pub fn append_owned_declaration_item(
     let Some(existing) = owned_block_declaration(&block) else {
         return Err(EditError::GeneratedInvalid);
     };
+    let sequence = matches!(existing.value, OwnedDeclarationValue::Sequence(_));
     match existing.value {
-        OwnedDeclarationValue::Scalar(value) => {
-            set_owned_declaration(parsed, owner, OwnedDeclaration::list(key, [value, item.into()]))
-        }
-        OwnedDeclarationValue::List(_) => {
-            let declaration_block =
-                parsed_block_with_range(&parsed.syntax.blocks, &range)
-                    .ok_or(EditError::InvalidRange)?;
+        OwnedDeclarationValue::Scalar(value) => set_owned_declaration(
+            parsed,
+            owner,
+            OwnedDeclaration::list(key, [value, item.into()]),
+        ),
+        OwnedDeclarationValue::List(_) | OwnedDeclarationValue::Sequence(_) => {
+            let declaration_block = parsed_block_with_range(&parsed.syntax.blocks, &range)
+                .ok_or(EditError::InvalidRange)?;
             let last_range = declaration_block
                 .children
                 .last()
@@ -1837,7 +1870,10 @@ pub fn append_owned_declaration_item(
             let source = &parsed.source;
             let newline = line_ending(source);
             let indent = " ".repeat(line_indent(source, last_range.start));
-            let rendered = format_owned_blocks(&[OwnedBlock::marked("-", item)], newline)?;
+            let rendered = format_owned_blocks(
+                &[OwnedBlock::marked(if sequence { "+" } else { "-" }, item)],
+                newline,
+            )?;
             let mut text = String::new();
             if !source[..last_range.end].ends_with(newline) {
                 text.push_str(newline);
@@ -1905,9 +1941,10 @@ fn parsed_declaration_child<'a>(
 
 /// The last direct declaration child, after which a new declaration belongs.
 fn declaration_anchor<'a>(parsed: &ParsedDocument, owner: &'a ParsedBlock) -> Option<&'a Block> {
-    owner.children.iter().rfind(|child| {
-        owned_declaration_like(&OwnedBlock::from_syntax(&parsed.source, child))
-    })
+    owner
+        .children
+        .iter()
+        .rfind(|child| owned_declaration_like(&OwnedBlock::from_syntax(&parsed.source, child)))
 }
 
 /// Insert a rendered declaration directly after an existing declaration anchor,
@@ -3977,6 +4014,49 @@ mod tests {
         assert!(parsed.is_valid(), "{:?}\n{source}", parsed.diagnostics);
         let owner = parsed.syntax.blocks[0].range().clone();
         (parsed, owner)
+    }
+
+    #[test]
+    fn sequence_declarations_preserve_item_boundaries_in_root_and_owned_edits() {
+        let source = "`- Owner\n `+ task\n `= depends other\n  `+ opaque.plumb\n";
+        let parsed = parse(source);
+        let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        let declaration = OwnedDeclaration::sequence(
+            "depends",
+            ["Project Plan.plumb", "archive.plumb notes.plumb"],
+        );
+        assert!(owned.set_declaration(declaration.clone()).unwrap());
+        let edit =
+            replace_owned_block(&parsed, parsed.syntax.blocks[0].range().clone(), &owned).unwrap();
+        let updated = apply_text_edits(source.into(), vec![edit]).unwrap();
+        let parsed = parse(&updated);
+        let owned = OwnedBlock::from_syntax(&updated, &parsed.syntax.blocks[0]);
+        assert_eq!(owned.declaration("depends"), Some(declaration.clone()));
+        assert_eq!(
+            owned.declaration("depends other"),
+            Some(OwnedDeclaration::sequence(
+                "depends other",
+                ["opaque.plumb"]
+            ))
+        );
+        let green = plumb_syntax::GreenDocument::parse("Body.\n");
+        let edits = edit_green_root_declarations(
+            &green,
+            &[RootDeclarationEdit::SetProperty(declaration.clone())],
+        )
+        .unwrap();
+        let updated = apply_text_edits(green.source().into(), edits).unwrap();
+        let green = plumb_syntax::GreenDocument::parse(&updated);
+        assert_eq!(
+            green_root_declaration(&green, "depends").unwrap(),
+            Some(declaration.clone())
+        );
+        assert!(edit_green_root_declarations(
+            &green,
+            &[RootDeclarationEdit::SetProperty(declaration)]
+        )
+        .unwrap()
+        .is_empty());
     }
 
     #[test]

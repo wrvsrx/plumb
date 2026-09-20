@@ -2745,6 +2745,7 @@ impl Workspace {
         owned.prepend_attribute(OwnedAttribute::class("event"));
         strip_event_shorthand_prefix(&mut owned)?;
         owned.extend_attributes(event_attributes(&input, &current.output.metadata()));
+        tasks::set_reference_declaration(&mut owned, "tasks", &input.tasks);
         prepend_event_schedule(&mut owned, &input);
         let event_edit = replace_green_block(entry.parsed.green(), item.range, &owned)
             .map_err(|_| EventShorthandError::GeneratedInvalid)?;
@@ -2800,6 +2801,7 @@ impl Workspace {
                 }
                 owned.prepend_attribute(OwnedAttribute::class("event"));
                 owned.extend_attributes(event_attributes(&input, metadata));
+                tasks::set_reference_declaration(owned, "tasks", &input.tasks);
                 prepend_event_schedule(owned, &input);
                 converted += 1;
                 changed = true;
@@ -3151,6 +3153,7 @@ impl Workspace {
             !matches!(attribute, OwnedAttribute::Pair { key, .. } if matches!(key.as_str(), "date" | "timezone" | "at" | "start" | "end" | "tasks"))
         });
         owned.extend_attributes(event_attributes(input, &current.output.metadata()));
+        tasks::set_reference_declaration(&mut owned, "tasks", &input.tasks);
         let edit = replace_green_block(entry.parsed.green(), event.range.clone(), &owned)
             .map_err(|_| EventEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path, edit))
@@ -4072,9 +4075,6 @@ fn event_attributes(input: &EventInput, metadata: &MetadataOutput) -> Vec<OwnedA
     if metadata_scalar(metadata, "timezone").as_deref() != Some(&timezone) {
         attributes.push(OwnedAttribute::quoted("timezone", timezone));
     }
-    if !input.tasks.is_empty() {
-        attributes.push(OwnedAttribute::quoted("tasks", input.tasks.join(" ")));
-    }
     attributes
 }
 
@@ -4095,6 +4095,7 @@ fn owned_event(input: &EventInput, metadata: &MetadataOutput) -> OwnedBlock {
     attributes.extend(event_attributes(input, metadata));
     let mut event = OwnedBlock::marked("-", "").with_aligned_attributes(attributes);
     set_event_head(&mut event, input);
+    tasks::set_reference_declaration(&mut event, "tasks", &input.tasks);
     event
 }
 

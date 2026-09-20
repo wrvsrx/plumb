@@ -4,8 +4,8 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use plumb_syntax::{
-    AttrItem, AttrValue, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline,
-    InlineContent, ValidDocument, ValidGreenDocument,
+    AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent,
+    ValidDocument, ValidGreenDocument,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -2424,9 +2424,10 @@ fn stringify_content(source: &str, content: &InlineContent, output: &mut Stringi
                 Inline::Text { text, range } => {
                     output.append_text(source, text, range.clone());
                 }
-                Inline::Space { range, .. } | Inline::SoftBreak { range } => {
-                    output.append_text(source, " ", range.clone());
+                Inline::Space { range, .. } => {
+                    output.append_text(source, &source[range.clone()], range.clone());
                 }
+                Inline::SoftBreak { range } => output.append_text(source, " ", range.clone()),
                 Inline::Verbatim {
                     text, text_range, ..
                 } => output.append_text(source, text, text_range.clone()),
@@ -2642,36 +2643,6 @@ fn direct_source_backed(source: &str, value: String, range: Range<usize>) -> Sou
         raw: source[range.clone()].to_string(),
         value,
         range,
-        decoded_boundaries,
-    }
-}
-
-pub(crate) fn attr_source_backed(source: &str, value: &AttrValue) -> SourceBacked<String> {
-    if !value.quoted || !(value.raw.starts_with('"') && value.raw.ends_with('"')) {
-        return direct_source_backed(source, value.decoded.clone(), value.range.clone());
-    }
-    let mut decoded_boundaries = Vec::with_capacity(value.decoded.len() + 1);
-    let mut cursor = value.range.start + 1;
-    let end = value.range.end.saturating_sub(1);
-    while cursor < end {
-        let source_start = cursor;
-        if source.as_bytes()[cursor] == b'\\' {
-            cursor += 1;
-        }
-        let character = source[cursor..]
-            .chars()
-            .next()
-            .expect("quoted value cursor is valid");
-        for _ in 0..character.len_utf8() {
-            decoded_boundaries.push(source_start);
-        }
-        cursor += character.len_utf8();
-    }
-    decoded_boundaries.push(end);
-    SourceBacked {
-        value: value.decoded.clone(),
-        raw: value.raw.clone(),
-        range: value.range.clone(),
         decoded_boundaries,
     }
 }

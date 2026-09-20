@@ -388,12 +388,9 @@ fn event_record(
             at,
             start,
             end,
-            tasks: task_reference_fields(source, &mark.attrs.items, "tasks"),
-            tasks_override: mark
-                .attrs
-                .items
-                .iter()
-                .any(|item| matches!(item, AttrItem::Pair { key, .. } if key == "tasks")),
+            tasks: task_reference_fields(source, &block.children, "tasks"),
+            tasks_override: crate::tasks::task_reference_property(&block.children, "tasks")
+                .is_some(),
         },
         argument_count,
         time_error,
@@ -756,6 +753,34 @@ mod tests {
                 "{invalid:?}"
             );
         }
+    }
+
+    #[test]
+    fn event_task_sequences_and_empty_properties_are_explicit_overrides() {
+        for field in [
+            " `= tasks {Project Plan.plumb} {other.plumb}\n",
+            " `= tasks\n  `+ Project Plan.plumb\n  `+ other.plumb\n",
+        ] {
+            let source = format!("`- 2026-09-21T10:00 Work\n `+ event\n{field}");
+            let output = analyze(&source);
+            let event = output.events.get(0).unwrap();
+            assert!(event.tasks_override);
+            assert_eq!(
+                event
+                    .tasks
+                    .iter()
+                    .map(|reference| reference.source.as_str())
+                    .collect::<Vec<_>>(),
+                ["Project Plan.plumb", "other.plumb"]
+            );
+        }
+        let output = analyze("`- 2026-09-21T10:00 Work\n `+ event\n `= tasks\n");
+        let event = output.events.get(0).unwrap();
+        assert!(event.tasks_override);
+        assert_eq!(event.tasks[0].target, crate::TaskReferenceTarget::Invalid);
+        let output =
+            analyze("`- 2026-09-21T10:00 Work\n `+ event\n `= tasks other\n  `+ project.plumb\n");
+        assert!(!output.events.get(0).unwrap().tasks_override);
     }
 
     #[test]

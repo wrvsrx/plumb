@@ -3,12 +3,12 @@ use std::path::Path;
 
 use chrono::{DateTime, Datelike, Duration, FixedOffset, SecondsFormat, TimeZone, Timelike};
 use plumb_syntax::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, ParsedBlock, ValidDocument,
-    ValidGreenDocument,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ParsedBlock,
+    ValidDocument, ValidGreenDocument,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::document::attr_source_backed;
+use crate::document::stringify_target;
 use crate::text::plain_text;
 use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords};
 
@@ -477,7 +477,16 @@ fn document_task_record<'a>(
     let mut attrs = Vec::new();
     let mut focus_occurrences = Vec::new();
     let mut field_diagnostics = Vec::new();
+    let mut dependencies = None;
     for (document, local_source, offset) in documents {
+        if dependencies.is_none() && task_reference_property(&document.blocks, "depends").is_some()
+        {
+            let mut values = task_reference_fields(local_source, &document.blocks, "depends");
+            for value in &mut values {
+                shift_range(&mut value.range, offset as isize);
+            }
+            dependencies = Some(values);
+        }
         for block in &document.blocks {
             let Block::Parsed(property) = block else {
                 continue;
@@ -574,6 +583,7 @@ fn document_task_record<'a>(
         attribute_insert: facet.range.end,
         attribute_range: 0..source.len(),
         id: None,
+        depends: dependencies.unwrap_or_default(),
         ..task_properties(source, &attrs, merge_focus_occurrences(focus_occurrences))
     };
     Some((task, attrs, field_diagnostics))
@@ -664,6 +674,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
             .range
             .clone()
             .unwrap_or(mark.marker_range.end..mark.marker_range.end),
+        depends: task_reference_fields(source, &block.children, "depends"),
         ..task_properties(
             source,
             &attrs.items,
@@ -700,7 +711,6 @@ fn task_properties(source: &str, items: &[AttrItem], focused: TaskFocus) -> Task
         recur: string_field(items, "recur"),
         prev: string_field(items, "prev"),
         priority: priority_field(items),
-        depends: dependency_fields(source, items),
         focused,
         ..TaskRecord::default()
     }
@@ -980,29 +990,138 @@ fn transient_task_attribute(item: &AttrItem) -> bool {
     }
 }
 
-fn dependency_fields(source: &str, items: &[AttrItem]) -> Vec<TaskDependency> {
-    task_reference_fields(source, items, "depends")
+pub(crate) fn task_reference_property<'a>(
+    children: &'a [Block],
+    key: &str,
+) -> Option<&'a ParsedBlock> {
+    children.iter().find_map(|child| {
+        let Block::Parsed(property) = child else {
+            return None;
+        };
+        if !property
+            .mark
+            .as_ref()
+            .is_some_and(|mark| mark.marker == "=")
+        {
+            return None;
+        }
+        let (name, _, _) = crate::metadata::direct_property_parts(property)?;
+        (name == key).then_some(property)
+    })
 }
 
 pub(crate) fn task_reference_fields(
     source: &str,
-    items: &[AttrItem],
+    children: &[Block],
     key: &str,
 ) -> Vec<TaskDependency> {
-    let Some(value) = pair_value(items, key) else {
+    let Some(property) = task_reference_property(children, key) else {
         return Vec::new();
     };
-    let source_backed = attr_source_backed(source, value);
-    dependency_tokens(&source_backed.value)
-        .into_iter()
-        .filter_map(|(token, decoded_range)| {
-            Some(TaskDependency {
-                source: token.to_string(),
-                range: source_backed.source_range(decoded_range)?,
-                target: parse_task_reference_target(token),
+    if !property.children.is_empty() {
+        return property
+            .children
+            .iter()
+            .map(|child| {
+                let Block::Parsed(item) = child else {
+                    return invalid_reference(source, child.range().clone());
+                };
+                if !item.children.is_empty()
+                    || !item.mark.as_ref().is_some_and(|mark| mark.marker == "+")
+                {
+                    return invalid_reference(source, item.range.clone());
+                }
+                single_reference(source, &item.content)
             })
+            .collect();
+    }
+    let (_, _, scalar) = crate::metadata::direct_property_parts(property).unwrap();
+    let Some(content) = scalar else {
+        return vec![invalid_reference(source, property.content.range.clone())];
+    };
+    if content
+        .items
+        .iter()
+        .any(|item| matches!(item, Inline::Group { .. } | Inline::Verbatim { .. }))
+    {
+        return crate::owner_semantic_view(&content)
+            .positional
+            .iter()
+            .flat_map(|element| grouped_reference(source, element))
+            .collect();
+    }
+    let Some(value) = stringify_target(source, &content) else {
+        return vec![invalid_reference(source, content.range.clone())];
+    };
+    dependency_tokens(&value.value)
+        .into_iter()
+        .map(|(token, decoded)| TaskDependency {
+            source: token.to_owned(),
+            range: value
+                .source_range(decoded)
+                .expect("stringify source mapping covers decoded reference"),
+            target: parse_task_reference_target(token),
         })
         .collect()
+}
+
+fn grouped_reference(source: &str, content: &InlineContent) -> Vec<TaskDependency> {
+    let reference = single_reference(source, content);
+    if reference.target != TaskReferenceTarget::Invalid
+        || !content
+            .items
+            .iter()
+            .any(|item| matches!(item, Inline::Group { .. }))
+    {
+        return vec![reference];
+    }
+    let Some(value) = stringify_target(source, content) else {
+        return vec![reference];
+    };
+    let tokens = dependency_tokens(&value.value);
+    if tokens.len() > 1
+        && tokens.iter().all(|(token, _)| {
+            matches!(
+                parse_task_reference_target(token),
+                TaskReferenceTarget::Internal { .. } | TaskReferenceTarget::External { .. }
+            )
+        })
+    {
+        return tokens
+            .into_iter()
+            .map(|(token, decoded)| TaskDependency {
+                source: token.to_owned(),
+                range: value
+                    .source_range(decoded)
+                    .expect("legacy reference mapping covers decoded tokens"),
+                target: parse_task_reference_target(token),
+            })
+            .collect();
+    }
+    vec![reference]
+}
+
+fn single_reference(source: &str, content: &InlineContent) -> TaskDependency {
+    let Some(value) = stringify_target(source, content) else {
+        return invalid_reference(source, content.range.clone());
+    };
+    let token = value.value.trim();
+    let start = value.value.len() - value.value.trim_start().len();
+    TaskDependency {
+        source: token.to_owned(),
+        range: value
+            .source_range(start..start + token.len())
+            .unwrap_or(value.range),
+        target: parse_task_reference_target(token),
+    }
+}
+
+fn invalid_reference(source: &str, range: Range<usize>) -> TaskDependency {
+    TaskDependency {
+        source: source[range.clone()].to_owned(),
+        range,
+        target: TaskReferenceTarget::Invalid,
+    }
 }
 
 fn dependency_tokens(value: &str) -> Vec<(&str, Range<usize>)> {
@@ -1412,6 +1531,87 @@ mod tests {
         ));
         assert_eq!(output.tasks.get(1).unwrap().depth, 1);
         assert_eq!(output.tasks.get(1).unwrap().state(), TaskState::Done);
+    }
+
+    #[test]
+    fn grouped_and_structured_task_references_preserve_item_boundaries() {
+        for declaration in [
+            "`= depends {Project Plan.plumb} {archive.plumb notes.plumb#review} {#local}\n",
+            "`= depends\n `+ Project Plan.plumb\n `+ archive.plumb notes.plumb#review\n `+ #local\n",
+        ] {
+            let source = format!("Body.\n\n{declaration}\n`+ task\n");
+            let parsed = parse(&source);
+            let green = plumb_syntax::GreenDocument::parse(&source);
+            let output = analyze_tasks(parsed.valid_syntax().unwrap());
+            assert_eq!(output, analyze_green_tasks(green.valid_syntax().unwrap()));
+            let task = output.document_task().unwrap().to_owned();
+            assert_eq!(task.depends.iter().map(|reference| reference.source.as_str()).collect::<Vec<_>>(), ["Project Plan.plumb", "archive.plumb notes.plumb#review", "#local"]);
+            assert!(matches!(task.depends[0].target, TaskReferenceTarget::Document { .. }));
+            assert!(matches!(task.depends[1].target, TaskReferenceTarget::External { .. }));
+            for reference in &task.depends {
+                assert_eq!(&source[reference.range.clone()], reference.source);
+            }
+        }
+    }
+
+    #[test]
+    fn reference_paths_preserve_repeated_internal_spaces() {
+        for field in [
+            "`= depends Project  Plan.plumb\n",
+            "`= depends {Project  Plan.plumb}\n",
+            "`= depends\n `+ Project  Plan.plumb\n",
+        ] {
+            let source = format!("`+ task\n{field}");
+            let parsed = parse(&source);
+            let task = analyze_tasks(parsed.valid_syntax().unwrap())
+                .document_task()
+                .unwrap()
+                .to_owned();
+            assert_eq!(task.depends[0].source, "Project  Plan.plumb");
+        }
+    }
+
+    #[test]
+    fn legacy_authored_anchor_groups_remain_lists_but_grouped_paths_do_not_split() {
+        let source = "`+ task\n`= depends {#one Project Plan.plumb#two} {one.plumb two.plumb}\n";
+        let parsed = parse(source);
+        let task = analyze_tasks(parsed.valid_syntax().unwrap())
+            .document_task()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            task.depends
+                .iter()
+                .map(|reference| reference.source.as_str())
+                .collect::<Vec<_>>(),
+            ["#one", "Project Plan.plumb#two", "one.plumb two.plumb"]
+        );
+        for reference in &task.depends {
+            assert_eq!(&source[reference.range.clone()], reference.source);
+        }
+    }
+
+    #[test]
+    fn malformed_reference_items_are_retained_as_invalid_targets() {
+        for declaration in [
+            "`= depends {}\n",
+            "`= depends\n",
+            "`= depends\n `- wrong.plumb\n",
+            "`= depends\n `+ target.plumb\n  `note nested\n",
+        ] {
+            let source = format!("`+ task\n{declaration}");
+            let parsed = parse(&source);
+            let task = analyze_tasks(parsed.valid_syntax().unwrap())
+                .document_task()
+                .unwrap()
+                .to_owned();
+            assert_eq!(task.depends.len(), 1, "{source}");
+            assert_eq!(
+                task.depends[0].target,
+                TaskReferenceTarget::Invalid,
+                "{source}"
+            );
+        }
     }
 
     #[test]

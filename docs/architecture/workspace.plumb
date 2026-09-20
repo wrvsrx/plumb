@@ -38,6 +38,6 @@ workspace identity 使用 normalized document path/URI boundary。跨文件 quer
 
 引用身份使用 normalized path 与 optional anchor：无 anchor 只代表 Document task，不能代表未命名的 ListItem task。数据库 relation 的 target_id 可为 NULL；匹配此目标必须同时检查 tasks.document_task，不能以两个 NULL id 的相等性代替 owner 校验。依赖图、反向查询与 event 关联使用同一身份规则。
 
-Status：query identity、owner facts 与 scalar path-only task references 已实现；多引用分组语法和 adapter integration 待实现。TaskRecord 的 source ownership range 与查询 key 分开：同一 revision 内，list task key 使用 list marker 的实际 start，document task key 使用首个有效 task facet declaration 的实际 start。两者均为真实 syntax location，不使用空 id 或 sentinel offset；跨 revision 不保证 offset identity。文档任务的对外身份仍是文件路径，adapter 不把该内部 key 当 document id。
+Status：query identity、owner facts、path-only task references 与多引用语法已实现；复杂转义引用的 component range 和 adapter integration 待集成。TaskRecord 的 source ownership range 与查询 key 分开：同一 revision 内，list task key 使用 list marker 的实际 start，document task key 使用首个有效 task facet declaration 的实际 start。两者均为真实 syntax location，不使用空 id 或 sentinel offset；跨 revision 不保证 offset identity。文档任务的对外身份仍是文件路径，adapter 不把该内部 key 当 document id。
 
 持久化 task facts 保存 document owner 标志，完整 records 保存 typed owner。parent key、dependency source、分页 cursor、hydrate lookup 与 open overlay 使用相同 key。显示 source order 将文档任务置于其所有 children 前，即使根层 facet 写在正文之后；没有 title 的文档任务沿用已有 filename fallback。memory、disk、open overlay 的任务集合、数量和排序必须一致。

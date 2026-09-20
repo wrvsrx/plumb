@@ -1292,6 +1292,7 @@ fn closed_focus_declaration(
     declaration.value = match declaration.value {
         OwnedDeclarationValue::Scalar(_) => OwnedDeclarationValue::Scalar(items.remove(0)),
         OwnedDeclarationValue::List(_) => OwnedDeclarationValue::List(items),
+        OwnedDeclarationValue::Sequence(_) => return Err(TaskEditError::InvalidFocusHistory),
     };
     Ok(declaration)
 }
@@ -1355,7 +1356,9 @@ pub(super) fn owned_authored_task(
 ) -> OwnedBlock {
     let mut attributes = vec![OwnedAttribute::class("task"), OwnedAttribute::id(id)];
     append_authored_task_fields(&mut attributes, input, timestamp);
-    OwnedBlock::marked("-", &input.title).with_aligned_attributes(attributes)
+    let mut owned = OwnedBlock::marked("-", &input.title).with_aligned_attributes(attributes);
+    set_reference_declaration(&mut owned, "depends", &input.depends);
+    owned
 }
 
 pub(super) fn update_owned_task(
@@ -1378,6 +1381,7 @@ pub(super) fn update_owned_task(
             .map_or(timestamp, |created| created.value.as_str()),
     );
     owned.extend_attributes(attributes);
+    set_reference_declaration(&mut owned, "depends", &input.depends);
     owned
 }
 
@@ -1400,10 +1404,23 @@ fn append_authored_task_fields(
             attributes.push(OwnedAttribute::quoted(key, value));
         }
     }
-    if !input.depends.is_empty() {
-        attributes.push(OwnedAttribute::quoted("depends", input.depends.join(" ")));
-    }
     if let Some(priority) = input.priority {
         attributes.push(OwnedAttribute::bare("priority", priority.to_string()));
     }
+}
+
+/// Values have already passed task/event reference validation.
+pub(super) fn set_reference_declaration(owned: &mut OwnedBlock, key: &str, values: &[String]) {
+    owned.remove_declaration(key);
+    let declaration = match values {
+        [] => return,
+        [value] => {
+            owned.push_attribute(OwnedAttribute::quoted(key, value));
+            return;
+        }
+        values => OwnedDeclaration::sequence(key, values.iter().cloned()),
+    };
+    owned
+        .set_declaration(declaration)
+        .expect("validated reference values have an owned declaration shape");
 }
