@@ -6413,3 +6413,53 @@ fn document_dependency_completion_includes_paths_and_excludes_self_and_existing(
         assert_eq!(result.iter().map(|candidate| candidate.label.as_str()).collect::<Vec<_>>(), ["Project Plan.plumb#"]);
     }
 }
+
+#[test]
+fn task_tree_query_preserves_nonmatching_ancestors_without_counting_them_as_matches() {
+    for disk in [false, true] {
+        let mut workspace = if disk {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else { Workspace::new() };
+        let source = "`+ task\n`= title Project\n`= done 2026-09-21T09:00:00+08:00\n\n`- Parent\n `+ task\n\n `- Needle\n  `+ task\n\n`- Other\n `+ task\n";
+        if disk { workspace.insert_disk("project.plumb", 1, source).unwrap(); }
+        else { workspace.insert("project.plumb", 1, source); }
+        let query = TaskPageQuery {
+            root: PathBuf::from("."), text: "Needle".into(), filter_groups: Vec::new(),
+            sort: vec![TaskSortOrder::Source], limit: 10, cursor: None, workspace_revision: 1,
+            now: DateTime::parse_from_rfc3339("2026-09-21T10:00:00+08:00").unwrap(),
+        };
+        let ordinary = workspace.query_task_page(&query).unwrap().value;
+        assert_eq!(ordinary.tasks.len(), 1);
+        let tree = workspace.query_task_tree_page(&query).unwrap().value;
+        assert_eq!(tree.tasks.iter().map(|item| (item.task.title.as_str(), item.matched)).collect::<Vec<_>>(),
+            [("Project", false), ("Parent", false), ("Needle", true)]);
+        assert!(tree.complete);
+    }
+}
+
+#[test]
+fn task_tree_pages_keep_whole_documents_and_reject_cross_mode_and_stale_cursors() {
+    let mut workspace = Workspace::new();
+    for path in ["a.plumb", "b.plumb"] {
+        workspace.insert(path, 1, "`+ task\n\n`- Parent\n `+ task\n\n `- Needle\n  `+ task\n");
+    }
+    let mut query = TaskPageQuery {
+        root: PathBuf::from("."), text: "Needle".into(), filter_groups: Vec::new(),
+        sort: vec![TaskSortOrder::Source], limit: 1, cursor: None, workspace_revision: 1,
+        now: DateTime::parse_from_rfc3339("2026-09-21T10:00:00+08:00").unwrap(),
+    };
+    let first = workspace.query_task_tree_page(&query).unwrap().value;
+    assert!(!first.complete);
+    assert_eq!(first.tasks.len(), 3);
+    assert!(first.tasks.iter().all(|task| task.path == Path::new("a.plumb")));
+    query.cursor = first.next_cursor;
+    assert!(workspace.query_task_page(&query).is_err());
+    let last = workspace.query_task_tree_page(&query).unwrap().value;
+    assert_eq!(last.tasks.len(), 3);
+    assert_eq!(last.tasks.iter().filter(|task| task.matched).count(), 1);
+    assert!(last.tasks.iter().all(|task| task.path == Path::new("b.plumb")));
+    assert!(last.complete);
+    assert!(last.next_cursor.is_none());
+    query.workspace_revision += 1;
+    assert!(workspace.query_task_tree_page(&query).is_err());
+}

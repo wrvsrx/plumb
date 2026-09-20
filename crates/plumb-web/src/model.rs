@@ -126,6 +126,7 @@ pub enum WebTaskLocator {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebTask {
+    pub matched: bool,
     pub key: String,
     pub document_id: String,
     pub title: String,
@@ -839,6 +840,7 @@ impl WebWorkspace {
             let focused_since = task.focused_since().map(str::to_string);
             let focus_intervals = web_focus_intervals(&task);
             tasks.push(WebTask {
+                matched: true,
                 key,
                 document_id,
                 title: record.title,
@@ -2802,8 +2804,10 @@ mod tests {
                 .iter()
                 .map(|task| task.id.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            ["matching", "first", "done"]
+            ["parent", "matching", "first", "done"]
         );
+        assert!(!source.tasks[0].matched);
+        assert_eq!(source.tasks.iter().filter(|task| task.matched).count(), 3);
         let due = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
@@ -2817,7 +2821,7 @@ mod tests {
                 .iter()
                 .map(|task| task.id.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            ["matching", "first", "done"]
+            ["parent", "matching", "first", "done"]
         );
         let priority = workspace
             .query_tasks(&WebQuery {
@@ -2833,7 +2837,7 @@ mod tests {
                 .iter()
                 .map(|task| task.id.as_deref().unwrap())
                 .collect::<Vec<_>>(),
-            ["matching", "first", "done"]
+            ["parent", "matching", "first", "done"]
         );
         let all_by_priority = workspace
             .query_tasks(&WebQuery {
@@ -2857,7 +2861,8 @@ mod tests {
                 ..WebQuery::default()
             })
             .unwrap();
-        assert_eq!(priority_filter.tasks.len(), 3);
+        assert_eq!(priority_filter.tasks.len(), 4);
+        assert_eq!(priority_filter.tasks.iter().filter(|task| task.matched).count(), 3);
         let ready = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
@@ -2866,7 +2871,8 @@ mod tests {
                 ..WebQuery::default()
             })
             .unwrap();
-        assert_eq!(ready.tasks.len(), 2);
+        assert_eq!(ready.tasks.len(), 3);
+        assert_eq!(ready.tasks.iter().filter(|task| task.matched).count(), 2);
         let ready_or_done = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
@@ -2885,7 +2891,8 @@ mod tests {
                 ..WebQuery::default()
             })
             .unwrap();
-        assert_eq!(multiple_custom.tasks.len(), 2);
+        assert_eq!(multiple_custom.tasks.len(), 3);
+        assert_eq!(multiple_custom.tasks.iter().filter(|task| task.matched).count(), 2);
         let numbered_error = workspace
             .query_tasks(&WebQuery {
                 view: WebView::Tasks,
@@ -3498,6 +3505,19 @@ mod tests {
             history.focus_intervals[0].end.as_deref(),
             Some("2026-09-19T11:00:00+08:00")
         );
+    }
+
+    #[test]
+    fn document_task_remains_parent_when_root_declarations_follow_children() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("late.plumb"), "`- Child\n `+ task\n `@ child\n\nBody.\n\n`+ task\n`= title Parent\n").unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        for tasks in [workspace.tasks().unwrap().tasks, workspace.query_tasks(&WebQuery::default()).unwrap().tasks] {
+            assert_eq!(tasks.len(), 2);
+            assert_eq!(tasks[0].locator, WebTaskLocator::Document);
+            assert_eq!(tasks[1].parent_key.as_deref(), Some(tasks[0].key.as_str()));
+        }
     }
 
     #[test]

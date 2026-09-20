@@ -41,3 +41,7 @@ workspace identity 使用 normalized document path/URI boundary。跨文件 quer
 Status：query identity、owner facts、path-only task references 与多引用语法已实现；复杂转义引用的 component range 和 adapter integration 待集成。TaskRecord 的 source ownership range 与查询 key 分开：同一 revision 内，list task key 使用 list marker 的实际 start，document task key 使用首个有效 task facet declaration 的实际 start。两者均为真实 syntax location，不使用空 id 或 sentinel offset；跨 revision 不保证 offset identity。文档任务的对外身份仍是文件路径，adapter 不把该内部 key 当 document id。
 
 持久化 task facts 保存 document owner 标志，完整 records 保存 typed owner。parent key、dependency source、分页 cursor、hydrate lookup 与 open overlay 使用相同 key。显示 source order 将文档任务置于其所有 children 前，即使根层 facet 写在正文之后；没有 title 的文档任务沿用已有 filename fallback。memory、disk、open overlay 的任务集合、数量和排序必须一致。
+
+Web 树查询通过 shared query_task_tree_page 保留命中任务的完整 ancestor chain，并为每项提供 matched。结构性父节点不是实际命中，不计入 Web 匹配数量；普通 task page 与 Next 仍仅返回各自条件命中的任务。树查询沿用 document-complete 分页与 revision cursor，父节点不跨页拆分。
+
+树查询与普通查询的 cursor signature 区分是否保留 ancestors。complete 根据按完整文档截断后的实际剩余结果计算；最后一个文档即使超过软 limit，只要已全部返回，也必须 complete=true 且不生成空后续页。

@@ -1487,6 +1487,7 @@ import {
     const row = document.createElement('div');
     row.className = 'task-list-item';
     row.classList.toggle('selected', task.key === state.selectedTask);
+    if (task.matched === false) row.title = 'Parent task shown for context';
     row.classList.toggle('collapsed', item.collapsed);
     row.classList.toggle('focused', isFocused(task));
     row.style.setProperty('--task-depth', item.depth);
@@ -1574,7 +1575,7 @@ import {
     newTaskButton.disabled = !config.taskMutations || !state.tasks.documents?.length || Boolean(state.pendingTask);
     // Focused-first is the fixed primary order; the ordinary sort keys apply
     // only inside each focused group.
-    taskSummary.textContent = `${tasks.length} tasks${state.tasks.complete ? '' : ' (truncated)'} · focused first`;
+    taskSummary.textContent = `${tasks.filter((task) => task.matched !== false).length} tasks${state.tasks.complete ? '' : ' (truncated)'} · focused first`;
     taskListItems(tasks, state.collapsed).forEach((item) => {
       taskList.append(item.kind === 'group' ? unfocusedGroupItem(item)
         : item.kind === 'document' ? taskDocumentItem(item) : taskListItem(item));

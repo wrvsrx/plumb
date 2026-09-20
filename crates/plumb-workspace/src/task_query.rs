@@ -39,6 +39,7 @@ pub struct TaskPageQuery {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceTask {
+    pub matched: bool,
     pub path: PathBuf,
     pub revision: i64,
     pub task: TaskRecord,
@@ -227,8 +228,23 @@ impl Workspace {
         &self,
         query: &TaskPageQuery,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
+        self.query_task_page_impl(query, false)
+    }
+
+    pub fn query_task_tree_page(
+        &self,
+        query: &TaskPageQuery,
+    ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
+        self.query_task_page_impl(query, true)
+    }
+
+    fn query_task_page_impl(
+        &self,
+        query: &TaskPageQuery,
+        include_ancestors: bool,
+    ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
         let filters = compile_filters(&query.filter_groups)?;
-        let candidate = task_candidate_predicate(&filters);
+        let candidate = if include_ancestors { None } else { task_candidate_predicate(&filters) };
         let (mut facts, open_records) =
             task_facts(self, candidate.as_ref(), query.now.timestamp_millis())?;
         let (identities, task_refs_by_key, states) =
@@ -253,6 +269,9 @@ impl Workspace {
             fact.actionable = state == TaskWorkflowState::Ready;
         }
 
+        let ancestor_facts = if include_ancestors {
+            facts.iter().map(|fact| (fact.key.clone(), fact.clone())).collect::<HashMap<_, _>>()
+        } else { HashMap::new() };
         let mut retained = Vec::with_capacity(facts.len());
         for mut fact in facts {
             let relative_path = display_workspace_path(&query.root, &fact.key.path);
@@ -280,6 +299,21 @@ impl Workspace {
             }
         }
 
+        let matched_keys = retained.iter().map(|fact| fact.key.clone()).collect::<HashSet<_>>();
+        if include_ancestors {
+            let mut included = matched_keys.clone();
+            let mut index = 0;
+            while index < retained.len() {
+                let fact = &retained[index];
+                if let Some(start) = fact.parent_start {
+                    let key = TaskKey { path: fact.key.path.clone(), start };
+                    if included.insert(key.clone()) {
+                        if let Some(parent) = ancestor_facts.get(&key) { retained.push(parent.clone()); }
+                    }
+                }
+                index += 1;
+            }
+        }
         propagate_effective_priorities(&mut retained, &relations, &identities, &states);
         sort_task_records_by(&mut retained, &query.sort, |fact| TaskSortFacts {
             document: fact.document_order.clone(),
@@ -294,14 +328,15 @@ impl Workspace {
             due: fact.due_millis.and_then(datetime_from_millis),
             relevance: Some(fact.relevance),
         });
-        apply_cursor(&mut retained, query)?;
-        let complete = retained.len() <= query.limit;
+        apply_cursor(&mut retained, query, include_ancestors)?;
+        let remaining_count = retained.len();
         truncate_complete_task_documents(&mut retained, query.limit, |fact| &fact.document_order);
+        let complete = retained.len() == remaining_count;
         let next_cursor = (!complete)
             .then(|| {
                 retained
                     .last()
-                    .map(|fact| encode_cursor(query, &fact.key.path))
+                    .map(|fact| encode_cursor(query, &fact.key.path, include_ancestors))
             })
             .flatten();
 
@@ -354,6 +389,7 @@ impl Workspace {
                 .filter(|target| identities.contains_key(target))
             });
             tasks.push(WorkspaceTask {
+                matched: matched_keys.contains(&fact.key),
                 path: fact.key.path,
                 revision: fact.revision,
                 task,
@@ -582,6 +618,7 @@ fn workspace_task(
         .filter(|target| identities.contains_key(target))
     });
     Ok(WorkspaceTask {
+        matched: true,
         path: fact.key.path,
         revision: fact.revision,
         task,
@@ -1212,6 +1249,7 @@ fn propagate_effective_priorities(
 fn apply_cursor(
     facts: &mut Vec<TaskFact>,
     query: &TaskPageQuery,
+    include_ancestors: bool,
 ) -> Result<(), TaskPageQueryError> {
     let Some(cursor) = &query.cursor else {
         return Ok(());
@@ -1221,7 +1259,7 @@ fn apply_cursor(
     let revision = parts.next().and_then(|value| value.parse::<u64>().ok());
     let signature = parts.next();
     let document = parts.next();
-    let expected = query_signature(query);
+    let expected = query_signature(query, include_ancestors);
     if version != Some("v2")
         || revision != Some(query.workspace_revision)
         || signature != Some(hex(&expected).as_str())
@@ -1244,21 +1282,22 @@ fn apply_cursor(
     Ok(())
 }
 
-fn encode_cursor(query: &TaskPageQuery, path: &Path) -> String {
+fn encode_cursor(query: &TaskPageQuery, path: &Path, include_ancestors: bool) -> String {
     format!(
         "v2:{}:{}:{}",
         query.workspace_revision,
-        hex(&query_signature(query)),
+        hex(&query_signature(query, include_ancestors)),
         hex(&path_identity(path))
     )
 }
 
-fn query_signature(query: &TaskPageQuery) -> [u8; 32] {
+fn query_signature(query: &TaskPageQuery, include_ancestors: bool) -> [u8; 32] {
     let mut digest = Sha256::new();
     // The shared Tasks ordering now depends on the fixed subtree-focus rule in
     // addition to the caller's keys, so cursors issued before that rule must not
     // be accepted as if they described the same order.
     hash_field(&mut digest, b"subtree-focused-first-v1");
+    hash_field(&mut digest, &[u8::from(include_ancestors)]);
     hash_field(&mut digest, &path_identity(&query.root));
     hash_field(&mut digest, query.text.as_bytes());
     hash_field(&mut digest, &query.limit.to_le_bytes());
@@ -2129,6 +2168,7 @@ mod tests {
     fn pre_focus_first_cursors_are_rejected() {
         let mut workspace = Workspace::new();
         workspace.insert("tasks.plumb", 1, FOCUS_SOURCE);
+        workspace.insert("other.plumb", 1, FOCUS_SOURCE);
         let mut cursor_query = query();
         cursor_query.sort = vec![TaskSortOrder::Source];
         cursor_query.limit = 1;

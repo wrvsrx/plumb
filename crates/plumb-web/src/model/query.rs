@@ -38,7 +38,7 @@ impl WebWorkspace {
         }
         let page = self
             .workspace
-            .query_task_page(&TaskPageQuery {
+            .query_task_tree_page(&TaskPageQuery {
                 root: self.root.clone(),
                 text: query.query.clone(),
                 filter_groups,
@@ -82,6 +82,7 @@ impl WebWorkspace {
         let focused_since = task.focused_since().map(str::to_string);
         let focus_intervals = super::web_focus_intervals(&task);
         Some(WebTask {
+            matched: item.matched,
             key,
             document_id,
             title: task.title.clone(),
@@ -452,6 +453,7 @@ fn graph_source_order(left: &GraphNode, right: &GraphNode) -> std::cmp::Ordering
 pub(super) fn task_source_order(left: &WebTask, right: &WebTask) -> std::cmp::Ordering {
     left.path
         .cmp(&right.path)
+        .then_with(|| (left.locator != WebTaskLocator::Document).cmp(&(right.locator != WebTaskLocator::Document)))
         .then(left.location.start.cmp(&right.location.start))
         .then(left.key.cmp(&right.key))
 }
@@ -545,7 +547,7 @@ pub(super) fn sort_task_tree(
     }
     sort_task_records_by(tasks, &orders, |task| TaskSortFacts {
         document: task.path.clone(),
-        source_start: task.location.start,
+        source_start: if task.locator == WebTaskLocator::Document { 0 } else { task.location.start },
         depth: task.depth,
         focused: task.focused,
         priority: Some(task.effective_priority),
