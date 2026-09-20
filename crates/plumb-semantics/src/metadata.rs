@@ -189,6 +189,10 @@ pub fn analyze_metadata(valid: ValidDocument<'_>) -> MetadataOutput {
 
 pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
     let mut output = MetadataOutput::default();
+    for shard in valid.syntax().shards() {
+        collect_document_facets(&shard.shard().parsed().syntax, shard.offset(), &mut output);
+    }
+    let document_task = output.facets.iter().any(|facet| facet.name == "task");
     let mut entries = Vec::new();
     let mut keys = HashMap::<String, Range<usize>>::new();
     let mut metadata_range: Option<Range<usize>> = None;
@@ -217,7 +221,8 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
                 }
 
                 let mut local_diagnostics = Vec::new();
-                let mut parsed = parse_direct_entries([block], &mut local_diagnostics);
+                let mut parsed =
+                    parse_direct_entries([block], document_task, &mut local_diagnostics);
                 for entry in &mut parsed {
                     shift_metadata_entry(entry, offset);
                     if let Some(first) = keys.get(&entry.key) {
@@ -252,9 +257,6 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
         }
     }
     lint_standard_entries(&entries, &mut output.diagnostics);
-    for shard in valid.syntax().shards() {
-        collect_document_facets(&shard.shard().parsed().syntax, shard.offset(), &mut output);
-    }
     output.diagnostics.extend(unsupported);
     if let (Some(range), Some(selection_range)) = (metadata_range, metadata_selection) {
         output.metadata = Some(MetadataBlock {
@@ -344,13 +346,19 @@ pub fn green_recovered_bibliography_sources(
 
 fn analyze_metadata_document(document: &Document) -> MetadataOutput {
     let mut output = MetadataOutput::default();
+    collect_document_facets(document, 0, &mut output);
+    let document_task = output.facets.iter().any(|facet| facet.name == "task");
     let properties = document
         .blocks
         .iter()
         .filter(|block| parsed_marker(block) == Some("="))
         .collect::<Vec<_>>();
     if let (Some(first), Some(last)) = (properties.first(), properties.last()) {
-        let entries = parse_direct_entries(properties.iter().copied(), &mut output.diagnostics);
+        let entries = parse_direct_entries(
+            properties.iter().copied(),
+            document_task,
+            &mut output.diagnostics,
+        );
         lint_standard_entries(&entries, &mut output.diagnostics);
         let selection_range = match first {
             Block::Parsed(block) => block
@@ -368,7 +376,6 @@ fn analyze_metadata_document(document: &Document) -> MetadataOutput {
         });
     }
 
-    collect_document_facets(document, 0, &mut output);
     for block in &document.blocks {
         let Block::Parsed(block) = block else {
             continue;
@@ -387,6 +394,7 @@ fn analyze_metadata_document(document: &Document) -> MetadataOutput {
 
 fn parse_direct_entries<'a>(
     blocks: impl IntoIterator<Item = &'a Block>,
+    document_task: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<MetadataEntry> {
     let mut entries = Vec::new();
@@ -435,14 +443,43 @@ fn parse_direct_entries<'a>(
         } else {
             keys.insert(key.clone(), key_range.clone());
         }
+        let value = if document_task && key == "focused" && !property.children.is_empty() {
+            document_focus_value(property)
+        } else {
+            parse_direct_value(property, scalar, diagnostics)
+        };
         entries.push(MetadataEntry {
             range: property.range.clone(),
             key,
             key_range,
-            value: parse_direct_value(property, scalar, diagnostics),
+            value,
         });
     }
     entries
+}
+
+// Task diagnostics own invalid history shapes; this projection does not broaden
+// the ordinary metadata sequence grammar.
+fn document_focus_value(property: &ParsedBlock) -> MetadataValue {
+    let range = body_range(property);
+    let mut items = Vec::new();
+    for child in &property.children {
+        let Block::Parsed(item) = child else {
+            return MetadataValue::Unsupported { range };
+        };
+        if parsed_marker(child) != Some("-") || !item.children.is_empty() {
+            return MetadataValue::Unsupported { range };
+        }
+        let content = item.content.trim_boundary_padding();
+        items.push(MetadataListItem {
+            value: MetadataValue::Scalar {
+                range: content.range.clone(),
+                content,
+            },
+            range: item.range.clone(),
+        });
+    }
+    MetadataValue::List { items, range }
 }
 
 fn parse_direct_value(
@@ -559,7 +596,7 @@ fn parse_direct_children(
     }
     if blocks.iter().all(|block| parsed_marker(block) == Some("=")) {
         return MetadataValue::Map {
-            entries: parse_direct_entries(blocks, diagnostics),
+            entries: parse_direct_entries(blocks, false, diagnostics),
             range,
         };
     }
@@ -814,6 +851,70 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["title", "created"]
         );
+    }
+
+    #[test]
+    fn document_task_focus_history_projects_as_metadata_list_across_shards() {
+        let source = "`= focused\n `- 2026-09-20T10:00:00Z--2026-09-20T11:00:00Z\n `- 2026-09-21T10:00:00Z--\n\nBody.\n\n`+ task\n";
+        let parsed = parse(source);
+        let green = plumb_syntax::GreenDocument::parse(source);
+        let output = analyze_metadata(parsed.valid_syntax().unwrap());
+        assert_eq!(
+            output,
+            analyze_green_metadata(green.valid_syntax().unwrap())
+        );
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let MetadataValue::List { items, .. } = &output.metadata.unwrap().entries[0].value else {
+            panic!("document focus history must project as a list");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(
+            &source[items[1].value.range().clone()],
+            "2026-09-21T10:00:00Z--"
+        );
+        let tasks = crate::tasks::analyze_tasks(parsed.valid_syntax().unwrap());
+        assert!(tasks.diagnostics.is_empty(), "{:?}", tasks.diagnostics);
+        assert!(tasks.document_task().unwrap().record.is_focused());
+    }
+
+    #[test]
+    fn malformed_document_focus_history_is_diagnosed_by_tasks() {
+        let source = "`+ task\n`= focused\n `+ 2026-09-21T10:00:00Z--\n";
+        let parsed = parse(source);
+        let metadata = analyze_metadata(parsed.valid_syntax().unwrap());
+        assert!(
+            metadata.diagnostics.is_empty(),
+            "{:?}",
+            metadata.diagnostics
+        );
+        assert!(matches!(
+            metadata.metadata.unwrap().entries[0].value,
+            MetadataValue::Unsupported { .. }
+        ));
+        let tasks = crate::tasks::analyze_tasks(parsed.valid_syntax().unwrap());
+        assert!(tasks.document_task().unwrap().record.focused.invalid);
+        assert!(!tasks.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn document_focus_sequence_exception_does_not_apply_to_plain_metadata_or_nested_maps() {
+        for source in [
+            "`= focused\n `- 2026-09-21T10:00:00Z--\n",
+            "`+ task\n`= custom\n `= focused\n  `- 2026-09-21T10:00:00Z--\n",
+            "`+ task\n`= custom\n `- 2026-09-21T10:00:00Z--\n",
+        ] {
+            let parsed = parse(source);
+            let green = plumb_syntax::GreenDocument::parse(source);
+            let output = analyze_metadata(parsed.valid_syntax().unwrap());
+            assert_eq!(
+                output,
+                analyze_green_metadata(green.valid_syntax().unwrap())
+            );
+            assert!(output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "metadata.unsupported-value"));
+        }
     }
 
     #[test]

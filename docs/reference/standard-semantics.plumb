@@ -115,6 +115,8 @@ Status：generic document facet 与文档级 task 的共享语义投影已实现
 
 focus history、状态推导、priority 和 dependency 规则复用 list task 行为。移除 task facet 只取消任务身份，保留 properties、body 和 children；已有引用随后成为 not-task。导出仍是普通文档 title/body，不额外生成包裹全文的 list task。
 
+文档 task 的根层 focused property 由 task profile 校验；其历史列表使用与 list task 相同的 direct leaf `"-" 子项，并在 metadata 中投影为 List，不产生 metadata.unsupported-value。非法历史形态由 task focus diagnostic 报告。此例外只适用于有有效 task facet 的文档根层 focused，不扩展普通 metadata 或嵌套 map 的 sequence 语法；facet 可出现在历史字段之后。
+
 `# 6. Links
 
 未带 resource facets 的 `"->" group 与 compact marked Verbatim 使用本节 navigation Link projection；resource-faceted Group 由第 7 节消费，但共享 positional binding。唯一 standard Link kind 是 `"->"。direct declaration与 whitespace不占 positional index。一个 non-declaration
