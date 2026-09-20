@@ -119,11 +119,13 @@ Web resource endpoint 只为已索引的 workspace-contained resource identity �
 
 Web Tasks 只提供一棵任务树，不提供 Next 页面或 Web next query；CLI / LSP 的 shared next 不受影响。grouped focus presentation 只改变浏览器中的可见性，不产生 authoritative source edits。
 
-shared task page 在分页前按 subtree focused 优先排序；Web 只投影该有序结果。当前筛选结果存在 focused task 时，每层 sibling 中自身及后代均未 focused 的完整子树整体收进一个默认折叠的 Other unfocused tasks 分组；完全未 focused 的 document groups 在最外层收进一个 Other unfocused files 分组。保留 focused task 及其必要祖先路径，不能逐个折叠未关注任务来代替整体分组，也不复制祖先到第二棵树。没有 focused task 时保持普通展开树。
+shared task page 在分页前按 subtree focused 优先排序；Web 只投影该有序结果。当前筛选结果存在 focused task 时，每层 sibling 中自身及后代均未 focused 的完整子树整体收进一个默认折叠的 Unfocused tasks 分组；完全未 focused 的 document groups 在最外层收进一个 Unfocused files 分组。保留 focused task 及其必要祖先路径，不能逐个折叠未关注任务来代替整体分组，也不复制祖先到第二棵树。没有 focused task 时保持普通展开树。
 
 分组展开后保持原有子树结构和次级排序；手动展开与原有 document/task 折叠状态在当前浏览器 session 的查询刷新间保持，不写文档、不进入 URL。选中隐藏任务会展开包含它的分组与祖先；新 focus 的任务也展开其祖先，但普通刷新不覆盖手动折叠。分组 identity 按 document / parent task 区分，不能用当前行号。当前页总数与 Load more 保持可见，分组计数只描述已加载结果，不冒充 workspace 总数。
 
 可折叠文件路径显示其筛选后 task tree 中的 focused 数量，折叠时仍显示；未关注但包含 focused 后代的 task 显示 contains-focused 摘要，不标记其自身 focused。折叠隐藏的记录参与计数，筛选排除的记录不参与；count 与 grouping 从同一保留树计算。focus 的历史与操作语义保持不变。
+
+未关注分组是辅助折叠行，不是新的 section heading：使用 12px、500 字重和次级文字颜色，透明底色且不加分隔线，仅 hover 轻微高亮，点击高度至少 44px。Unfocused tasks 的箭头和文字分别对齐同层任务的 disclosure 与 title，复用任务的层级缩进及响应式列宽；最外层 Unfocused files 对齐文件路径节点。文案省略 Other，不增加对称的 Focused tasks / Focused files 分类。
 
 `# 7. Tree-sitter boundary
 

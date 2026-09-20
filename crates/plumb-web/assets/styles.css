@@ -140,7 +140,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 .task-workspace { height: auto; min-height: 0; display: grid; grid-template-columns: minmax(440px, 1fr) minmax(340px, 34vw); flex: 1 1 0; }
 .task-list-pane { position: relative; min-width: 0; overflow: auto; background: #f7f7f5; }
-.task-list { width: 100%; }
+.task-list { width: 100%; --task-disclosure-width: 22px; --task-state-width: 86px; --task-indent: 14px; --task-row-gap: 14px; --task-row-inset: 5px; }
 .load-more-tasks { display: block; min-height: 38px; margin: 12px auto 18px; padding: 7px 14px; }
 .task-document-group {
   position: sticky; top: 0; z-index: 2; padding: 6px 16px; border-bottom: 1px solid var(--border);
@@ -156,15 +156,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-document-path { min-width: 0; overflow-wrap: anywhere; }
 .task-document-count { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 5px; color: #858883; font-weight: 600; white-space: nowrap; }
 .task-disclosure {
-  width: 22px; min-height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 0;
+  width: var(--task-disclosure-width); min-height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 0;
   background: transparent; color: var(--muted); font-size: 11px; line-height: 1;
 }
 .task-disclosure:hover { background: #e2e3df; color: var(--ink); }
 .task-disclosure-empty { visibility: hidden; }
 .task-list-item {
   --task-depth: 0;
-  display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: stretch;
-  padding-left: calc(var(--task-depth) * 14px); border-bottom: 1px solid var(--border);
+  display: grid; grid-template-columns: var(--task-disclosure-width) minmax(0, 1fr); align-items: stretch;
+  padding-left: calc(var(--task-depth) * var(--task-indent)); border-bottom: 1px solid var(--border);
 }
 .task-list-item:hover { background: #efefec; }
 .task-list-item.collapsed { background: #f1f2ee; }
@@ -172,9 +172,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-list-item > .task-disclosure { align-self: center; }
 .task-list-item .task-hidden-count { color: var(--teal); font-weight: 600; }
 .task-row {
-  width: 100%; min-height: 64px; display: grid; grid-template-columns: 86px minmax(0, 1fr) 100px;
-  align-items: center; gap: 14px; border: 0; border-radius: 0;
-  padding: 9px 16px 9px 5px; text-align: left; background: transparent;
+  width: 100%; min-height: 64px; display: grid; grid-template-columns: var(--task-state-width) minmax(0, 1fr) 100px;
+  align-items: center; gap: var(--task-row-gap); border: 0; border-radius: 0;
+  padding: 9px 16px 9px var(--task-row-inset); text-align: left; background: transparent;
 }
 .task-state, .task-detail-state { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
 .state-ready { color: var(--teal); }
@@ -263,12 +263,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 /* Focus affects tree ordering and grouped visibility, never workflow state. */
 .task-unfocused-group {
-  display: block; width: 100%; min-height: 44px; text-align: left;
-  padding: 10px 16px 10px calc(16px + var(--task-depth, 0) * 18px);
-  border: 0; border-bottom: 1px solid var(--border);
-  background: #efefec; color: var(--muted); font-weight: 650;
+  display: grid; grid-template-columns: var(--task-disclosure-width) calc(var(--task-row-inset) + var(--task-state-width) + var(--task-row-gap)) minmax(0, 1fr);
+  align-items: center; width: 100%; min-height: 44px; text-align: left;
+  padding: 6px 16px 6px calc(var(--task-depth, 0) * var(--task-indent));
+  border: 0; border-radius: 0; background: transparent;
+  color: var(--muted); font-size: 12px; font-weight: 500;
 }
-.task-unfocused-group:hover { background: #e5ece9; }
+.task-unfocused-group > .task-disclosure-mark { text-align: center; font-size: 11px; }
+.task-unfocused-label { grid-column: 3; min-width: 0; overflow-wrap: anywhere; }
+.task-unfocused-files { grid-template-columns: 12px minmax(0, 1fr); gap: 8px; padding-left: 16px; }
+.task-unfocused-files > .task-unfocused-label { grid-column: 2; }
+.task-unfocused-group:hover { background: #efefec; }
 .task-focused-count {
   width: fit-content; padding: 2px 7px; border-radius: 999px;
   background: #e9f3f1; color: var(--teal); font-size: 12px; font-weight: 650;
@@ -380,8 +385,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .preset-chip > span, .preset-chip-label { overflow: hidden; text-overflow: ellipsis; }
   .preset-chip > .preset-chip-label { min-height: 26px; }
   .preset-chip > .remove-filter { width: 26px; min-height: 26px; }
-  .task-disclosure { width: 26px; min-height: 26px; }
-  .task-list-item { grid-template-columns: 26px minmax(0, 1fr); }
+  .task-list { --task-disclosure-width: 26px; --task-state-width: 72px; }
+  .task-disclosure { min-height: 26px; }
   .task-sort-key button { min-width: 26px; min-height: 26px; }
   .task-filters .task-sort { flex-basis: 100%; }
 
@@ -411,7 +416,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
     background: var(--paper); overflow: auto;
   }
 
-  .task-row { grid-template-columns: 72px minmax(0, 1fr); }
+  .task-row { grid-template-columns: var(--task-state-width) minmax(0, 1fr); }
   .task-row time { display: none; }
   .task-form-grid { grid-template-columns: 1fr; }
   .event-row { grid-template-columns: 96px minmax(0, 1fr); }
@@ -439,8 +444,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .preset-chip > .preset-chip-label { min-height: 32px; }
   .preset-chip > .remove-filter { min-width: 32px; min-height: 32px; }
   .task-sort-key button { min-width: 32px; min-height: 32px; }
-  .task-disclosure { width: 32px; min-height: 32px; }
-  .task-list-item { grid-template-columns: 32px minmax(0, 1fr); }
+  .task-list { --task-disclosure-width: 32px; }
+  .task-disclosure { min-height: 32px; }
   .task-row, .task-document-toggle { min-height: 44px; }
   .focus-task, .focus-interval-list summary { min-height: 44px; }
   .event-row { min-height: 64px; }

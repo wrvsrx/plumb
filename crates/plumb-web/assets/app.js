@@ -1435,8 +1435,15 @@ import {
     button.dataset.groupKey = item.key;
     button.style.setProperty('--task-depth', Math.min(item.depth, 5));
     button.setAttribute('aria-expanded', String(!item.collapsed));
-    const label = item.documents ? `Other unfocused files · ${item.documents}` : `Other unfocused tasks · ${item.total}`;
-    button.textContent = `${item.collapsed ? '▸' : '▾'} ${label}`;
+    button.classList.toggle('task-unfocused-files', Boolean(item.documents));
+    const mark = document.createElement('span');
+    mark.className = 'task-disclosure-mark';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = item.collapsed ? '▸' : '▾';
+    const label = document.createElement('span');
+    label.className = 'task-unfocused-label';
+    label.textContent = item.documents ? `Unfocused files · ${item.documents}` : `Unfocused tasks · ${item.total}`;
+    button.append(mark, label);
     button.title = `${item.total} tasks in loaded results`;
     button.addEventListener('click', () => {
       if (state.collapsed.expandedGroups.has(item.key)) state.collapsed.expandedGroups.delete(item.key);
