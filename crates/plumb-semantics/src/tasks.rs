@@ -1317,6 +1317,21 @@ mod tests {
     }
 
     #[test]
+    fn accepts_blank_separated_interval_list_children() {
+        // plumb-edit renders a non-empty declaration head with a blank line
+        // before its first direct child, so the canonical spelling of a focus
+        // history list separates the head from its interval children.
+        let source = "`- Separated\n `+ task\n `= focused\n\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n  `- 2026-09-20T14:00:00+08:00--\n";
+        let (_, output) = analyze(source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let task = &output.tasks.get(0).unwrap();
+        assert!(task.focused.list_form);
+        assert_eq!(task.focused.intervals.len(), 2);
+        assert!(task.is_focused());
+        assert_eq!(task.focused_since(), Some("2026-09-20T14:00:00+08:00"));
+    }
+
+    #[test]
     fn accepts_adjacent_zero_length_and_offset_equivalent_intervals() {
         let source = "`- History\n `+ task\n `= focused\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n  `- 2026-09-20T03:00:00Z--2026-09-20T03:00:00Z\n  `- 2026-09-20T04:00:00Z--\n";
         let (_, output) = analyze(source);
