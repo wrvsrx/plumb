@@ -927,7 +927,9 @@ impl Workspace {
                 let target_id = match &target {
                     TaskReferenceTarget::Internal { id }
                     | TaskReferenceTarget::External { id, .. } => id,
-                    TaskReferenceTarget::Invalid => return Ok(Some(resolved)),
+                    TaskReferenceTarget::Invalid | TaskReferenceTarget::Document { .. } => {
+                        return Ok(Some(resolved))
+                    }
                 };
                 if task_reference_ranges(source, range, target_id)
                     .and_then(|(path_range, _)| path_range)
@@ -948,7 +950,9 @@ impl Workspace {
                 let target_id = match &reference.target {
                     TaskReferenceTarget::Internal { id }
                     | TaskReferenceTarget::External { id, .. } => id,
-                    TaskReferenceTarget::Invalid => return Ok(Some(resolved)),
+                    TaskReferenceTarget::Invalid | TaskReferenceTarget::Document { .. } => {
+                        return Ok(Some(resolved))
+                    }
                 };
                 if task_reference_ranges(&reference.source, &reference.range, target_id)
                     .and_then(|(path_range, _)| path_range)
@@ -1562,6 +1566,14 @@ impl Workspace {
             TaskReferenceTarget::External { path, id } => {
                 (resolve_relative(from, path), id.clone())
             }
+            TaskReferenceTarget::Document { path } => {
+                let path = resolve_relative(from, path);
+                return Ok(if self.contains_path(&path)? {
+                    ResolvedTarget::Document { path }
+                } else {
+                    ResolvedTarget::UnresolvedPath { path }
+                });
+            }
             TaskReferenceTarget::Invalid => return Ok(ResolvedTarget::Other),
         };
         if !self.contains_path(&path)? {
@@ -1756,11 +1768,11 @@ impl Workspace {
         &self,
         target: &TaskRef,
     ) -> Result<QueryResult<Vec<WorkspaceEvent>>, WorkspaceQueryError> {
-        if !self.tasks_for_path(&target.path)?.iter().any(|task| {
-            task.id
-                .as_ref()
-                .is_some_and(|field| field.value == target.id)
-        }) {
+        if !self
+            .tasks_for_path(&target.path)?
+            .iter()
+            .any(|task| TaskRef::from_task(&target.path, task).as_ref() == Some(target))
+        {
             return Ok(self.query_result(Vec::new()));
         }
         let mut events = Vec::new();
@@ -1793,7 +1805,7 @@ impl Workspace {
         if let Some(store) = &self.disk_store {
             events.extend(
                 store
-                    .events_for_task(&target.path, &target.id, &self.open_paths())?
+                    .events_for_task(&target.path, target.id.as_deref(), &self.open_paths())?
                     .into_iter()
                     .map(|stored| WorkspaceEvent {
                         path: stored.path,
@@ -1857,42 +1869,13 @@ impl Workspace {
         }
         let mut references = Vec::new();
         for link in current.links_contained_by_record(event) {
-            let LinkTarget::Anchor {
-                path: target_path,
-                fragment,
-            } = &link.target_kind
-            else {
-                continue;
-            };
-            let resolved = self.resolve_link_value(path, &link)?;
-            let ResolvedTarget::Anchor {
-                path: resolved_path,
-                id,
-                ..
-            } = resolved
-            else {
-                continue;
-            };
-            let Some(target_output) = self.current_output(&resolved_path) else {
-                continue;
-            };
-            let is_task = target_output
-                .tasks()
-                .tasks
-                .iter()
-                .any(|task| task.id.as_ref().is_some_and(|field| field.value == id));
-            if !is_task {
+            let target = parse_task_reference_target(&link.target.value);
+            if !matches!(
+                self.resolve_task_target(path, &target)?,
+                TaskTargetResolution::Task { .. }
+            ) {
                 continue;
             }
-            let target = match target_path {
-                Some(target_path) => TaskReferenceTarget::External {
-                    path: target_path.clone(),
-                    id: fragment.clone(),
-                },
-                None => TaskReferenceTarget::Internal {
-                    id: fragment.clone(),
-                },
-            };
             references.push(TaskDependency {
                 source: link.target.value.clone(),
                 range: link.target.range.clone(),
@@ -2066,10 +2049,7 @@ impl Workspace {
         let tasks = &current.output.tasks().tasks;
         let task_views = tasks.views().collect::<Vec<_>>();
         for (task_index, task) in tasks.iter().enumerate() {
-            let own_ref = task.id.as_ref().map(|id| TaskRef {
-                path: path.to_path_buf(),
-                id: id.value.clone(),
-            });
+            let own_ref = TaskRef::from_task(path, &task);
             if let Some(prev) = &task.prev {
                 let target = parse_task_reference_target(&prev.value);
                 if let Some(diagnostic) =
@@ -2122,8 +2102,8 @@ impl Workspace {
                         code: "task.dependency-cycle",
                         severity: DiagnosticSeverity::Warning,
                         message: format!(
-                            "task '#{}' participates in a dependency cycle",
-                            task_ref.id
+                            "task '{}' participates in a dependency cycle",
+                            task_ref.display(Path::new(""))
                         ),
                         range: task.selection_range.clone(),
                         related: Vec::new(),
@@ -2173,7 +2153,7 @@ impl Workspace {
                         descendant.id_value().is_none_or(|id| {
                             !blocker_targets.contains(&TaskRef {
                                 path: path.to_path_buf(),
-                                id: id.to_owned(),
+                                id: Some(id.to_owned()),
                             })
                         })
                     })
@@ -2271,6 +2251,10 @@ impl Workspace {
             TaskTargetResolution::AmbiguousAnchor { id, .. } => (
                 "task.ambiguous-anchor",
                 format!("task anchor '#{id}' is ambiguous"),
+            ),
+            TaskTargetResolution::NotDocumentTask { path } => (
+                "task.non-task-target",
+                format!("document '{}' does not have the task facet", path.display()),
             ),
             TaskTargetResolution::NotTask { id, .. } => (
                 "task.non-task-target",
@@ -2409,6 +2393,40 @@ impl Workspace {
                 input: PathRenameInput::Path,
             });
         }
+        if let Some(output) = self.current_output(&path) {
+            let mut references = Vec::new();
+            for task in &output.tasks().tasks {
+                references.extend(
+                    task_reference_fields(&task)
+                        .into_iter()
+                        .map(|(_, range, target)| (range.clone(), target)),
+                );
+            }
+            for event in &output.events().events {
+                references.extend(
+                    event
+                        .tasks
+                        .iter()
+                        .map(|reference| (reference.range.clone(), reference.target.clone())),
+                );
+            }
+            for (range, target) in references {
+                if !contains_inclusive(&range, offset)
+                    || !matches!(target, TaskReferenceTarget::Document { .. })
+                {
+                    continue;
+                }
+                if let ResolvedTarget::Document { path: old_path } =
+                    self.resolve_task_reference_target(&path, &target)?
+                {
+                    return Ok(PathRenameTarget {
+                        old_path,
+                        range,
+                        input: PathRenameInput::Path,
+                    });
+                }
+            }
+        }
         let reference = self
             .anchor_reference_at_value(&path, offset)?
             .filter(|reference| {
@@ -2540,36 +2558,59 @@ impl Workspace {
                         replacement,
                     )?);
             }
+            let mut references = Vec::new();
             for task in &current.output.tasks().tasks {
-                for (source, range, target) in task_reference_fields(&task) {
-                    let Some(reference) =
-                        self.task_anchor_reference(&entry.path, source, range, &target)?
-                    else {
-                        continue;
-                    };
-                    let Some(path_range) = reference.path_range else {
-                        continue;
-                    };
-                    let source_moves = entry.path == old_path;
-                    let target_moves = reference.target_path == old_path;
-                    if !source_moves && !target_moves {
-                        continue;
+                references.extend(
+                    task_reference_fields(&task)
+                        .into_iter()
+                        .map(|(source, range, target)| (source.to_owned(), range.clone(), target)),
+                );
+            }
+            for event in &current.output.events().events {
+                references.extend(event.tasks.iter().map(|reference| {
+                    (
+                        reference.source.clone(),
+                        reference.range.clone(),
+                        reference.target.clone(),
+                    )
+                }));
+            }
+            for (source, range, target) in references {
+                let path_range = match &target {
+                    TaskReferenceTarget::Document { .. } => range.clone(),
+                    TaskReferenceTarget::External { id, .. } => {
+                        let Some((Some(path_range), _)) =
+                            task_reference_ranges(&source, &range, id)
+                        else {
+                            continue;
+                        };
+                        path_range
                     }
-                    let effective_source = if source_moves { &new_path } else { &entry.path };
-                    let effective_target = if target_moves {
-                        &new_path
-                    } else {
-                        &reference.target_path
-                    };
-                    let Some(replacement) = relative_path(effective_source, effective_target)
-                    else {
-                        return Err(RenameError::InvalidPath.into());
-                    };
-                    grouped
-                        .entry(entry.path.clone())
-                        .or_default()
-                        .push(validated_token_edit(entry, path_range, replacement)?);
+                    TaskReferenceTarget::Internal { .. } | TaskReferenceTarget::Invalid => continue,
+                };
+                let Some(target_path) = resolved_document_path(
+                    self.resolve_task_reference_target(&entry.path, &target)?,
+                ) else {
+                    continue;
+                };
+                let source_moves = entry.path == old_path;
+                let target_moves = target_path == old_path;
+                if !source_moves && !target_moves {
+                    continue;
                 }
+                let effective_source = if source_moves { &new_path } else { &entry.path };
+                let effective_target = if target_moves {
+                    &new_path
+                } else {
+                    &target_path
+                };
+                let Some(replacement) = relative_path(effective_source, effective_target) else {
+                    return Err(RenameError::InvalidPath.into());
+                };
+                grouped
+                    .entry(entry.path.clone())
+                    .or_default()
+                    .push(validated_token_edit(entry, path_range, replacement)?);
             }
         }
         let mut document_changes = Vec::new();
@@ -3069,7 +3110,7 @@ impl Workspace {
         if let Some(id) = id {
             let own = TaskRef {
                 path: path.to_path_buf(),
-                id: id.to_string(),
+                id: Some(id.to_string()),
             };
             let mut graph = self.task_dependency_graph()?;
             graph.insert(own.clone(), dependencies);
@@ -3438,7 +3479,7 @@ impl Workspace {
         };
         let owner_ref = owner.id.as_ref().map(|id| TaskRef {
             path: from.clone(),
-            id: id.value.clone(),
+            id: Some(id.value.clone()),
         });
         let mut existing = HashSet::new();
         for target in &context.existing {
@@ -3454,7 +3495,7 @@ impl Workspace {
             };
             let target = TaskRef {
                 path: path.to_path_buf(),
-                id: id.value.clone(),
+                id: Some(id.value.clone()),
             };
             owner_ref.as_ref() != Some(&target) && !existing.contains(&target)
         };
@@ -4558,6 +4599,7 @@ fn task_reference_component_ranges(
 ) -> Option<(std::ops::Range<usize>, std::ops::Range<usize>)> {
     let target_id = match target {
         TaskReferenceTarget::Internal { id } | TaskReferenceTarget::External { id, .. } => id,
+        TaskReferenceTarget::Document { .. } => return Some((range.clone(), range.clone())),
         TaskReferenceTarget::Invalid => return None,
     };
     let (path_range, id_range) = task_reference_ranges(source, range, target_id)?;

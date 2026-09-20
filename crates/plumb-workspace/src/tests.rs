@@ -3,6 +3,224 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::*;
 
 #[test]
+fn document_task_path_references_match_memory_disk_and_target_overlays() {
+    let target_source = "`- Anonymous child\n `+ task\n\n`+ task\n`= title Project\n";
+    let source = "`+ task\n`= depends ../Project Plan.plumb\n`= prev ../Project Plan.plumb\n`= priority 9\n\n`- 2026-09-21T10:00 Explicit\n `+ event\n `= tasks ../Project Plan.plumb\n\n`- 2026-09-21T11:00 Linked `->{Project ../Project Plan.plumb}\n `+ event\n";
+    for disk in [false, true] {
+        let mut workspace = if disk {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else {
+            Workspace::new()
+        };
+        for (path, text) in [
+            ("Project Plan.plumb", target_source),
+            ("notes/source.plumb", source),
+        ] {
+            if disk {
+                workspace.insert_disk(path, 0, text).unwrap();
+            } else {
+                workspace.insert(path, 0, text);
+            }
+        }
+        let target = TaskRef {
+            path: PathBuf::from("Project Plan.plumb"),
+            id: None,
+        };
+        let owner = TaskRef {
+            path: PathBuf::from("notes/source.plumb"),
+            id: None,
+        };
+        let task = workspace
+            .tasks_for_path(Path::new("notes/source.plumb"))
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            workspace
+                .task_dependencies("notes/source.plumb", &task)
+                .unwrap()
+                .value[0]
+                .target,
+            target
+        );
+        assert_eq!(
+            workspace
+                .task_previous("notes/source.plumb", &task)
+                .unwrap()
+                .value,
+            Some(target.clone())
+        );
+        assert!(
+            workspace
+                .is_task_blocked("notes/source.plumb", &task)
+                .unwrap()
+                .value
+        );
+        assert_eq!(
+            workspace.task_dependency_graph().unwrap()[&owner],
+            [target.clone()]
+        );
+        assert_eq!(workspace.events_for_task(&target).unwrap().value.len(), 2);
+        assert_eq!(
+            workspace.directly_blocking_task(&target).unwrap().value,
+            [owner.clone()]
+        );
+        let now = DateTime::parse_from_rfc3339("2026-09-21T12:00:00Z").unwrap();
+        let search = workspace
+            .search_records("", Some(SearchRecordKind::Task), "", 20, now)
+            .unwrap()
+            .value;
+        assert_eq!(
+            search
+                .items
+                .iter()
+                .find(|record| record.path == target.path
+                    && record.task_owner == Some(plumb_semantics::TaskOwner::Document))
+                .unwrap()
+                .effective_priority,
+            Some(9)
+        );
+        let references = workspace
+            .reverse_references_for_document("Project Plan.plumb", &HashSet::new())
+            .unwrap()
+            .value;
+        assert_eq!(references.document.len(), 4);
+        assert!(references.anchors.is_empty());
+
+        let closed = format!("{target_source}\n`= done 2026-09-21T12:00:00Z\n");
+        workspace.open_document("Project Plan.plumb", 1, &closed);
+        assert!(
+            !workspace
+                .is_task_blocked("notes/source.plumb", &task)
+                .unwrap()
+                .value
+        );
+        // The anonymous child remains open, but must not match a document reference.
+        workspace.open_document("Project Plan.plumb", 2, "`- Anonymous child\n `+ task\n");
+        assert!(workspace
+            .task_dependencies("notes/source.plumb", &task)
+            .unwrap()
+            .value
+            .is_empty());
+        assert!(workspace.events_for_task(&target).unwrap().value.is_empty());
+        assert!(matches!(
+            workspace
+                .resolve_task_target(
+                    Path::new("notes/source.plumb"),
+                    &TaskReferenceTarget::Document {
+                        path: "../Project Plan.plumb".into()
+                    }
+                )
+                .unwrap(),
+            TaskTargetResolution::NotDocumentTask { .. }
+        ));
+    }
+}
+
+#[test]
+fn document_task_dependency_cycles_include_path_only_nodes() {
+    for disk in [false, true] {
+        let mut workspace = if disk {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else {
+            Workspace::new()
+        };
+        for (path, text) in [
+            ("a.plumb", "`+ task\n`= depends b.plumb\n"),
+            ("b.plumb", "`+ task\n`= depends a.plumb\n"),
+        ] {
+            if disk {
+                workspace.insert_disk(path, 0, text).unwrap();
+            } else {
+                workspace.insert(path, 0, text);
+            }
+        }
+        let graph = workspace.task_dependency_graph().unwrap();
+        assert_eq!(graph.len(), 2);
+        assert_eq!(dependency_cycle_members(&graph).len(), 2);
+    }
+}
+
+#[test]
+fn document_task_reference_invalidation_tracks_owner_and_dependency_changes() {
+    let mut workspace = Workspace::new();
+    workspace.open_document("target.plumb", 1, "`+ task\n");
+    workspace.open_document("source.plumb", 1, "`+ task\n`= depends target.plumb\n");
+    workspace.open_document(
+        "events.plumb",
+        1,
+        "`- 2026-09-21T10:00 Work `->{target.plumb}\n `+ event\n",
+    );
+    let pending = workspace
+        .begin_document_revision("target.plumb", 2, "`+ task\n`= done 2026-09-21T12:00:00Z\n")
+        .unwrap();
+    let impact = workspace
+        .install_document_analysis_with_impact(pending.analyze())
+        .unwrap();
+    assert!(!impact.task_graph_changed);
+    let ids = impact.diagnostic_targets.unwrap();
+    assert!(workspace.document_may_reference_targets("source.plumb", "target.plumb", &ids));
+    assert!(workspace.document_may_reference_targets("events.plumb", "target.plumb", &ids));
+    let pending = workspace
+        .begin_document_revision("target.plumb", 3, "`+ task\n`= depends source.plumb\n")
+        .unwrap();
+    assert!(
+        workspace
+            .install_document_analysis_with_impact(pending.analyze())
+            .unwrap()
+            .task_graph_changed
+    );
+    let pending = workspace
+        .begin_document_revision("target.plumb", 4, "Body.\n")
+        .unwrap();
+    assert!(
+        workspace
+            .install_document_analysis_with_impact(pending.analyze())
+            .unwrap()
+            .task_graph_changed
+    );
+}
+
+#[test]
+fn document_task_path_rename_updates_dependencies_previous_and_explicit_events() {
+    let source = "`+ task\n`= depends target.plumb\n`= prev target.plumb\n\n`- 2026-09-21T10:00 Work\n `+ event\n `= tasks target.plumb\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("source.plumb", 1, source);
+    workspace.insert("target.plumb", 2, "`+ task\n");
+    let target = workspace
+        .path_rename_target_at("source.plumb", source.find("target.plumb").unwrap())
+        .unwrap();
+    let edit = workspace
+        .rename_document(&target, "archive/Project Plan.plumb")
+        .unwrap();
+    let change = edit
+        .document_changes
+        .iter()
+        .find(|change| change.path == Path::new("source.plumb"))
+        .unwrap();
+    assert_eq!(change.expected_revision, 1);
+    assert_eq!(change.edits.len(), 3);
+    let updated = apply_text_edits(source.into(), change.edits.clone()).unwrap();
+    assert_eq!(
+        updated,
+        source.replace("target.plumb", "archive/Project Plan.plumb")
+    );
+    assert!(plumb_syntax::parse(&updated).is_valid());
+}
+
+#[test]
+fn sqlite_document_dependency_join_does_not_match_anonymous_list_tasks() {
+    let store = SqliteSemanticStore::open_in_memory().unwrap();
+    let mut workspace = Workspace::with_sqlite_store(store.clone());
+    workspace.insert_disk("target.plumb", 0, "`+ task\n`= done 2026-09-21T12:00:00Z\n\n`- Still open\n `+ task\n").unwrap();
+    workspace.insert_disk("source.plumb", 0, "`+ task\n`= depends target.plumb\n").unwrap();
+    assert!(store.blocked_task_sources(&[]).unwrap().is_empty());
+    let references = store.task_dependents(Path::new("target.plumb"), None, &[]).unwrap();
+    assert_eq!(references.len(), 1);
+    assert!(references[0].target_id.is_none());
+    assert_eq!(references[0].source_path, Path::new("source.plumb"));
+}
+
+#[test]
 fn recursive_owner_workspace_edits_use_current_properties() {
     let source = "`- Current task\n `+ task\n `@ current\n `= created 2026-09-02T09:00:00+08:00\n";
     let mut workspace = Workspace::new();
@@ -214,7 +432,7 @@ fn sqlite_event_task_relations_match_memory_and_obey_document_overlays() {
     let event_source = "`- 2026-08-28T10:00 Linked `->{Target tasks.plumb#target}\n\n `+ event\n";
     let target = TaskRef {
         path: PathBuf::from("tasks.plumb"),
-        id: "target".to_string(),
+        id: Some("target".to_string()),
     };
 
     let mut memory = Workspace::new();
@@ -2647,7 +2865,7 @@ fn resolves_open_task_dependencies_and_blocked_state() {
         .unwrap()
         .value;
     assert_eq!(blockers.len(), 1);
-    assert_eq!(blockers[0].target.id, "draft");
+    assert_eq!(blockers[0].target.id.as_deref(), Some("draft"));
     assert!(
         workspace
             .is_task_blocked("notes/review.plumb", task)
@@ -2661,7 +2879,7 @@ fn resolves_open_task_dependencies_and_blocked_state() {
             .value,
         vec![TaskRef {
             path: PathBuf::from("notes/review.plumb"),
-            id: "review".to_string(),
+            id: Some("review".to_string()),
         }]
     );
     assert_eq!(
@@ -3224,7 +3442,7 @@ fn idless_dependencies_do_not_enter_cycle_graph_but_still_report_resolution_erro
 fn profile_cycle_membership_batch() {
     let node = |index| TaskRef {
         path: PathBuf::from("chain.plumb"),
-        id: format!("task-{index}"),
+        id: Some(format!("task-{index}")),
     };
     let graph = (0..2_000)
         .map(|index| {
@@ -3270,7 +3488,7 @@ fn cycle_members_match_individual_reachability_for_all_three_node_graphs() {
     let nodes = (0..3)
         .map(|index| TaskRef {
             path: PathBuf::from("graph.plumb"),
-            id: index.to_string(),
+            id: Some(index.to_string()),
         })
         .collect::<Vec<_>>();
     for mask in 0..512 {
@@ -3304,7 +3522,7 @@ fn cycle_members_match_individual_reachability_for_all_three_node_graphs() {
 fn cycle_query_handles_long_chains_and_excludes_nodes_only_leading_to_cycles() {
     let node = |index| TaskRef {
         path: PathBuf::from("chain.plumb"),
-        id: format!("task-{index}"),
+        id: Some(format!("task-{index}")),
     };
     let mut graph = (0..20_000)
         .map(|index| (node(index), vec![node(index + 1)]))
@@ -3417,7 +3635,7 @@ fn diagnostic_context_builds_persistent_cycles_without_decoding_task_records() {
         &context.task_dependency_graph,
         &TaskRef {
             path: PathBuf::from("a.plumb"),
-            id: "a".to_string(),
+            id: Some("a".to_string()),
         }
     ));
     assert!(workspace.all_tasks().is_err());
@@ -3443,7 +3661,7 @@ fn diagnostic_context_obeys_open_document_dependency_overlay() {
         .unwrap();
     let task_a = TaskRef {
         path: PathBuf::from("a.plumb"),
-        id: "a".to_string(),
+        id: Some("a".to_string()),
     };
     assert!(dependency_cycle_contains(
         &workspace
@@ -4737,7 +4955,7 @@ fn resolves_event_task_associations_and_queries_time_ranges() {
 
     let target = TaskRef {
         path: PathBuf::from("tasks.plumb"),
-        id: "write".to_string(),
+        id: Some("write".to_string()),
     };
     let associated = workspace.events_for_task(&target).unwrap().value;
     assert_eq!(associated.len(), 3);

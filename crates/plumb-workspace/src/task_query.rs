@@ -271,15 +271,8 @@ impl Workspace {
                 .get(&fact.key)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let blocking = fact
-                .id
-                .as_ref()
-                .and_then(|id| {
-                    dependents.get(&TaskRef {
-                        path: fact.key.path.clone(),
-                        id: id.clone(),
-                    })
-                })
+            let blocking = TaskRef::from_parts(&fact.key.path, fact.document_task, fact.id.clone())
+                .and_then(|target| dependents.get(&target))
                 .map(Vec::as_slice)
                 .unwrap_or_default();
             if filter_groups_match(&filters, &fact, &query.root, query.now, targets, blocking)? {
@@ -348,17 +341,11 @@ impl Workspace {
                 ))
             })?;
             let depends_on = dependencies.get(&fact.key).cloned().unwrap_or_default();
-            let directly_blocking = fact
-                .id
-                .as_ref()
-                .and_then(|id| {
-                    dependents.get(&TaskRef {
-                        path: fact.key.path.clone(),
-                        id: id.clone(),
-                    })
-                })
-                .cloned()
-                .unwrap_or_default();
+            let directly_blocking =
+                TaskRef::from_parts(&fact.key.path, fact.document_task, fact.id.clone())
+                    .and_then(|target| dependents.get(&target))
+                    .cloned()
+                    .unwrap_or_default();
             let previous = fact.prev.as_deref().and_then(|source| {
                 task_reference(
                     &fact.key.path,
@@ -529,12 +516,10 @@ impl Workspace {
             skipped_invalid,
         }))
     }
-
 }
 
 /// Hydrate full records for exactly the selected keys; the lightweight facts
 /// stay the only thing the query enumerates.
-
 
 fn hydrate_task_records(
     workspace: &Workspace,
@@ -584,17 +569,11 @@ fn workspace_task(
         ))
     })?;
     let depends_on = dependencies.get(&fact.key).cloned().unwrap_or_default();
-    let directly_blocking = fact
-        .id
-        .as_ref()
-        .and_then(|id| {
-            dependents.get(&TaskRef {
-                path: fact.key.path.clone(),
-                id: id.clone(),
-            })
-        })
-        .cloned()
-        .unwrap_or_default();
+    let directly_blocking =
+        TaskRef::from_parts(&fact.key.path, fact.document_task, fact.id.clone())
+            .and_then(|target| dependents.get(&target))
+            .cloned()
+            .unwrap_or_default();
     let previous = fact.prev.as_deref().and_then(|source| {
         task_reference(
             &fact.key.path,
@@ -789,6 +768,7 @@ fn task_identity_context(
             &mut states,
             fact.key.clone(),
             fact.id.clone(),
+            fact.document_task,
             fact.closure_state,
         );
     }
@@ -823,6 +803,7 @@ fn insert_stored_task_identity(
         states,
         key,
         identity.id,
+        identity.document_task,
         task_state_from_name(&identity.closure_state),
     );
 }
@@ -833,14 +814,11 @@ fn insert_task_identity(
     states: &mut HashMap<TaskKey, TaskState>,
     key: TaskKey,
     id: Option<String>,
+    document_task: bool,
     state: TaskState,
 ) {
     states.insert(key.clone(), state);
-    if let Some(id) = id {
-        let task_ref = TaskRef {
-            path: key.path.clone(),
-            id,
-        };
+    if let Some(task_ref) = TaskRef::from_parts(&key.path, document_task, id) {
         identities.insert(task_ref.clone(), key.clone());
         task_refs_by_key.insert(key, task_ref);
     }
@@ -990,11 +968,15 @@ fn task_reference(source_path: &Path, target: &TaskReferenceTarget) -> Option<Ta
     match target {
         TaskReferenceTarget::Internal { id } => Some(TaskRef {
             path: normalize(source_path),
-            id: id.clone(),
+            id: Some(id.clone()),
         }),
         TaskReferenceTarget::External { path, id } => Some(TaskRef {
             path: resolve_relative(source_path, path),
-            id: id.clone(),
+            id: Some(id.clone()),
+        }),
+        TaskReferenceTarget::Document { path } => Some(TaskRef {
+            path: resolve_relative(source_path, path),
+            id: None,
         }),
         TaskReferenceTarget::Invalid => None,
     }
@@ -1354,7 +1336,7 @@ fn timestamp_value(millis: Option<i64>) -> Value {
 }
 
 fn display_task_ref(root: &Path, task: &TaskRef) -> String {
-    format!("{}#{}", display_workspace_path(root, &task.path), task.id)
+    task.display(root)
 }
 
 #[cfg(test)]
@@ -1364,6 +1346,72 @@ mod tests {
 
     fn now() -> DateTime<FixedOffset> {
         DateTime::parse_from_rfc3339("2026-08-28T12:00:00Z").unwrap()
+    }
+
+    #[test]
+    fn document_task_relations_and_priority_match_memory_and_disk() {
+        for disk in [false, true] {
+            let mut workspace = if disk {
+                Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+            } else {
+                Workspace::new()
+            };
+            for (path, text) in [
+                ("target.plumb", "`- Anonymous child\n `+ task\n\n`+ task\n"),
+                (
+                    "source.plumb",
+                    "`+ task\n`= depends target.plumb\n`= prev target.plumb\n`= priority 19\n",
+                ),
+            ] {
+                if disk {
+                    workspace.insert_disk(path, 0, text).unwrap();
+                } else {
+                    workspace.insert(path, 0, text);
+                }
+            }
+            let page = workspace.query_task_page(&query()).unwrap().value;
+            let target = page
+                .tasks
+                .iter()
+                .find(|task| {
+                    task.path == Path::new("target.plumb") && task.task.owner == TaskOwner::Document
+                })
+                .unwrap();
+            assert_eq!(target.effective_priority, 19);
+            assert_eq!(
+                target.directly_blocking,
+                [TaskRef {
+                    path: "source.plumb".into(),
+                    id: None
+                }]
+            );
+            let source = page
+                .tasks
+                .iter()
+                .find(|task| task.path == Path::new("source.plumb"))
+                .unwrap();
+            assert!(source.blocked);
+            assert_eq!(
+                source.depends_on,
+                [TaskRef {
+                    path: "target.plumb".into(),
+                    id: None
+                }]
+            );
+            assert_eq!(
+                source.previous,
+                Some(TaskRef {
+                    path: "target.plumb".into(),
+                    id: None
+                })
+            );
+            let child = page
+                .tasks
+                .iter()
+                .find(|task| task.task.owner == TaskOwner::ListItem)
+                .unwrap();
+            assert!(child.directly_blocking.is_empty());
+        }
     }
 
     fn query() -> TaskPageQuery {
@@ -1498,9 +1546,9 @@ mod tests {
             target
                 .directly_blocking
                 .iter()
-                .map(|task| task.id.as_str())
+                .map(|task| task.id.as_deref())
                 .collect::<Vec<_>>(),
-            ["dependent"]
+            [Some("dependent")]
         );
     }
 
@@ -1735,9 +1783,9 @@ mod tests {
                 .unwrap()
                 .depends_on
                 .iter()
-                .map(|task| (task.path.as_path(), task.id.as_str()))
+                .map(|task| (task.path.as_path(), task.id.as_deref()))
                 .collect::<Vec<_>>(),
-            [(Path::new("b.plumb"), "target")]
+            [(Path::new("b.plumb"), Some("target"))]
         );
     }
 
@@ -1778,7 +1826,10 @@ mod tests {
             actual.tasks.get(0).unwrap().state,
             TaskWorkflowState::Blocked
         );
-        assert_eq!(actual.tasks.get(0).unwrap().depends_on[0].id, "target");
+        assert_eq!(
+            actual.tasks.get(0).unwrap().depends_on[0].id.as_deref(),
+            Some("target")
+        );
     }
 
     #[test]

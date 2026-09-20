@@ -70,7 +70,32 @@ impl From<TaskEditError> for WorkspaceOperationError<TaskEditError> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TaskRef {
     pub path: PathBuf,
-    pub id: String,
+    /// None identifies the document task, never an anonymous list item.
+    pub id: Option<String>,
+}
+
+impl TaskRef {
+    pub fn display(&self, root: &Path) -> String {
+        let path = crate::display_workspace_path(root, &self.path);
+        self.id
+            .as_ref()
+            .map_or_else(|| path.clone(), |id| format!("{path}#{id}"))
+    }
+
+    pub(crate) fn from_task(path: &Path, task: &TaskRecord) -> Option<Self> {
+        Self::from_parts(
+            path,
+            task.owner == TaskOwner::Document,
+            task.id.as_ref().map(|id| id.value.clone()),
+        )
+    }
+
+    pub(crate) fn from_parts(path: &Path, document_task: bool, id: Option<String>) -> Option<Self> {
+        (document_task || id.is_some()).then(|| Self {
+            path: normalize(path),
+            id: if document_task { None } else { id },
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,6 +122,9 @@ pub(super) enum TaskTargetResolution {
     AmbiguousAnchor {
         path: PathBuf,
         id: String,
+    },
+    NotDocumentTask {
+        path: PathBuf,
     },
     NotTask {
         path: PathBuf,
@@ -349,22 +377,26 @@ impl Workspace {
     ) -> Result<QueryResult<Vec<TaskRef>>, WorkspaceQueryError> {
         let target = TaskRef {
             path: normalize(target_path.as_ref()),
-            id: target_id.to_string(),
+            id: Some(target_id.to_string()),
         };
+        self.directly_blocking_task(&target)
+    }
+
+    pub fn directly_blocking_task(
+        &self,
+        target: &TaskRef,
+    ) -> Result<QueryResult<Vec<TaskRef>>, WorkspaceQueryError> {
         let mut blocking = Vec::new();
         for (path, task) in self.all_tasks()? {
-            let Some(id) = &task.id else {
+            let Some(task_ref) = TaskRef::from_task(&path, &task) else {
                 continue;
             };
             if self
                 .task_dependencies_value(&path, &task)?
                 .iter()
-                .any(|dependency| dependency.target == target)
+                .any(|dependency| &dependency.target == target)
             {
-                blocking.push(TaskRef {
-                    path,
-                    id: id.value.clone(),
-                });
+                blocking.push(task_ref);
             }
         }
         blocking.sort_by(|left, right| left.path.cmp(&right.path).then(left.id.cmp(&right.id)));
@@ -919,6 +951,25 @@ impl Workspace {
             TaskReferenceTarget::External { path, id } => {
                 (resolve_relative(from, path), id.clone())
             }
+            TaskReferenceTarget::Document { path } => {
+                let path = resolve_relative(from, path);
+                if !self.contains_path(&path)? && !path.is_file() {
+                    return Ok(TaskTargetResolution::UnresolvedPath { path });
+                }
+                return Ok(
+                    match self
+                        .tasks_for_path(&path)?
+                        .into_iter()
+                        .find(|task| task.owner == TaskOwner::Document)
+                    {
+                        Some(task) => TaskTargetResolution::Task {
+                            target: TaskRef { path, id: None },
+                            task: Box::new(task),
+                        },
+                        None => TaskTargetResolution::NotDocumentTask { path },
+                    },
+                );
+            }
             TaskReferenceTarget::Invalid => return Ok(TaskTargetResolution::Invalid),
         };
         if !self.contains_path(&path)? && !path.is_file() {
@@ -957,7 +1008,7 @@ impl Workspace {
             return Ok(TaskTargetResolution::NotTask { path, id });
         };
         Ok(TaskTargetResolution::Task {
-            target: TaskRef { path, id },
+            target: TaskRef { path, id: Some(id) },
             task: Box::new(task),
         })
     }
@@ -979,21 +1030,21 @@ impl Workspace {
                 *anchor_counts
                     .entry(TaskRef {
                         path: entry.path.clone(),
-                        id: anchor.id_value().to_owned(),
+                        id: Some(anchor.id_value().to_owned()),
                     })
                     .or_default() += 1;
             }
             for task in current.output.tasks().tasks.views() {
-                let Some(id) = task.id_value() else {
+                let Some(task_ref) = TaskRef::from_parts(
+                    &entry.path,
+                    task.owner() == TaskOwner::Document,
+                    task.id_value().map(str::to_owned),
+                ) else {
                     continue;
                 };
                 let key = StoredTaskKey {
                     path: entry.path.clone(),
                     start: task.source_key(),
-                };
-                let task_ref = TaskRef {
-                    path: entry.path.clone(),
-                    id: id.to_owned(),
                 };
                 *task_counts.entry(task_ref.clone()).or_default() += 1;
                 task_by_key.insert(key.clone(), task_ref);
@@ -1006,15 +1057,14 @@ impl Workspace {
         }
         if let Some(store) = &self.disk_store {
             for (path, id) in store.anchor_identities(&open_paths)? {
-                *anchor_counts.entry(TaskRef { path, id }).or_default() += 1;
+                *anchor_counts
+                    .entry(TaskRef { path, id: Some(id) })
+                    .or_default() += 1;
             }
             for fact in store.task_facts(&open_paths)? {
-                let Some(id) = fact.id else {
+                let Some(task_ref) = TaskRef::from_parts(&fact.path, fact.document_task, fact.id)
+                else {
                     continue;
-                };
-                let task_ref = TaskRef {
-                    path: fact.path.clone(),
-                    id,
                 };
                 *task_counts.entry(task_ref.clone()).or_default() += 1;
                 task_by_key.insert(
@@ -1045,7 +1095,8 @@ impl Workspace {
         }
 
         let unique = |task_ref: &TaskRef| {
-            task_counts.get(task_ref) == Some(&1) && anchor_counts.get(task_ref) == Some(&1)
+            task_counts.get(task_ref) == Some(&1)
+                && (task_ref.id.is_none() || anchor_counts.get(task_ref) == Some(&1))
         };
         let mut graph = task_counts
             .keys()
@@ -1081,21 +1132,20 @@ pub(super) fn task_graph_inputs_equal(
             .map(|anchor| anchor.id_value())
             .eq(right.anchors().views().map(|anchor| anchor.id_value())))
         && (left.tasks().tasks == right.tasks().tasks || {
-            let mut left = left
-                .tasks()
-                .tasks
-                .views()
-                .filter(|task| task.id_value().is_some());
-            let mut right = right
-                .tasks()
-                .tasks
-                .views()
-                .filter(|task| task.id_value().is_some());
+            let mut left =
+                left.tasks().tasks.views().filter(|task| {
+                    task.owner() == TaskOwner::Document || task.id_value().is_some()
+                });
+            let mut right =
+                right.tasks().tasks.views().filter(|task| {
+                    task.owner() == TaskOwner::Document || task.id_value().is_some()
+                });
             loop {
                 match (left.next(), right.next()) {
                     (None, None) => break true,
                     (Some(left), Some(right))
-                        if left.id_value() == right.id_value()
+                        if left.owner() == right.owner()
+                            && left.id_value() == right.id_value()
                             && left.dependency_targets().eq(right.dependency_targets()) => {}
                     _ => break false,
                 }
@@ -1107,11 +1157,15 @@ fn dependency_task_ref(source_path: &Path, target: &TaskReferenceTarget) -> Opti
     match target {
         TaskReferenceTarget::Internal { id } => Some(TaskRef {
             path: normalize(source_path),
-            id: id.clone(),
+            id: Some(id.clone()),
         }),
         TaskReferenceTarget::External { path, id } => Some(TaskRef {
             path: resolve_relative(source_path, path),
-            id: id.clone(),
+            id: Some(id.clone()),
+        }),
+        TaskReferenceTarget::Document { path } => Some(TaskRef {
+            path: resolve_relative(source_path, path),
+            id: None,
         }),
         TaskReferenceTarget::Invalid => None,
     }

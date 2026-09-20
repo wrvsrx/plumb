@@ -44,8 +44,15 @@ use schema::{
     task_dependencies, tasks,
 };
 
-type TaskDependencyRow = (Vec<u8>, i64, Option<String>, Vec<u8>, String, String);
-type EventTaskAssociationRow = (Vec<u8>, i64, Vec<u8>, String, String, i64, i64);
+type TaskDependencyRow = (
+    Vec<u8>,
+    i64,
+    Option<String>,
+    Vec<u8>,
+    Option<String>,
+    String,
+);
+type EventTaskAssociationRow = (Vec<u8>, i64, Vec<u8>, Option<String>, String, i64, i64);
 type TaskFactRow = (
     bool,
     Vec<u8>,
@@ -122,7 +129,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -206,7 +213,7 @@ pub struct StoredTaskDependency {
     pub source_start: usize,
     pub source_id: Option<String>,
     pub target_path: PathBuf,
-    pub target_id: String,
+    pub target_id: Option<String>,
     pub source: String,
 }
 
@@ -283,7 +290,7 @@ pub struct StoredEventTaskAssociation {
     pub source_path: PathBuf,
     pub event_start: usize,
     pub target_path: PathBuf,
-    pub target_id: String,
+    pub target_id: Option<String>,
     pub source: String,
     pub source_range: Range<usize>,
 }
@@ -876,7 +883,7 @@ impl SqliteSemanticStore {
     pub fn task_dependents(
         &self,
         target_path: &Path,
-        target_id: &str,
+        target_id: Option<&str>,
         excluded: &[PathBuf],
     ) -> StoreResult<Vec<StoredTaskDependency>> {
         let mut connection = self
@@ -885,7 +892,7 @@ impl SqliteSemanticStore {
             .map_err(|_| StoreError::LockPoisoned)?;
         let rows = task_dependencies::table
             .filter(task_dependencies::target_path.eq(path_bytes(&normalize(target_path))))
-            .filter(task_dependencies::target_id.eq(target_id))
+            .filter(task_dependencies::target_id.is(target_id))
             .select((
                 task_dependencies::source_path,
                 task_dependencies::source_start,
@@ -964,9 +971,11 @@ impl SqliteSemanticStore {
                     .field(tasks::path)
                     .eq(task_dependencies::target_path)
                     .and(
-                        target
-                            .field(tasks::id)
-                            .eq(task_dependencies::target_id.nullable()),
+                        target.field(tasks::id).eq(task_dependencies::target_id).or(
+                            task_dependencies::target_id
+                                .is_null()
+                                .and(target.field(tasks::document_task).eq(true)),
+                        ),
                     )),
             )
             .filter(target.field(tasks::closure_state).eq("open"))
@@ -1225,7 +1234,7 @@ impl SqliteSemanticStore {
     pub fn events_for_task(
         &self,
         target_path: &Path,
-        target_id: &str,
+        target_id: Option<&str>,
         excluded: &[PathBuf],
     ) -> StoreResult<Vec<StoredRecord<EventRecord>>> {
         let mut connection = self
@@ -1240,7 +1249,7 @@ impl SqliteSemanticStore {
             )
             .inner_join(documents::table.on(documents::path.eq(events::path)))
             .filter(event_task_associations::target_path.eq(path_bytes(&normalize(target_path))))
-            .filter(event_task_associations::target_id.eq(target_id))
+            .filter(event_task_associations::target_id.is(target_id))
             .select((events::path, documents::revision, events::record))
             .distinct()
             .order((events::path, events::start))
@@ -1672,8 +1681,7 @@ fn insert_output(
                     task_dependencies::source_start.eq(start),
                     task_dependencies::source_id.eq(task.id.as_ref().map(|id| id.value.as_str())),
                     task_dependencies::target_path.eq(path_bytes(&reference.target_path)),
-                    task_dependencies::target_id
-                        .eq(reference.target_id.as_deref().expect("task target has id")),
+                    task_dependencies::target_id.eq(reference.target_id.as_deref()),
                     task_dependencies::source_text.eq(&dependency.source),
                 ))
                 .execute(connection)?;
@@ -1781,7 +1789,7 @@ fn projected_event_task_associations(
                         source_path: source_path.to_path_buf(),
                         event_start: event.range.start,
                         target_path: reference.target_path,
-                        target_id: reference.target_id?,
+                        target_id: reference.target_id,
                         source: dependency.source.clone(),
                         source_range: dependency.range.clone(),
                     })
@@ -1799,7 +1807,7 @@ fn projected_event_task_associations(
                 source_path: source_path.to_path_buf(),
                 event_start: event.range.start,
                 target_path: reference.target_path,
-                target_id: reference.target_id?,
+                target_id: reference.target_id,
                 source: link.target.value.clone(),
                 source_range: link.target.range.clone(),
             })
@@ -1839,6 +1847,16 @@ fn task_reference(
         TaskReferenceTarget::Internal { id } => (normalize(source_path), id.clone()),
         TaskReferenceTarget::External { path, id } => {
             (resolve_relative(source_path, path), id.clone())
+        }
+        TaskReferenceTarget::Document { path } => {
+            return Some(StoredReference {
+                source_path: source_path.to_path_buf(),
+                target_path: resolve_relative(source_path, path),
+                target_id: None,
+                source_range: range.clone(),
+                path_range: Some(range.clone()),
+                id_range: None,
+            })
         }
         TaskReferenceTarget::Invalid => return None,
     };
@@ -2453,7 +2471,7 @@ mod tests {
             .unwrap();
 
         let dependencies = store
-            .task_dependents(Path::new("target.plumb"), "target", &[])
+            .task_dependents(Path::new("target.plumb"), Some("target"), &[])
             .unwrap();
         assert_eq!(dependencies.len(), 1);
         assert_eq!(dependencies[0].source_path, Path::new("source.plumb"));
@@ -2467,7 +2485,7 @@ mod tests {
         assert!(store
             .task_dependents(
                 Path::new("target.plumb"),
-                "target",
+                Some("target"),
                 &[PathBuf::from("source.plumb")],
             )
             .unwrap()
@@ -2483,7 +2501,7 @@ mod tests {
             )
             .unwrap();
         assert!(store
-            .task_dependents(Path::new("target.plumb"), "target", &[])
+            .task_dependents(Path::new("target.plumb"), Some("target"), &[])
             .unwrap()
             .is_empty());
     }
@@ -2678,16 +2696,16 @@ mod tests {
             .unwrap();
         assert_eq!(linked.len(), 1);
         assert_eq!(linked[0].target_path, Path::new("tasks.plumb"));
-        assert_eq!(linked[0].target_id, "task");
+        assert_eq!(linked[0].target_id.as_deref(), Some("task"));
         assert_eq!(linked[0].source, "tasks.plumb#task");
         let explicit = store
             .event_task_associations_for_event(Path::new("events.plumb"), second_start)
             .unwrap();
         assert_eq!(explicit.len(), 1);
-        assert_eq!(explicit[0].target_id, "task");
+        assert_eq!(explicit[0].target_id.as_deref(), Some("task"));
         assert_eq!(
             store
-                .events_for_task(Path::new("tasks.plumb"), "task", &[])
+                .events_for_task(Path::new("tasks.plumb"), Some("task"), &[])
                 .unwrap()
                 .into_iter()
                 .map(|event| event.record.title)
@@ -2697,7 +2715,7 @@ mod tests {
         assert!(store
             .events_for_task(
                 Path::new("tasks.plumb"),
-                "task",
+                Some("task"),
                 &[PathBuf::from("events.plumb")],
             )
             .unwrap()
@@ -2713,7 +2731,7 @@ mod tests {
             )
             .unwrap();
         assert!(store
-            .events_for_task(Path::new("tasks.plumb"), "task", &[])
+            .events_for_task(Path::new("tasks.plumb"), Some("task"), &[])
             .unwrap()
             .is_empty());
     }

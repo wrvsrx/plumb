@@ -318,9 +318,6 @@ impl Workspace {
         let Some(current) = &entry.current else {
             return true;
         };
-        if ids.is_empty() {
-            return false;
-        }
         let changed = normalize(changed.as_ref());
         let matches_parts = |path: Option<&str>, id: &str| {
             ids.contains(id)
@@ -332,6 +329,9 @@ impl Workspace {
         let matches_task = |target: &TaskReferenceTarget| match target {
             TaskReferenceTarget::Internal { id } => matches_parts(None, id),
             TaskReferenceTarget::External { path, id } => matches_parts(Some(path), id),
+            TaskReferenceTarget::Document { path } => {
+                crate::resolve_relative(&entry.path, path) == changed
+            }
             TaskReferenceTarget::Invalid => false,
         };
         current
@@ -340,6 +340,13 @@ impl Workspace {
             .views()
             .any(|link| match link.target_kind() {
                 LinkTarget::Anchor { path, fragment } => matches_parts(path.as_deref(), fragment),
+                LinkTarget::Document { path } => {
+                    crate::resolve_relative(&entry.path, path) == changed
+                        && current.output.events().events.views().any(|event| {
+                            event.range().start <= link.range().start
+                                && link.range().end <= event.range().end
+                        })
+                }
                 _ => false,
             })
             || current.output.tasks().tasks.views().any(|task| {

@@ -22,6 +22,7 @@ pub struct TaskField {
 pub enum TaskReferenceTarget {
     Internal { id: String },
     External { path: String, id: String },
+    Document { path: String },
     Invalid,
 }
 
@@ -1005,6 +1006,11 @@ pub(crate) fn task_reference_fields(
 }
 
 fn dependency_tokens(value: &str) -> Vec<(&str, Range<usize>)> {
+    if !value.contains('#') && value.trim().ends_with(".plumb") {
+        let token = value.trim();
+        let start = value.len() - value.trim_start().len();
+        return vec![(token, start..start + token.len())];
+    }
     let mut output = Vec::new();
     let mut cursor = 0;
     while cursor < value.len() {
@@ -1048,6 +1054,10 @@ pub fn parse_task_reference_target(source: &str) -> TaskReferenceTarget {
         TaskReferenceTarget::External {
             path: path.to_string(),
             id: id.to_string(),
+        }
+    } else if source.ends_with(".plumb") && valid_task_reference_path(source) {
+        TaskReferenceTarget::Document {
+            path: source.to_string(),
         }
     } else {
         TaskReferenceTarget::Invalid
@@ -1402,6 +1412,19 @@ mod tests {
         ));
         assert_eq!(output.tasks.get(1).unwrap().depth, 1);
         assert_eq!(output.tasks.get(1).unwrap().state(), TaskState::Done);
+    }
+
+    #[test]
+    fn document_reference_scalar_keeps_spaces_and_internal_plumb_suffixes() {
+        let path = "archive.plumb Project Plan.plumb";
+        let source = format!("`+ task\n`= depends {path}\n");
+        let parsed = parse(&source);
+        let task = analyze_tasks(parsed.valid_syntax().unwrap()).document_task().unwrap().to_owned();
+        assert_eq!(task.depends.len(), 1);
+        assert_eq!(task.depends[0].source, path);
+        assert_eq!(&source[task.depends[0].range.clone()], path);
+        assert_eq!(task.depends[0].target, TaskReferenceTarget::Document { path: path.into() });
+        assert_eq!(parse_task_reference_target("/absolute.plumb"), TaskReferenceTarget::Invalid);
     }
 
     #[test]

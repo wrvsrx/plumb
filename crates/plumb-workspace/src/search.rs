@@ -730,15 +730,8 @@ impl Workspace {
             let identities = task_facts
                 .iter()
                 .filter_map(|fact| {
-                    fact.id.as_ref().map(|id| {
-                        (
-                            TaskRef {
-                                path: fact.key.path.clone(),
-                                id: id.clone(),
-                            },
-                            fact,
-                        )
-                    })
+                    TaskRef::from_parts(&fact.key.path, fact.document_task, fact.id.clone())
+                        .map(|identity| (identity, fact))
                 })
                 .collect::<HashMap<_, _>>();
             let blocked = task_relations
@@ -919,14 +912,12 @@ impl Workspace {
         let mut node_by_ref = HashMap::new();
         for (node, record_index) in task_indexes.iter().copied().enumerate() {
             let record = &matches[record_index].1;
-            if let Some(id) = &record.id {
-                node_by_ref.insert(
-                    TaskRef {
-                        path: record.path.clone(),
-                        id: id.clone(),
-                    },
-                    node,
-                );
+            if let Some(identity) = TaskRef::from_parts(
+                &record.path,
+                record.task_owner == Some(TaskOwner::Document),
+                record.id.clone(),
+            ) {
+                node_by_ref.insert(identity, node);
             }
         }
 
@@ -1126,11 +1117,15 @@ fn search_task_ref(source_path: &Path, target: &TaskReferenceTarget) -> Option<T
     match target {
         TaskReferenceTarget::Internal { id } => Some(TaskRef {
             path: normalize(source_path),
-            id: id.clone(),
+            id: Some(id.clone()),
         }),
         TaskReferenceTarget::External { path, id } => Some(TaskRef {
             path: resolve_relative(source_path, path),
-            id: id.clone(),
+            id: Some(id.clone()),
+        }),
+        TaskReferenceTarget::Document { path } => Some(TaskRef {
+            path: resolve_relative(source_path, path),
+            id: None,
         }),
         TaskReferenceTarget::Invalid => None,
     }
@@ -1169,14 +1164,12 @@ fn propagate_lightweight_task_priorities(
                 node,
             );
         }
-        if let Some(id) = &record.id {
-            node_by_ref.insert(
-                TaskRef {
-                    path: record.path.clone(),
-                    id: id.clone(),
-                },
-                node,
-            );
+        if let Some(identity) = TaskRef::from_parts(
+            &record.path,
+            record.task_owner == Some(TaskOwner::Document),
+            record.id.clone(),
+        ) {
+            node_by_ref.insert(identity, node);
         }
     }
 
@@ -1563,11 +1556,10 @@ impl SemanticSearchFilter {
             let task_dependents = task_dependents.expect("task dependents requested by CEL filter");
             context.add_variable_from_value(
                 "directly_blocking",
-                task.id
-                    .as_ref()
-                    .map(|id| {
+                TaskRef::from_task(path, task)
+                    .map(|identity| {
                         task_dependents
-                            .get(path, &id.value)
+                            .get(path, identity.id.as_deref())
                             .iter()
                             .map(|target| display_search_task_ref(root, target))
                             .collect::<Vec<_>>()
@@ -1728,11 +1720,7 @@ fn event_search_datetime_value(field: &Option<plumb_semantics::EventField>) -> V
 }
 
 fn display_search_task_ref(root: &Path, task_ref: &TaskRef) -> String {
-    format!(
-        "{}#{}",
-        display_workspace_path(root, &task_ref.path),
-        task_ref.id
-    )
+    task_ref.display(root)
 }
 
 #[derive(Debug, Default)]
@@ -1742,43 +1730,10 @@ struct DirectTaskDependents {
 
 impl DirectTaskDependents {
     fn build(workspace: &Workspace) -> Result<Self, super::WorkspaceQueryError> {
-        let open = workspace.open_paths();
         let mut by_target = HashMap::<TaskRef, Vec<TaskRef>>::new();
-        if let Some(store) = &workspace.disk_store {
-            for relation in store.task_dependency_relations(&open)? {
-                let Some(source_id) = relation.source_id else {
-                    continue;
-                };
-                by_target
-                    .entry(TaskRef {
-                        path: relation.target_path,
-                        id: relation.target_id,
-                    })
-                    .or_default()
-                    .push(TaskRef {
-                        path: relation.source_path,
-                        id: source_id,
-                    });
-            }
-        }
-        for entry in workspace.documents.values() {
-            let Some(current) = &entry.current else {
-                continue;
-            };
-            for task in &current.output.tasks().tasks {
-                let Some(id) = &task.id else {
-                    continue;
-                };
-                let source = TaskRef {
-                    path: entry.path.clone(),
-                    id: id.value.clone(),
-                };
-                for dependency in workspace.task_dependencies_value(&entry.path, &task)? {
-                    by_target
-                        .entry(dependency.target)
-                        .or_default()
-                        .push(source.clone());
-                }
+        for (source, targets) in workspace.task_dependency_graph()? {
+            for target in targets {
+                by_target.entry(target).or_default().push(source.clone());
             }
         }
         for sources in by_target.values_mut() {
@@ -1788,11 +1743,11 @@ impl DirectTaskDependents {
         Ok(Self { by_target })
     }
 
-    fn get(&self, path: &Path, id: &str) -> &[TaskRef] {
+    fn get(&self, path: &Path, id: Option<&str>) -> &[TaskRef] {
         self.by_target
             .get(&TaskRef {
                 path: normalize(path),
-                id: id.to_string(),
+                id: id.map(str::to_owned),
             })
             .map(Vec::as_slice)
             .unwrap_or_default()

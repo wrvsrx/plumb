@@ -105,13 +105,15 @@ sequence；filename stem 中的 spaces 不引入 anonymous Group。例如 `"Proj
 
 `## 5.1 Document facets and tasks target contract
 
-Status：generic document facet 与文档级 task 的共享语义投影已实现；workspace 引用、编辑与 adapters 待实现。以下规则是完整功能的验收契约。
+Status：generic document facet、文档级 task 共享语义、scalar path 引用与根层基本编辑已实现；多引用分组语法、完整编辑与 adapters 待实现。以下规则是完整功能的验收契约。
 
 文档根层 direct leaf `"+" declaration 接受与普通 owner 相同的 facet name 形态；未知 facet 保留为 opaque 声明，不进入 body。空值、rich name 或带 children 的 facet 发布 semantic diagnostic。根层 `"@" 仍不支持，文档身份始终来自 normalized path。
 
 根层 `"+ task" 使文档成为唯一 Document task；重复声明不能产生重复任务。任务标题取 document title，缺省沿用 workspace 文档显示名称。根层 properties 提供现有 task 字段，body 提供详情。原有顶层 list tasks 成为文档任务的 children，深层关系保持不变。父子关系不隐含 dependency，也不传播 closure 或 focused。首版文档任务不支持 recur；该字段产生 diagnostic，相关编辑不可用。本文不启用文档 event 或任意 block task。
 
 文档任务引用使用 source-document-relative path；带 fragment 的引用仍定位指定 anchor task，无 fragment 的引用只定位 document task。目标无 task facet 时报告 not-task，不回退到第一个子任务。depends、prev 与 event tasks 使用同一 target resolver。引用集合必须支持 grouped 单项以及结构化逐项表示，含空格或内部 .plumb 字串不能被启发式拆开；现有无歧义 anchor 引用保持兼容。
+
+无 fragment 的 scalar reference value 整体是一个路径，例如 `"Project Plan.plumb" 或 `"archive.plumb notes.plumb"，不得按空格或内部 .plumb 拆为多个 document targets。多个引用的显式分组与结构化语法尚待集成。
 
 focus history、状态推导、priority 和 dependency 规则复用 list task 行为。移除 task facet 只取消任务身份，保留 properties、body 和 children；已有引用随后成为 not-task。导出仍是普通文档 title/body，不额外生成包裹全文的 list task。
 

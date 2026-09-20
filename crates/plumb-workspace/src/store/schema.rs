@@ -77,12 +77,13 @@ diesel::table! {
 }
 
 diesel::table! {
-    task_dependencies (source_path, source_start, target_path, target_id) {
+    task_dependencies (id) {
+        id -> BigInt,
         source_path -> Binary,
         source_start -> BigInt,
         source_id -> Nullable<Text>,
         target_path -> Binary,
-        target_id -> Text,
+        target_id -> Nullable<Text>,
         source_text -> Text,
     }
 }
@@ -105,11 +106,12 @@ diesel::table! {
 }
 
 diesel::table! {
-    event_task_associations (source_path, event_start, target_path, target_id, source_start) {
+    event_task_associations (id) {
+        id -> BigInt,
         source_path -> Binary,
         event_start -> BigInt,
         target_path -> Binary,
-        target_id -> Text,
+        target_id -> Nullable<Text>,
         source_text -> Text,
         source_start -> BigInt,
         source_end -> BigInt,

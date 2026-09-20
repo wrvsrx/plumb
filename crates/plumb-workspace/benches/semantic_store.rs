@@ -450,7 +450,7 @@ fn benchmark_task_queries(c: &mut Criterion) {
 
     let target = TaskRef {
         path: PathBuf::from("tasks-000.plumb"),
-        id: "task-000-00".to_string(),
+        id: Some("task-000-00".to_string()),
     };
     assert_eq!(
         sqlite

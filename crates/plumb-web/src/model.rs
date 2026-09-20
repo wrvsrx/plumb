@@ -1833,7 +1833,7 @@ fn assign_candidate_parents(tasks: &mut [WebTaskCandidate]) {
 }
 
 fn display_task_ref(root: &Path, target: &TaskRef) -> String {
-    format!("{}#{}", display_path(root, &target.path), target.id)
+    target.display(root)
 }
 
 fn apply_guarded_edit(
