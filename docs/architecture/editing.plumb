@@ -162,3 +162,11 @@ Status：待实现。Document task 与 ListItem task 使用显式 owner variant�
 plumb-edit 提供 root declaration 的 owned mutation，跨 shards 返回 non-overlapping edits，不 materialize revision-wide compatibility tree。标记文档为 task 是幂等操作，缺少 created 时补充，已有相关 properties 必须通过校验。取消身份仅移除 task facet。完成或取消时结束开放 focus interval 与 closure field 更新属于同一 guarded proposal。失败不应用部分编辑。
 
 LSP、CLI 和 Web 使用同一 document task locator 与 revision guard。document task 不提供列表的 parent、position 或 recur 编辑；通用 task delete/move 不能隐式删除或移动文件。Web 以真实 document task 替代虚拟 file row，展开与选中使用独立 controls；无 task facet 的文件保持虚拟行。显示树沿用 focused 排序、unfocused siblings 整体分组与按树边统一缩进，focused 标识不同于 selection 样式，不恢复 Web Next 页面。筛选中的结构性父节点不计入实际匹配数量。
+
+`## 10.1 Root declaration transaction
+
+已实现的 edit_green_root_declarations 接受同一 valid GreenDocument 与 ordered SetProperty/RemoveProperty/SetFacet intents。它只 ownership 根层声明，不 ownership 正文或伪造容器。相同 property value 与已存在 facet 的设置是 no-op；重复同 key property 的设置失败，显式 removal 删除全部匹配声明。child-bearing property 以完整 head 为 key，不将未知多词 key 误认为 task field。
+
+transaction 在原位置替换已有声明，在根层插入新声明；根层 facet removal 不匹配 nested facets。source byte zero 的 insertion 与 replacement 合并为一个 edit。返回 edits 按 source order 排列且不重叠，并以 next green revision 验证 batch syntax validity。未修改的 body、opaque declarations、focus history 和 line ending 保持原样；任何失败不返回部分编辑。green_root_declaration 提供同一 revision 上的 scalar/list property 查询，拒绝 ambiguous duplicate key。
+
+Document task 的显式操作按 document owner 定位，不转成任意 list offset。cursor 操作只选择包含位置的最深 task，再检查状态；命中已关闭的 child 时不能退回开放的 document parent 并修改它。

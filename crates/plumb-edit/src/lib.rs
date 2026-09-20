@@ -1,3 +1,6 @@
+mod root;
+pub use root::{edit_green_root_declarations, green_root_declaration, RootDeclarationEdit};
+
 use std::{collections::HashMap, ops::Range};
 
 use plumb_syntax::{
