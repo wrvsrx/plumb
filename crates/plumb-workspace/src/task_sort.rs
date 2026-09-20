@@ -417,4 +417,40 @@ mod tests {
             ["B", "B1", "A", "A1"]
         );
     }
+
+    /// Removing focus re-aggregates the display tree: the ancestor stays
+    /// promoted while any focused descendant remains, and returns to the plain
+    /// order once the last one is cleared.
+    #[test]
+    fn removing_focus_reaggregates_the_ancestor_subtree() {
+        let both = vec![
+            item("A", "d", 0, 0, false, 0),
+            item("B", "d", 10, 0, false, 0),
+            item("B1", "d", 20, 1, true, 0),
+            item("B2", "d", 30, 1, true, 0),
+        ];
+        assert_eq!(
+            sorted(both, &[TaskSortOrder::Source]),
+            ["B", "B1", "B2", "A"]
+        );
+
+        let one = vec![
+            item("A", "d", 0, 0, false, 0),
+            item("B", "d", 10, 0, false, 0),
+            item("B1", "d", 20, 1, false, 0),
+            item("B2", "d", 30, 1, true, 0),
+        ];
+        assert_eq!(sorted(one, &[TaskSortOrder::Source]), ["B", "B2", "B1", "A"]);
+
+        let none = vec![
+            item("A", "d", 0, 0, false, 0),
+            item("B", "d", 10, 0, false, 0),
+            item("B1", "d", 20, 1, false, 0),
+            item("B2", "d", 30, 1, false, 0),
+        ];
+        assert_eq!(
+            sorted(none, &[TaskSortOrder::Source]),
+            ["A", "B", "B1", "B2"]
+        );
+    }
 }
