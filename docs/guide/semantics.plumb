@@ -281,7 +281,7 @@ bullet 或 ordered list item 添加 direct leaf `"+ task" facet 后成为 task�
 
 head 是 title，未被声明消费的 children 是 details。nested task items 形成 display tree；另一个 task 需要引用它时才添加 id。table recognizer 消费的 row/cell 不产生 task/event record。
 
-标准字段包括 `"created"、`"due"、`"wait"、`"done"、`"canceled"、`"recur"、`"prev"、 `"priority" 和 `"depends"。priority 是 32-bit signed integer，数值越大越优先；缺失时排序权重 默认为 `"0"，因此正数提前、负数延后。effective priority 除了从 children 提升 ancestors，也沿 `"depends" 提升仍 open 的 dependencies；多级 dependency chain 继续传播，closed dependency 不传播。 时间 property 使用 RFC 3339。 Task reference 使用 raw relative path，不做 URL encode/decode；`".plumb#" 分隔 path 与 explicit id，path 本身不能包含 `"#"。`"depends" 中每条 reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：
+标准字段包括 `"created"、`"due"、`"wait"、`"done"、`"canceled"、`"recur"、`"prev"、 `"priority"、`"depends" 和 `"focused"。priority 是 32-bit signed integer，数值越大越优先；缺失时排序权重 默认为 `"0"，因此正数提前、负数延后。effective priority 除了从 children 提升 ancestors，也沿 `"depends" 提升仍 open 的 dependencies；多级 dependency chain 继续传播，closed dependency 不传播。 时间 property 使用 RFC 3339。 Task reference 使用 raw relative path，不做 URL encode/decode；`".plumb#" 分隔 path 与 explicit id，path 本身不能包含 `"#"。`"depends" 中每条 reference 在 id 后由 whitespace 分隔，因此 path 可以直接包含 spaces：
 
 `plumb"
   `- Review
@@ -289,6 +289,20 @@ head 是 title，未被声明消费的 children 是 details。nested task items 
    `= depends #local Project A.plumb#build Project B.plumb#test
 
 LSP 在 `"depends" scalar value 内分两阶段补全 workspace tasks：当前 reference 尚无 `"#" 时只列出含有 可选 task 的 document，选择后插入 same-file `"#" 或 cross-file `"`path.plumb#"；`"#" 后只列出已选 document 中的 explicit task ids，并仅替换 id fragment。task id 候选显示 title、relative document path 和 derived workflow state。补全保留同一 value 中其他 references，并排除当前 task、已经列出的 dependencies 与 non-task anchors。
+
+`"focused" 把一个 task 标记为已列入当前工作线，值为一个时间区间或 direct `"-" 子项区间列表；endpoint 是带 explicit offset 的 RFC 3339 timestamp，按 instant 而不是字符串比较：
+
+`plumb"
+ `- Review
+  `+ task
+  `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00
+ `- Second pass
+  `+ task
+  `= focused
+   `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00
+   `- 2026-09-20T14:00:00+08:00--
+
+single value 与 one-element list 语义等价。区间按 start 升序且同一 task 内不得重叠，可以首尾相接；end 不得早于 start，最多一个 open interval（`"start--"）且必须位于最后；不同 task 的区间可以重叠。 只有存在有效 open interval 且 task 未关闭时才算当前 focused；已结束的历史不会让 task 退出候选，也不会提高它在 Tasks 树中的排序。 focus 与 workflow state 正交：ready、waiting、blocked 都可以 focused，state 变化不会自动结束区间。focus 是 task-local 事实， 不传播到 parent、child 或 dependency task。
 
 `"recur" 接受正整数 `"`PnD"、`"`PnW"、`"`PnM" 或 `"`PnY"，并要求 `"due"。
 
@@ -302,6 +316,8 @@ Convert to task 保留 list marker并添加 direct `"+ task" facet 与 created p
 width对齐连续 property SpaceRuns；properties使用 `"key value"，不再写 pipe。
 
 `"created"、`"due"、`"wait"、`"done" 与 `"canceled" 必须是 RFC 3339 timestamp property。非法值发布 `"task.invalid-datetime" warning，不参与 state 或 operations。完成或取消 nested task 时只格式化该 task subtree，不改变 following sibling 的层级。
+
+`"focused" 的非法格式、重复属性、顺序、重叠、多个或非末尾的 open interval 分别发布 `"task.invalid-focus"、 `"task.duplicate-focus"、`"task.unordered-focus"、`"task.overlapping-focus" 与 `"task.multiple-open-focus" warning；closed task 仍含 open interval 时发布 `"task.focus-on-closed"。这些 diagnostics 都不改写源文档，focus 数据无效的 task 也不会被当作"未 focused"参与候选。
 
 done task 仍有 open dependency 时发布 `"task.done-with-open-dependency" warning；仍有 open descendant 时发布 `"task.done-with-open-descendant" warning。同一个 child 同时是 descendant 与显式 dependency 时 只报告 dependency inconsistency。warnings 不阻止 operation，canceled parent 不受此检查。
 

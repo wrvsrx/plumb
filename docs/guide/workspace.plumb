@@ -42,8 +42,15 @@ scanner 不进入 directory symlink；扩展名为 `"..plumb" 的 file symlink �
   plumb task --query 'state == "ready" && due < now'
   plumb task complete notes/tasks.plumb#write-parser
   plumb task cancel notes/tasks.plumb#obsolete-task
+  plumb task focus notes/tasks.plumb#write-parser
+  plumb task unfocus notes/tasks.plumb#write-parser
+  plumb task next --limit 3
 
-task output 默认是 nested table；`"--flat" 省略 nesting indentation，`"--no-heading" 适合脚本。 complete/cancel 使用带 revision guard 的 shared operation 修改文件。
+task output 默认是 nested table；`"--flat" 省略 nesting indentation，`"--no-heading" 适合脚本。 complete/cancel 使用带 revision guard 的 shared operation 修改文件，并在同一次编辑里为 open 的 `"focused" 区间补上结束时间。
+
+`"focus" 与 `"unfocus" 手工标记任务是否列入当前工作线：focus 写入或追加一个 open 区间（已有全部结束的历史时追加并把 single value 转成列表）， 已经 focused 时幂等不变；unfocus 为 open 区间补当前时刻，没有 open 区间时同一幂等。两者都支持多目标， 拒绝 closed task，focus 允许 waiting/blocked 的未关闭任务；非法区间历史或时间回拨导致无法满足顺序时明确失败且不写入。
+
+`"next" 打印两段短名单：`"In flight" 是当前 focused 的任务（含 waiting/blocked，按关注起点升序，显示关注起点，不受候选上限限制）， `"Ready to start" 是 `"state == ready" 且未 focused 的任务（按现有 effective priority 降序，默认 3 条、`"--limit" 可设 1–10， 严格按任务数截断）。focus 数据无效的任务不会被当成候选，而是在末尾列出所在任务与诊断码；workspace 索引不完整时会显式提示。
 
 `# Web app
 
