@@ -272,20 +272,61 @@ fn render_task_table_with_width(
 }
 
 pub(crate) fn run_task_action(root: &Path, action: TaskAction) -> Result<(), String> {
-    let (status, targets) = match action {
-        TaskAction::Complete(config) => (TaskStatus::Done, config.targets),
-        TaskAction::Cancel(config) => (TaskStatus::Canceled, config.targets),
-        TaskAction::Next(_) => {
-            return Err("`task next` is a query; it does not accept TARGET values".to_string())
-        }
-    };
     let timestamp = Local::now()
         .fixed_offset()
         .to_rfc3339_opts(SecondsFormat::Secs, false);
-    for target in targets {
-        set_task_status_target(root, &target, status, &timestamp)?;
+    match action {
+        TaskAction::Complete(config) => {
+            for target in config.targets {
+                set_task_status_target(root, &target, TaskStatus::Done, &timestamp)?;
+            }
+        }
+        TaskAction::Cancel(config) => {
+            for target in config.targets {
+                set_task_status_target(root, &target, TaskStatus::Canceled, &timestamp)?;
+            }
+        }
+        TaskAction::Focus(config) => {
+            for target in config.targets {
+                set_task_focus_target(root, &target, true, &timestamp)?;
+            }
+        }
+        TaskAction::Unfocus(config) => {
+            for target in config.targets {
+                set_task_focus_target(root, &target, false, &timestamp)?;
+            }
+        }
+        TaskAction::Next(_) => {
+            return Err("`task next` is a query; it does not accept TARGET values".to_string())
+        }
     }
     Ok(())
+}
+
+fn set_task_focus_target(
+    root: &Path,
+    target: &str,
+    focused: bool,
+    timestamp: &str,
+) -> Result<(), String> {
+    let (path, id) = parse_task_target(root, target)?;
+    let loaded = load_workspace(root)?;
+    let edit = if focused {
+        loaded.workspace.focus_task_by_id(&path, &id, timestamp)
+    } else {
+        loaded.workspace.unfocus_task_by_id(&path, &id, timestamp)
+    }
+    .map_err(|error| error.to_string())?;
+    let entry = loaded
+        .workspace
+        .get(&path)
+        .ok_or_else(|| format!("task document is not indexed: {}", path.display()))?;
+    let source = entry.parsed.source().to_string();
+    let revision = entry.revision;
+    let updated = apply_document_edit(source, &path, revision, edit)
+        .map_err(|error| format!("cannot apply task edit: {error:?}"))?;
+    std::fs::write(&path, updated)
+        .map_err(|error| format!("cannot write {}: {error}", path.display()))
 }
 
 fn set_task_status_target(

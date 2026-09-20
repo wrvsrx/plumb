@@ -243,6 +243,10 @@ enum TaskAction {
     Cancel(TaskTargetsConfig),
     /// Print the shortlist: tasks in flight, then tasks ready to start.
     Next(NextConfig),
+    /// Mark task targets as in flight.
+    Focus(TaskTargetsConfig),
+    /// Clear the in-flight mark from task targets.
+    Unfocus(TaskTargetsConfig),
 }
 
 #[derive(Debug, Args)]
@@ -505,6 +509,27 @@ mod tests {
             config.command,
             Command::Note(NoteConfig { interactive: true })
         ));
+    }
+
+    #[test]
+    fn accepts_task_focus_actions() {
+        let focus = Config::parse_from(["plumb-notes", "task", "focus", "notes/a.plumb#x"]);
+        assert!(matches!(
+            focus.command,
+            Command::Task(TaskConfig {
+                action: Some(TaskAction::Focus(TaskTargetsConfig { ref targets })),
+                ..
+            }) if targets == &vec!["notes/a.plumb#x".to_string()]
+        ));
+        let unfocus = Config::parse_from(["plumb-notes", "task", "unfocus", "notes/a.plumb#x"]);
+        assert!(matches!(
+            unfocus.command,
+            Command::Task(TaskConfig {
+                action: Some(TaskAction::Unfocus(_)),
+                ..
+            })
+        ));
+        assert!(Config::try_parse_from(["plumb-notes", "task", "focus"]).is_err());
     }
 
     #[test]
