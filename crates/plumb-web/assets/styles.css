@@ -271,7 +271,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   border: 0; border-radius: 0; background: transparent;
   color: var(--muted); font-size: 12px; font-weight: 500;
 }
-.task-unfocused-group > .task-disclosure-mark { text-align: center; font-size: 11px; }
+.task-unfocused-group > .task-disclosure-mark,
+.task-document-toggle > .task-disclosure-mark {
+  text-align: center; font-family: sans-serif; font-size: 11px; font-weight: 500;
+}
 .task-unfocused-label { min-width: 0; overflow-wrap: anywhere; }
 .task-unfocused-files { margin-top: 12px; }
 .task-unfocused-group:hover { background: #efefec; }
@@ -279,7 +282,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   width: fit-content; padding: 2px 7px; border-radius: 999px;
   background: #e9f3f1; color: var(--teal); font-size: 12px; font-weight: 650;
 }
-.task-document-toggle.contains-focused { box-shadow: inset 3px 0 var(--teal); }
 .task-sort-focus-note {
   align-self: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px;
   color: var(--teal); background: #e9f3f1; font-size: 12px; font-weight: 700; white-space: nowrap;
@@ -288,8 +290,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   justify-self: start; width: fit-content; padding: 1px 7px; border-radius: 999px;
   background: #e9f3f1; color: var(--teal); font-size: 12px; font-weight: 650;
 }
-.task-list-item.focused { box-shadow: inset 3px 0 var(--teal); background: #f2f8f7; }
-.task-list-item.focused.selected { background: #e5efed; }
 .focus-task:disabled { cursor: not-allowed; opacity: .48; }
 .task-mutation-error { margin: 0 0 12px; color: var(--red); font-size: 13px; font-weight: 650; }
 .task-focus-history { margin-top: 22px; }

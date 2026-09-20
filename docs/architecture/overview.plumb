@@ -127,6 +127,8 @@ shared task page 在分页前按 subtree focused 优先排序；Web 只投影该
 
 展示层维护包含 document、task、unfocused group 的树；focus projection 将未关注 sibling subtrees 作为一个 group 的 children，不改 source parent。所有行共用由展示树 depth 决定的固定 20px 缩进，文件根节点 depth 为 0；group 与同层 focused task 对齐，展开后的 children 增加一级，筛选掉的 parent 不产生虚假层级。箭头与标题共用列，不为 task workflow state 预留左侧空列；state 在标题右侧。未关注分组使用 12px、500 字重、次级文字颜色、透明背景，触控高度至少 44px，不增加对称 focused 分类。
 
+文件节点与 Unfocused files 的 disclosure glyph 使用相同字体、字号、字重及居中对齐，保证箭头与文字均在同层对齐。focused 只通过任务关注徽标和时长、文件的关注数量表达；整行选中底色及左侧竖线仅表达当前 selection。focused 且 selected 时保留两者，不能用同一种整行高亮表达关注与选择。
+
 `# 7. Tree-sitter boundary
 
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义 validity，也不能迫使语言设计适应 CFG。
