@@ -977,6 +977,15 @@ mod tests {
     }
 
     #[test]
+    fn document_task_facet_does_not_wrap_or_duplicate_exported_body() {
+        let body = "`= title Project\n\nBody text.\n\n`- Child\n `+ task\n `@ child\n";
+        let plain = export(body).unwrap();
+        let task = export(&format!("`+ task\n{body}")).unwrap();
+        assert_eq!(task, plain);
+        assert_eq!(task["blocks"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
     fn exports_links_from_shared_document_facts() {
         let document =
             export("See `->{target Project Guide.plumb#id} and `->{`!{other.plumb}}.\n").unwrap();

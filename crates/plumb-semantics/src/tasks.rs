@@ -810,7 +810,7 @@ fn focus_field(source: &str, children: &[Block], items: &[AttrItem]) -> TaskFocu
             continue;
         }
         let head = plain_text(&child.content).trim().to_string();
-        if head != "focused" && !head.starts_with("focused ") {
+        if head != "focused" {
             continue;
         }
         let mut focus = TaskFocus {
@@ -819,14 +819,6 @@ fn focus_field(source: &str, children: &[Block], items: &[AttrItem]) -> TaskFocu
             range: Some(child.range.clone()),
             ..TaskFocus::default()
         };
-        if head != "focused" {
-            push_focus_problem(
-                &mut focus,
-                FocusProblemCode::Invalid,
-                child.content.range.clone(),
-                Vec::new(),
-            );
-        }
         for entry in &child.children {
             let Block::Parsed(entry) = entry else {
                 push_focus_problem(
@@ -1946,6 +1938,19 @@ mod tests {
         assert!(task.focus_valid());
         assert!(task.is_focused());
         assert_eq!(task.focused_since(), Some("2026-09-20T04:00:00Z"));
+    }
+
+    #[test]
+    fn multiword_child_bearing_focus_key_is_opaque_for_document_and_list_tasks() {
+        for source in [
+            "`+ task\n`= focused other\n `- 2026-09-21T09:00:00+08:00--\n",
+            "`- Work\n `+ task\n `= focused other\n  `- 2026-09-21T09:00:00+08:00--\n",
+        ] {
+            let parsed = parse(source);
+            let output = analyze_tasks(parsed.valid_syntax().unwrap());
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert!(!output.tasks.get(0).unwrap().is_focused());
+        }
     }
 
     #[test]
