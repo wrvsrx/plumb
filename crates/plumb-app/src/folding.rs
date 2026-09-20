@@ -168,10 +168,16 @@ pub(crate) fn task_labels(
             } else {
                 &task.title
             };
+            // Unfocused tasks keep their existing label byte-for-byte; a
+            // focused task only gains a short marker next to the state symbol.
+            let focus_marker = if task.is_focused() { "* " } else { "" };
             Some((
                 (task.range.start, task.range.end),
                 FoldLabel {
-                    text: format!("{indent}`{marker} {:<5}{title}", task_state_symbol(state)),
+                    text: format!(
+                        "{indent}`{marker} {:<5}{focus_marker}{title}",
+                        task_state_symbol(state)
+                    ),
                 },
             ))
         })
@@ -817,6 +823,25 @@ mod tests {
                 expected,
             );
         }
+    }
+
+    #[test]
+    fn focused_task_label_keeps_the_state_symbol_and_adds_a_marker() {
+        let mut workspace = plumb_workspace::Workspace::new();
+        let path = std::path::Path::new("focus-labels.plumb");
+        workspace.open_document(
+            path,
+            1,
+            "`- Focused ready\n `+ task\n `= focused 2026-09-20T09:00:00Z--\n\n`- Plain ready\n `+ task\n",
+        );
+        let labels = super::task_labels(&workspace, path, workspace.get(path).unwrap(), false)
+            .into_iter()
+            .map(|(_, label)| label.text)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            labels,
+            vec!["`- [ ]  * Focused ready", "`- [ ]  Plain ready"]
+        );
     }
 
     #[test]

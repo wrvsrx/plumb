@@ -2333,6 +2333,15 @@ impl LanguageServer for ServerState {
         if code_action_kind_requested(params.context.only.as_deref(), &CodeActionKind::QUICKFIX) {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(entry.parsed.source(), params.range.start);
+                let focus = entry.current.as_ref().and_then(|current| {
+                    current
+                        .output
+                        .tasks()
+                        .tasks
+                        .iter()
+                        .filter(|task| task.range.start <= offset && offset <= task.range.end)
+                        .max_by_key(|task| task.range.start)
+                });
                 for (status, title, preferred) in [
                     (TaskStatus::Done, "Complete task", true),
                     (TaskStatus::Canceled, "Cancel task", false),
@@ -2340,6 +2349,38 @@ impl LanguageServer for ServerState {
                     if let Some(edit) = self
                         .workspace
                         .set_task_status(&path, offset, status, &timestamp)
+                        .ok()
+                        .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                    {
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: title.to_string(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            edit: Some(edit),
+                            is_preferred: Some(preferred),
+                            ..CodeAction::default()
+                        }));
+                    }
+                }
+                // Focus is an orthogonal fact, so the offer follows the task's
+                // current focus state rather than its workflow state: a task with
+                // an open interval can be un-focused even when it is closed,
+                // while a closed task can never be focused.
+                let focus_action = focus.and_then(|task| {
+                    if task.has_open_focus_interval() {
+                        Some(("Unfocus task", false))
+                    } else if task.state() == plumb_semantics::TaskState::Open {
+                        Some(("Focus task", false))
+                    } else {
+                        None
+                    }
+                });
+                if let Some((title, preferred)) = focus_action {
+                    let edit = if title == "Focus task" {
+                        self.workspace.focus_task(&path, offset, &timestamp)
+                    } else {
+                        self.workspace.unfocus_task(&path, offset, &timestamp)
+                    };
+                    if let Some(edit) = edit
                         .ok()
                         .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
                     {

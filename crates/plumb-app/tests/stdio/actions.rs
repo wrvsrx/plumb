@@ -806,10 +806,17 @@ fn offers_guarded_task_status_code_actions() {
 
     let output = run_server(&messages);
     let actions = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(actions.len(), 2);
+    assert_eq!(actions.len(), 3);
     assert_eq!(actions[0]["title"], "Complete task");
     assert_eq!(actions[1]["title"], "Cancel task");
-    for (action, attribute) in actions.iter().zip(["done", "canceled"]) {
+    assert_eq!(actions[2]["title"], "Focus task");
+    let focus_text = actions[2]["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap();
+    // Focus writes one open interval; it never closes the task.
+    assert!(focus_text.contains("`= focused "));
+    assert!(focus_text.trim_end().ends_with("--"));
+    for (action, attribute) in actions.iter().take(2).zip(["done", "canceled"]) {
         assert_eq!(action["kind"], "quickfix");
         let change = &action["edit"]["documentChanges"][0];
         assert_eq!(change["textDocument"]["version"], 3);
@@ -953,8 +960,10 @@ fn blocked_task_offers_cancel_but_not_complete() {
 
     let output = run_server(&messages);
     let actions = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(actions.len(), 1);
+    assert_eq!(actions.len(), 2);
     assert_eq!(actions[0]["title"], "Cancel task");
+    // A waiting/blocked task is still open, so it can be focused.
+    assert_eq!(actions[1]["title"], "Focus task");
     let new_text = actions[0]["edit"]["documentChanges"][0]["edits"][0]["newText"]
         .as_str()
         .unwrap();
@@ -1058,10 +1067,75 @@ fn task_actions_fall_back_from_closed_child_to_open_parent() {
     ];
     let output = run_server(&messages);
     let actions = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(actions.len(), 2);
-    for action in actions {
+    assert_eq!(actions.len(), 3);
+    assert_eq!(actions[2]["title"], "Focus task");
+    // Status actions target the open parent (line 0) rather than the closed child.
+    for action in actions.iter().take(2) {
         let edit = &action["edit"]["documentChanges"][0]["edits"][0];
         assert_eq!(edit["range"]["start"]["line"], 0);
         assert!(edit["newText"].as_str().unwrap().contains("2026-"));
     }
+    // Focus falls back to the same open parent and writes one open interval.
+    let focus_text = actions[2]["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap();
+    assert!(focus_text.contains("`= focused "));
+    assert!(focus_text.trim_end().ends_with("--"));
 }
+
+#[test]
+fn focused_task_offers_unfocus_instead_of_focus() {
+    let uri = "file:///tmp/focused-task-actions.plumb";
+    let source =
+        "`- Review\n\n `+ task\n\n `@ review\n\n `= focused 2026-09-20T09:00:00+08:00--\n";
+    let line = source
+        .lines()
+        .position(|line| line.contains("Review"))
+        .unwrap();
+    let character = source.lines().nth(line).unwrap().find("Review").unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": null,
+                "capabilities": {
+                    "workspace": { "workspaceEdit": { "documentChanges": true } }
+                }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": uri, "languageId": "plumb", "version": 1, "text": source
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": {
+                    "start": { "line": line, "character": character },
+                    "end": { "line": line, "character": character }
+                },
+                "context": { "diagnostics": [], "only": ["quickfix"] }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server(&messages);
+    let actions = response(&output, 2)["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 3);
+    assert_eq!(actions[2]["title"], "Unfocus task");
+    assert!(actions
+        .iter()
+        .all(|action| action["title"] != "Focus task"));
+    // Unfocus closes the open interval with the operation's single now.
+    let new_text = actions[2]["edit"]["documentChanges"][0]["edits"][0]["newText"]
+        .as_str()
+        .unwrap();
+    assert!(new_text.contains("`= focused "));
+    assert!(new_text.contains("2026-09-20T09:00:00+08:00--2"));
+}
+
