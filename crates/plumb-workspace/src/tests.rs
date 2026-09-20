@@ -4028,6 +4028,559 @@ fn recurring_task_completion_preserves_canonical_layout() {
     assert_eq!(plumb_format::format(&edited).unwrap(), edited);
 }
 
+/// Canonical formatting, strict validity, green/materialized parity and fresh
+/// semantic agreement for an edited task document.
+fn assert_focus_edit_parity(edited: &str) {
+    assert_eq!(plumb_format::format(edited).unwrap(), edited, "{edited}");
+    let parsed = parse(edited);
+    assert!(parsed.is_valid(), "{edited}\n{:?}", parsed.diagnostics);
+    let mut workspace = Workspace::new();
+    workspace.insert("parity.plumb", 1, edited);
+    let entry = workspace.get("parity.plumb").unwrap();
+    assert_eq!(
+        entry.parsed.green().materialize(),
+        plumb_syntax::parse(edited),
+        "green/materialized parity\n{edited}"
+    );
+    let fresh = analyze_document(plumb_syntax::parse(edited).valid_syntax().unwrap());
+    let stored = &entry.current.as_ref().unwrap().output;
+    assert_eq!(
+        stored.tasks().tasks.iter().collect::<Vec<_>>(),
+        fresh.tasks().tasks.iter().collect::<Vec<_>>(),
+        "workspace analysis must match fresh semantics\n{edited}"
+    );
+}
+
+#[test]
+fn focus_task_writes_a_single_open_interval() {
+    // No explicit id: the offset locator must still find the task.
+    let source = "`- Write parser\n\n `+ task\n\n `= created 2026-09-19T09:00:00+08:00\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 7, source);
+
+    let edit = workspace
+        .focus_task(
+            "tasks.plumb",
+            source.find("Write parser").unwrap(),
+            "2026-09-20T09:00:00+08:00",
+        )
+        .unwrap();
+    assert_eq!(edit.document_changes[0].expected_revision, 7);
+    let edited = apply_single_edit(source, &edit);
+    assert!(
+        edited.contains("`= focused 2026-09-20T09:00:00+08:00--\n"),
+        "{edited}"
+    );
+    assert!(
+        edited.contains("`= created 2026-09-19T09:00:00+08:00\n"),
+        "{edited}"
+    );
+    assert_focus_edit_parity(&edited);
+}
+
+#[test]
+fn focus_task_is_idempotent_when_already_focused() {
+    let source = "`- Write parser\n\n `+ task\n\n `@ write\n\n `= focused 2026-09-20T09:00:00+08:00--\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 7, source);
+
+    let edit = workspace
+        .focus_task_by_id("tasks.plumb", "write", "2026-09-20T12:00:00+08:00")
+        .unwrap();
+    assert_eq!(edit.document_changes.len(), 1);
+    assert_eq!(edit.document_changes[0].expected_revision, 7);
+    assert!(edit.document_changes[0].edits.is_empty());
+    assert!(workspace
+        .get("tasks.plumb")
+        .unwrap()
+        .parsed
+        .source()
+        .contains("`= focused 2026-09-20T09:00:00+08:00--\n"));
+}
+
+#[test]
+fn focus_task_appends_to_finished_history_and_promotes_it_to_a_list() {
+    let scalar = "`- Review\n\n `+ task\n\n `@ review\n\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n";
+    assert_eq!(plumb_format::format(scalar).unwrap(), scalar);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 3, scalar);
+    let edit = workspace
+        .focus_task_by_id("tasks.plumb", "review", "2026-09-20T14:00:00+08:00")
+        .unwrap();
+    let edited = apply_single_edit(scalar, &edit);
+    assert!(
+            edited.contains(
+                "`= focused\n\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n  `- 2026-09-20T14:00:00+08:00--\n"
+            ),
+            "{edited}"
+        );
+    assert_focus_edit_parity(&edited);
+
+    let listed = "`- Review\n\n `+ task\n\n `@ review\n\n `= focused\n\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n";
+    assert_eq!(plumb_format::format(listed).unwrap(), listed);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 3, listed);
+    let edit = workspace
+        .focus_task_by_id("tasks.plumb", "review", "2026-09-20T14:00:00+08:00")
+        .unwrap();
+    let edited = apply_single_edit(listed, &edit);
+    assert!(
+            edited.contains(
+                "`= focused\n\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n  `- 2026-09-20T14:00:00+08:00--\n"
+            ),
+            "{edited}"
+        );
+    assert_focus_edit_parity(&edited);
+}
+
+#[test]
+fn unfocus_task_closes_the_open_interval_with_the_given_timestamp() {
+    let source = "`- Write parser\n\n `+ task\n\n `@ write\n\n `= focused 2026-09-20T09:00:00+08:00--\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 4, source);
+    let edit = workspace
+        .unfocus_task(
+            "tasks.plumb",
+            source.find("Write parser").unwrap(),
+            "2026-09-20T11:30:00+08:00",
+        )
+        .unwrap();
+    assert_eq!(edit.document_changes[0].expected_revision, 4);
+    let edited = apply_single_edit(source, &edit);
+    assert!(
+        edited.contains("`= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:30:00+08:00\n"),
+        "{edited}"
+    );
+    assert_focus_edit_parity(&edited);
+
+    let listed = "`- Review\n\n `+ task\n\n `@ review\n\n `= focused\n\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T10:00:00+08:00\n  `- 2026-09-20T14:00:00+08:00--\n";
+    assert_eq!(plumb_format::format(listed).unwrap(), listed);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 4, listed);
+    let edit = workspace
+        .unfocus_task_by_id("tasks.plumb", "review", "2026-09-20T15:00:00+08:00")
+        .unwrap();
+    let edited = apply_single_edit(listed, &edit);
+    assert!(
+        edited.contains("`- 2026-09-20T09:00:00+08:00--2026-09-20T10:00:00+08:00\n"),
+        "{edited}"
+    );
+    assert!(
+        edited.contains("`- 2026-09-20T14:00:00+08:00--2026-09-20T15:00:00+08:00\n"),
+        "{edited}"
+    );
+    assert_focus_edit_parity(&edited);
+}
+
+#[test]
+fn unfocus_task_closes_a_closed_tasks_open_interval() {
+    // A hand-edited closed task may keep an open interval; an explicit unfocus
+    // still ends it, while the closure fields stay untouched.
+    let source = "`- Closed\n\n `+ task\n\n `@ closed\n\n `= done 2026-09-20T09:00:00+08:00\n `= focused 2026-09-20T10:00:00+08:00--\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 5, source);
+    let edit = workspace
+        .unfocus_task(
+            "tasks.plumb",
+            source.find("Closed").unwrap(),
+            "2026-09-20T11:00:00+08:00",
+        )
+        .unwrap();
+    let edited = apply_single_edit(source, &edit);
+    assert!(
+        edited.contains("`= focused 2026-09-20T10:00:00+08:00--2026-09-20T11:00:00+08:00\n"),
+        "{edited}"
+    );
+    assert!(edited.contains("`= done"), "{edited}");
+    assert_focus_edit_parity(&edited);
+}
+
+#[test]
+fn unfocus_task_is_idempotent_without_an_open_interval() {
+    for source in [
+        "`- Write parser\n\n `+ task\n\n `@ write\n\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n",
+        "`- Write parser\n\n `+ task\n\n `@ write\n",
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 4, source);
+        let edit = workspace
+            .unfocus_task_by_id("tasks.plumb", "write", "2026-09-20T12:00:00+08:00")
+            .unwrap();
+        assert_eq!(edit.document_changes.len(), 1);
+        assert_eq!(edit.document_changes[0].expected_revision, 4);
+        assert!(edit.document_changes[0].edits.is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn focus_task_rejects_closed_tasks_and_non_rfc3339_timestamps() {
+    let source = "`- Closed\n\n `+ task\n\n `@ closed\n\n `= done 2026-09-20T09:00:00+08:00\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 2, source);
+
+    assert!(matches!(
+        workspace.focus_task(
+            "tasks.plumb",
+            source.find("Closed").unwrap(),
+            "2026-09-20T12:00:00+08:00"
+        ),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::TaskAlreadyClosed
+        ))
+    ));
+    assert!(matches!(
+        workspace.focus_task_by_id("tasks.plumb", "closed", "2026-09-20T12:00:00+08:00"),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::TaskAlreadyClosed
+        ))
+    ));
+    assert!(matches!(
+        workspace.focus_task_by_id("tasks.plumb", "closed", "tomorrow"),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::InvalidTimestamp
+        ))
+    ));
+    assert!(matches!(
+        workspace.unfocus_task_by_id("tasks.plumb", "closed", "2026-09-20T12:00:00"),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::InvalidTimestamp
+        ))
+    ));
+}
+
+#[test]
+fn focus_task_allows_waiting_and_blocked_open_tasks() {
+    let source = "`- Blocker\n\n `+ task\n\n `@ blocker\n\n`- Waiting\n\n `+ task\n\n `@ waiting\n\n `= wait 2026-10-01T09:00:00+08:00\n\n`- Blocked\n\n `+ task\n\n `@ blocked\n\n `= depends #blocker\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    for id in ["waiting", "blocked"] {
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 3, source);
+        let edit = workspace
+            .focus_task_by_id("tasks.plumb", id, "2026-09-20T09:00:00+08:00")
+            .unwrap();
+        let edited = apply_single_edit(source, &edit);
+        assert!(
+            edited.contains("`= focused 2026-09-20T09:00:00+08:00--\n"),
+            "{id}: {edited}"
+        );
+        assert_focus_edit_parity(&edited);
+    }
+}
+
+#[test]
+fn focus_edit_preserves_unrelated_declarations_body_and_subtasks() {
+    let source = "`- Parent\n\n `+ task\n\n `@ parent\n\n `= created 2026-09-01T09:00:00+08:00\n `= priority 3\n\n `note Keep this body\n\n `- Child\n\n  `+ task\n\n  `@ child\n\n  `= done 2026-09-02T09:00:00+08:00\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 4, source);
+    let edit = workspace
+        .focus_task_by_id("tasks.plumb", "parent", "2026-09-20T09:00:00+08:00")
+        .unwrap();
+    let edited = apply_single_edit(source, &edit);
+    for unchanged in [
+        "`= created 2026-09-01T09:00:00+08:00\n",
+        "`= priority 3\n",
+        "`note Keep this body\n",
+        "`- Child\n",
+        "  `@ child\n",
+        "  `= done 2026-09-02T09:00:00+08:00\n",
+    ] {
+        assert!(edited.contains(unchanged), "{unchanged:?} missing\n{edited}");
+    }
+    assert_focus_edit_parity(&edited);
+}
+
+#[test]
+fn focus_operations_are_task_local_and_independent() {
+    let source = "`- First\n\n `+ task\n\n `@ first\n\n`- Second\n\n `+ task\n\n `@ second\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 1, source);
+    let focused_first = apply_single_edit(
+        source,
+        &workspace
+            .focus_task_by_id("tasks.plumb", "first", "2026-09-20T09:00:00+08:00")
+            .unwrap(),
+    );
+
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 2, &focused_first);
+    let both = apply_single_edit(
+        &focused_first,
+        &workspace
+            .focus_task_by_id("tasks.plumb", "second", "2026-09-20T10:00:00+08:00")
+            .unwrap(),
+    );
+    assert_eq!(both.matches("`= focused ").count(), 2, "{both}");
+
+    // Unfocusing one task leaves the other task's interval untouched.
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 3, &both);
+    let one = apply_single_edit(
+        &both,
+        &workspace
+            .unfocus_task_by_id("tasks.plumb", "first", "2026-09-20T11:00:00+08:00")
+            .unwrap(),
+    );
+    assert!(
+        one.contains("`= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n"),
+        "{one}"
+    );
+    assert!(
+        one.contains("`= focused 2026-09-20T10:00:00+08:00--\n"),
+        "{one}"
+    );
+    assert_focus_edit_parity(&one);
+}
+
+#[test]
+fn focus_and_unfocus_reject_invalid_history_without_writing() {
+    for source in [
+        // end before start
+        "`- Bad\n\n `+ task\n\n `@ bad\n\n `= focused 2026-09-20T11:00:00+08:00--2026-09-20T09:00:00+08:00\n",
+        // more than one open interval
+        "`- Bad\n\n `+ task\n\n `@ bad\n\n `= focused\n\n  `- 2026-09-20T09:00:00+08:00--\n  `- 2026-09-20T10:00:00+08:00--\n",
+    ] {
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 5, source);
+        assert!(matches!(
+            workspace.focus_task_by_id("tasks.plumb", "bad", "2026-09-20T12:00:00+08:00"),
+            Err(WorkspaceOperationError::Operation(
+                TaskEditError::InvalidFocusHistory
+            ))
+        ));
+        assert!(matches!(
+            workspace.unfocus_task_by_id("tasks.plumb", "bad", "2026-09-20T12:00:00+08:00"),
+            Err(WorkspaceOperationError::Operation(
+                TaskEditError::InvalidFocusHistory
+            ))
+        ));
+        assert_eq!(
+            workspace.get("tasks.plumb").unwrap().parsed.source(),
+            source,
+            "a rejected operation must not touch the document"
+        );
+    }
+}
+
+#[test]
+fn focus_and_unfocus_reject_clock_regression_without_writing() {
+    let finished = "`- Review\n\n `+ task\n\n `@ review\n\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 6, finished);
+    assert!(matches!(
+        workspace.focus_task_by_id("tasks.plumb", "review", "2026-09-20T10:00:00+08:00"),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::ClockRegression
+        ))
+    ));
+    assert_eq!(
+        workspace.get("tasks.plumb").unwrap().parsed.source(),
+        finished
+    );
+
+    let open = "`- Review\n\n `+ task\n\n `@ review\n\n `= focused 2026-09-20T09:00:00+08:00--\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 6, open);
+    assert!(matches!(
+        workspace.unfocus_task_by_id("tasks.plumb", "review", "2026-09-20T08:00:00+08:00"),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::ClockRegression
+        ))
+    ));
+    assert_eq!(workspace.get("tasks.plumb").unwrap().parsed.source(), open);
+    // A zero-length interval and a touching boundary are both accepted.
+    let edit = workspace
+        .unfocus_task_by_id("tasks.plumb", "review", "2026-09-20T09:00:00+08:00")
+        .unwrap();
+    assert!(apply_single_edit(open, &edit)
+        .contains("`= focused 2026-09-20T09:00:00+08:00--2026-09-20T09:00:00+08:00\n"));
+}
+
+#[test]
+fn complete_and_cancel_close_focus_in_the_same_revision_edit() {
+    let scalar = "`- Ship\n\n `+ task\n\n `@ ship\n\n `= focused 2026-09-20T09:00:00+08:00--\n";
+    assert_eq!(plumb_format::format(scalar).unwrap(), scalar);
+    for (status, attribute) in [(TaskStatus::Done, "done"), (TaskStatus::Canceled, "canceled")] {
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 8, scalar);
+        let edit = workspace
+            .set_task_status_by_id("tasks.plumb", "ship", status, "2026-09-20T11:00:00+08:00")
+            .unwrap();
+        assert_eq!(edit.document_changes.len(), 1);
+        assert_eq!(edit.document_changes[0].edits.len(), 1);
+        assert_eq!(edit.document_changes[0].expected_revision, 8);
+        let edited = apply_single_edit(scalar, &edit);
+        assert!(edited.contains(&format!("`= {attribute}")), "{edited}");
+        assert!(edited.contains("2026-09-20T11:00:00+08:00"), "{edited}");
+        assert!(
+            edited.contains("`= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n"),
+            "{edited}"
+        );
+        let parsed = parse(&edited);
+        let output = analyze_document(parsed.valid_syntax().unwrap());
+        let task = output.tasks().tasks.iter().next().unwrap();
+        assert_eq!(
+            task.state(),
+            if status == TaskStatus::Done {
+                TaskState::Done
+            } else {
+                TaskState::Canceled
+            }
+        );
+        assert_eq!(
+            task.focused.intervals.last().unwrap().end.as_deref(),
+            Some("2026-09-20T11:00:00+08:00")
+        );
+        assert_focus_edit_parity(&edited);
+    }
+
+    let listed = "`- Ship\n\n `+ task\n\n `@ ship\n\n `= focused\n\n  `- 2026-09-20T07:00:00+08:00--2026-09-20T08:00:00+08:00\n  `- 2026-09-20T09:00:00+08:00--\n";
+    assert_eq!(plumb_format::format(listed).unwrap(), listed);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 8, listed);
+    let edit = workspace
+        .set_task_status_by_id("tasks.plumb", "ship", TaskStatus::Done, "2026-09-20T11:00:00+08:00")
+        .unwrap();
+    assert_eq!(edit.document_changes[0].edits.len(), 1);
+    let edited = apply_single_edit(listed, &edit);
+    assert!(
+        edited.contains("`- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n"),
+        "{edited}"
+    );
+    assert!(
+        edited.contains("`- 2026-09-20T07:00:00+08:00--2026-09-20T08:00:00+08:00\n"),
+        "{edited}"
+    );
+    assert_focus_edit_parity(&edited);
+}
+
+#[test]
+fn rejected_completion_leaves_focus_history_untouched() {
+    let blocked = "`- Blocker\n\n `+ task\n\n `@ blocker\n\n`- Blocked\n\n `+ task\n\n `@ blocked\n\n `= depends #blocker\n `= focused 2026-09-20T09:00:00+08:00--\n";
+    assert_eq!(plumb_format::format(blocked).unwrap(), blocked);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 9, blocked);
+    assert!(matches!(
+        workspace.set_task_status_by_id(
+            "tasks.plumb",
+            "blocked",
+            TaskStatus::Done,
+            "2026-09-20T11:00:00+08:00"
+        ),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::TaskBlocked
+        ))
+    ));
+    assert_eq!(
+        workspace.get("tasks.plumb").unwrap().parsed.source(),
+        blocked
+    );
+    // Cancel is still allowed and closes the interval in the same edit.
+    let edit = workspace
+        .set_task_status_by_id(
+            "tasks.plumb",
+            "blocked",
+            TaskStatus::Canceled,
+            "2026-09-20T11:00:00+08:00",
+        )
+        .unwrap();
+    assert_eq!(edit.document_changes[0].edits.len(), 1);
+    let edited = apply_single_edit(blocked, &edit);
+    assert!(
+        edited.contains("`= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n"),
+        "{edited}"
+    );
+
+    let open = "`- Ship\n\n `+ task\n\n `@ ship\n\n `= focused 2026-09-20T09:00:00+08:00--\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 2, open);
+    assert!(matches!(
+        workspace.set_task_status_by_id(
+            "tasks.plumb",
+            "ship",
+            TaskStatus::Done,
+            "2026-09-20T08:00:00+08:00"
+        ),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::ClockRegression
+        ))
+    ));
+    assert_eq!(workspace.get("tasks.plumb").unwrap().parsed.source(), open);
+
+    let invalid = "`- Ship\n\n `+ task\n\n `@ ship\n\n `= focused\n\n  `- 2026-09-20T09:00:00+08:00--\n  `- 2026-09-20T10:00:00+08:00--\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 2, invalid);
+    assert!(matches!(
+        workspace.set_task_status_by_id(
+            "tasks.plumb",
+            "ship",
+            TaskStatus::Done,
+            "2026-09-20T11:00:00+08:00"
+        ),
+        Err(WorkspaceOperationError::Operation(
+            TaskEditError::InvalidFocusHistory
+        ))
+    ));
+    assert_eq!(workspace.get("tasks.plumb").unwrap().parsed.source(), invalid);
+}
+
+#[test]
+fn recurring_close_keeps_focus_history_and_the_next_instance_has_none() {
+    let source = "`- Review\n\n `+ task\n\n `@ review-2026-09-20\n\n `= due 2026-09-20T09:00:00+08:00\n `= recur P1D\n `= focused\n\n  `- 2026-09-19T09:00:00+08:00--2026-09-19T11:00:00+08:00\n  `- 2026-09-20T09:00:00+08:00--\n";
+    assert_eq!(plumb_format::format(source).unwrap(), source);
+    let mut workspace = Workspace::new();
+    workspace.insert("tasks.plumb", 11, source);
+
+    let edit = workspace
+        .set_task_status_by_id(
+            "tasks.plumb",
+            "review-2026-09-20",
+            TaskStatus::Done,
+            "2026-09-20T12:00:00+08:00",
+        )
+        .unwrap();
+    assert_eq!(edit.document_changes.len(), 1);
+    assert_eq!(edit.document_changes[0].edits.len(), 1);
+    let edited = apply_single_edit(source, &edit);
+    // The closed instance keeps its finished interval and closes the open one.
+    assert!(
+        edited.contains("`- 2026-09-19T09:00:00+08:00--2026-09-19T11:00:00+08:00\n"),
+        "{edited}"
+    );
+    assert!(
+        edited.contains("`- 2026-09-20T09:00:00+08:00--2026-09-20T12:00:00+08:00\n"),
+        "{edited}"
+    );
+    // The next instance carries neither the property nor its history.
+    assert_eq!(edited.matches("`= focused").count(), 1, "{edited}");
+    assert_eq!(
+        edited.matches("2026-09-19T09:00:00+08:00").count(),
+        1,
+        "{edited}"
+    );
+    assert!(edited.contains("`@ review-2026-09-21"), "{edited}");
+    assert!(
+        edited.contains("2026-09-21T09:00:00+08:00"),
+        "{edited}"
+    );
+    let parsed = parse(&edited);
+    assert!(parsed.is_valid(), "{edited}\n{:?}", parsed.diagnostics);
+    let output = analyze_document(parsed.valid_syntax().unwrap());
+    assert_eq!(output.tasks().tasks.iter().count(), 2);
+    let instances = output.tasks().tasks.iter().collect::<Vec<_>>();
+    assert_eq!(instances[0].state(), TaskState::Done);
+    assert!(!instances[0].focused.intervals.is_empty());
+    assert_eq!(instances[1].state(), TaskState::Open);
+    assert!(!instances[1].focused.present);
+    assert_focus_edit_parity(&edited);
+}
+
 #[test]
 fn inserts_metadata_with_revision_and_escaped_title() {
     let mut workspace = Workspace::new();

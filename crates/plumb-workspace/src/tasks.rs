@@ -3,18 +3,19 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset};
 use plumb_edit::{
-    own_deepest_green_marked_block, own_green_block, own_green_block_paths, replace_green_block,
-    replace_green_blocks, OwnedAttribute, OwnedBlock,
+    append_green_declaration_item, green_declaration_at, own_deepest_green_marked_block,
+    own_green_block, own_green_block_paths, replace_green_block, replace_green_blocks,
+    set_green_declaration, OwnedAttribute, OwnedBlock, OwnedDeclaration, OwnedDeclarationValue,
 };
 use plumb_semantics::{
     analyze_green_tasks, next_task_datetime, parse_task_reference_target, valid_task_datetime,
-    TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
+    SemanticRecords, TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
 };
 
 use super::{
     derive_task_workflow_state, normalize, prepare_recurring_task_clone, resolve_relative,
-    single_document_edit, unique_task_instance_id, DocumentEntry, QueryResult,
-    RecurringTaskCloneContext, TaskAuthoringError, TaskAuthoringInput, TaskWaitReason,
+    single_document_edit, single_document_edits, unique_task_instance_id, DocumentEntry,
+    QueryResult, RecurringTaskCloneContext, TaskAuthoringError, TaskAuthoringInput, TaskWaitReason,
     TaskWorkflowState, Workspace, WorkspaceEdit, WorkspaceOperationError, WorkspaceQueryError,
 };
 use crate::store::StoredTaskKey;
@@ -31,6 +32,8 @@ pub enum TaskEditError {
     TaskAlreadyExists,
     CreatedAlreadyExists,
     GeneratedInvalid,
+    InvalidFocusHistory,
+    ClockRegression,
 }
 
 impl std::fmt::Display for TaskEditError {
@@ -46,6 +49,10 @@ impl std::fmt::Display for TaskEditError {
             Self::TaskAlreadyExists => "the list item is already a task",
             Self::CreatedAlreadyExists => "the task already has a created timestamp",
             Self::GeneratedInvalid => "the generated task edit is invalid",
+            Self::InvalidFocusHistory => "task focus history is invalid",
+            Self::ClockRegression => {
+                "the operation timestamp would violate focus interval ordering"
+            }
         })
     }
 }
@@ -398,6 +405,9 @@ impl Workspace {
         let mut owned = own_green_block(entry.parsed.green(), task.range.clone())
             .map_err(|_| TaskEditError::TaskNotFound)?;
         owned.push_attribute(OwnedAttribute::quoted(status.attribute(), timestamp));
+        // The closure field and the focus interval end share one owned rewrite, so
+        // the produced proposal carries both in a single revision edit.
+        close_task_focus(&mut owned, task, timestamp)?;
         let edit = replace_green_block(entry.parsed.green(), task.range.clone(), &owned)
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, path.to_path_buf(), edit))
@@ -430,6 +440,220 @@ impl Workspace {
             .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
             .ok_or(TaskEditError::TaskNotFound)?;
         self.task_status_edit(entry, &path, &task, status, timestamp)
+    }
+
+    /// Focus the deepest open task covering `offset` by appending one open focus
+    /// interval that starts at `timestamp`.
+    ///
+    /// Idempotent when the task already has an open interval, and rejected for a
+    /// closed task. A timestamp that would violate interval ordering fails with
+    /// [`TaskEditError::ClockRegression`] and writes nothing.
+    pub fn focus_task(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskEditError>> {
+        if !valid_task_datetime(timestamp) {
+            return Err(TaskEditError::InvalidTimestamp.into());
+        }
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let tasks = &entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .tasks()
+            .tasks;
+        let task = focus_task_at(tasks, offset)?;
+        self.focus_edit(entry, &path, &task, timestamp)
+            .map_err(WorkspaceOperationError::from)
+    }
+
+    /// Focus an explicitly identified task by appending one open focus interval.
+    pub fn focus_task_by_id(
+        &self,
+        path: impl AsRef<Path>,
+        id: &str,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskEditError>> {
+        if !valid_task_datetime(timestamp) {
+            return Err(TaskEditError::InvalidTimestamp.into());
+        }
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let task = entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .tasks()
+            .tasks
+            .iter()
+            .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
+            .ok_or(TaskEditError::TaskNotFound)?;
+        self.focus_edit(entry, &path, &task, timestamp)
+            .map_err(WorkspaceOperationError::from)
+    }
+
+    /// Close the open focus interval of the deepest task covering `offset` with
+    /// `timestamp`, in any closure state.
+    ///
+    /// Idempotent when no open interval exists. Invalid history and a timestamp
+    /// that precedes the open interval's start fail without producing an edit.
+    pub fn unfocus_task(
+        &self,
+        path: impl AsRef<Path>,
+        offset: usize,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskEditError>> {
+        if !valid_task_datetime(timestamp) {
+            return Err(TaskEditError::InvalidTimestamp.into());
+        }
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let tasks = &entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .tasks()
+            .tasks;
+        let task = any_task_at(tasks, offset)?;
+        self.unfocus_edit(entry, &path, &task, timestamp)
+            .map_err(WorkspaceOperationError::from)
+    }
+
+    /// Close the open focus interval of an explicitly identified task.
+    pub fn unfocus_task_by_id(
+        &self,
+        path: impl AsRef<Path>,
+        id: &str,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskEditError>> {
+        if !valid_task_datetime(timestamp) {
+            return Err(TaskEditError::InvalidTimestamp.into());
+        }
+        let path = normalize(path.as_ref());
+        let entry = self
+            .documents
+            .get(&path)
+            .filter(|entry| entry.current.is_some())
+            .ok_or(TaskEditError::StaleOrInvalidDocument)?;
+        let task = entry
+            .current
+            .as_ref()
+            .expect("current output checked")
+            .output
+            .tasks()
+            .tasks
+            .iter()
+            .find(|task| task.id.as_ref().is_some_and(|task_id| task_id.value == id))
+            .ok_or(TaskEditError::TaskNotFound)?;
+        self.unfocus_edit(entry, &path, &task, timestamp)
+            .map_err(WorkspaceOperationError::from)
+    }
+
+    fn focus_edit(
+        &self,
+        entry: &DocumentEntry,
+        path: &Path,
+        task: &TaskRecord,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, TaskEditError> {
+        if task.state() != TaskState::Open {
+            return Err(TaskEditError::TaskAlreadyClosed);
+        }
+        if !task.focus_valid() {
+            return Err(TaskEditError::InvalidFocusHistory);
+        }
+        if task.is_focused() {
+            return Ok(no_focus_edit(entry, path));
+        }
+        let green = entry.parsed.green();
+        let existing = green_declaration_at(green, task.range.clone(), "focused")
+            .map_err(|_| TaskEditError::InvalidFocusHistory)?;
+        if existing.is_some() != task.focused.present {
+            return Err(TaskEditError::InvalidFocusHistory);
+        }
+        if let Some(last) = task.focused.intervals.last() {
+            let end = last
+                .end
+                .as_deref()
+                .ok_or(TaskEditError::InvalidFocusHistory)?;
+            if focus_precedes(timestamp, end) {
+                return Err(TaskEditError::ClockRegression);
+            }
+        }
+        let interval = format!("{timestamp}--");
+        let edit = append_green_declaration_item(green, task.range.clone(), "focused", &interval)
+            .map_err(|_| TaskEditError::GeneratedInvalid)?
+            .ok_or(TaskEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path.to_path_buf(), edit))
+    }
+
+    fn unfocus_edit(
+        &self,
+        entry: &DocumentEntry,
+        path: &Path,
+        task: &TaskRecord,
+        timestamp: &str,
+    ) -> Result<WorkspaceEdit, TaskEditError> {
+        if !task.focus_valid() {
+            return Err(TaskEditError::InvalidFocusHistory);
+        }
+        if !task.has_open_focus_interval() {
+            return Ok(no_focus_edit(entry, path));
+        }
+        let green = entry.parsed.green();
+        let existing = green_declaration_at(green, task.range.clone(), "focused")
+            .map_err(|_| TaskEditError::InvalidFocusHistory)?
+            .ok_or(TaskEditError::InvalidFocusHistory)?;
+        let mut items = existing
+            .items()
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if items.len() != task.focused.intervals.len() {
+            return Err(TaskEditError::InvalidFocusHistory);
+        }
+        let last = task
+            .focused
+            .intervals
+            .last()
+            .ok_or(TaskEditError::InvalidFocusHistory)?;
+        if focus_precedes(timestamp, &last.start) {
+            return Err(TaskEditError::ClockRegression);
+        }
+        let last_item = items.last_mut().ok_or(TaskEditError::InvalidFocusHistory)?;
+        let start = last_item
+            .strip_suffix("--")
+            .unwrap_or(last_item.as_str())
+            .to_string();
+        *last_item = format!("{start}--{timestamp}");
+        let declaration = match existing.value {
+            OwnedDeclarationValue::Scalar(_) => {
+                OwnedDeclaration::scalar("focused", items.remove(0))
+            }
+            OwnedDeclarationValue::List(_) => OwnedDeclaration::list("focused", items),
+        };
+        let edit = set_green_declaration(green, task.range.clone(), declaration)
+            .map_err(|_| TaskEditError::GeneratedInvalid)?
+            .ok_or(TaskEditError::GeneratedInvalid)?;
+        Ok(single_document_edit(entry, path.to_path_buf(), edit))
     }
 
     fn recurring_task_status_edit(
@@ -497,11 +721,16 @@ impl Workspace {
             current_id: &current_id,
         };
         prepare_recurring_task_clone(&mut next, &owned.target_paths, &clone_context);
+        // `persistent_task_attribute` drops the leaf `focused` form while cloning.
+        // The child-bearing interval list has no attribute projection, so remove it
+        // explicitly: the next instance starts with no focus history of its own.
+        next.remove_declaration("focused");
 
         if task.id.is_none() {
             current.push_attribute(OwnedAttribute::id(current_id));
         }
         current.push_attribute(OwnedAttribute::quoted(status.attribute(), timestamp));
+        close_task_focus(&mut current, task, timestamp)?;
         let edit = replace_green_blocks(entry.parsed.green(), task.range.clone(), &[current, next])
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
         Ok(single_document_edit(entry, entry.path.clone(), edit))
@@ -714,6 +943,120 @@ fn dependency_task_ref(source_path: &Path, target: &TaskReferenceTarget) -> Opti
         }),
         TaskReferenceTarget::Invalid => None,
     }
+}
+
+/// The deepest task covering `offset` in any closure state.
+///
+/// `unfocus` uses this so an explicitly requested interval end can still repair
+/// a closed task whose hand-edited history kept an open interval. `focus` uses
+/// the open-only locator below instead.
+fn any_task_at(
+    tasks: &SemanticRecords<TaskRecord>,
+    offset: usize,
+) -> Result<TaskRecord, TaskEditError> {
+    tasks
+        .iter()
+        .filter(|task| task.range.start <= offset && offset <= task.range.end)
+        .max_by_key(|task| task.range.start)
+        .ok_or(TaskEditError::TaskNotFound)
+}
+
+/// The deepest open task covering `offset`, or a dedicated error when only a
+/// closed task covers it.
+fn focus_task_at(
+    tasks: &SemanticRecords<TaskRecord>,
+    offset: usize,
+) -> Result<TaskRecord, TaskEditError> {
+    tasks
+        .iter()
+        .filter(|task| {
+            task.state() == TaskState::Open
+                && task.range.start <= offset
+                && offset <= task.range.end
+        })
+        .max_by_key(|task| task.range.start)
+        .ok_or_else(|| {
+            if tasks
+                .iter()
+                .any(|task| task.range.start <= offset && offset <= task.range.end)
+            {
+                TaskEditError::TaskAlreadyClosed
+            } else {
+                TaskEditError::TaskNotFound
+            }
+        })
+}
+
+/// A successful idempotent operation still reports the revision it inspected,
+/// but proposes no text edit.
+fn no_focus_edit(entry: &DocumentEntry, path: &Path) -> WorkspaceEdit {
+    single_document_edits(entry, path.to_path_buf(), Vec::new())
+}
+
+/// Whether `timestamp` is strictly before `reference` on the actual instant
+/// timeline. Unparseable values count as a regression rather than a guess.
+fn focus_precedes(timestamp: &str, reference: &str) -> bool {
+    match (
+        DateTime::parse_from_rfc3339(timestamp),
+        DateTime::parse_from_rfc3339(reference),
+    ) {
+        (Ok(timestamp), Ok(reference)) => timestamp < reference,
+        _ => true,
+    }
+}
+
+/// End the open focus interval of `task` inside an already owned task subtree.
+///
+/// This is how Complete and Cancel stay atomic: the caller writes the closure
+/// field and the interval end through the same owned rewrite. A task without a
+/// `focused` property or without an open interval is left untouched. An
+/// unrepresentable or invalid history and a timestamp that precedes the open
+/// interval's start fail before any edit is produced.
+fn close_task_focus(
+    owned: &mut OwnedBlock,
+    task: &TaskRecord,
+    timestamp: &str,
+) -> Result<(), TaskEditError> {
+    if !task.focused.present || !task.has_open_focus_interval() {
+        return Ok(());
+    }
+    if !task.focus_valid() {
+        return Err(TaskEditError::InvalidFocusHistory);
+    }
+    let Some(mut declaration) = owned.declaration("focused") else {
+        return Err(TaskEditError::InvalidFocusHistory);
+    };
+    let mut items = declaration
+        .items()
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if items.len() != task.focused.intervals.len() {
+        return Err(TaskEditError::InvalidFocusHistory);
+    }
+    let last = task
+        .focused
+        .intervals
+        .last()
+        .ok_or(TaskEditError::InvalidFocusHistory)?;
+    if focus_precedes(timestamp, &last.start) {
+        return Err(TaskEditError::ClockRegression);
+    }
+    let last_item = items.last_mut().ok_or(TaskEditError::InvalidFocusHistory)?;
+    let start = last_item
+        .strip_suffix("--")
+        .unwrap_or(last_item.as_str())
+        .to_string();
+    *last_item = format!("{start}--{timestamp}");
+    let value = match &declaration.value {
+        OwnedDeclarationValue::Scalar(_) => OwnedDeclarationValue::Scalar(items.remove(0)),
+        OwnedDeclarationValue::List(_) => OwnedDeclarationValue::List(items),
+    };
+    declaration.value = value;
+    owned
+        .set_declaration(declaration)
+        .map_err(|_| TaskEditError::GeneratedInvalid)?;
+    Ok(())
 }
 
 pub(super) fn owned_at_path_mut<'a>(
