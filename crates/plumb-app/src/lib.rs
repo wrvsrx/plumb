@@ -3,6 +3,7 @@ pub mod cache_cli;
 mod folding;
 pub mod format_cli;
 mod hover;
+mod next;
 mod position;
 mod search;
 mod semantic_tokens;
@@ -25,6 +26,7 @@ pub async fn run_lsp() {
     let (server, _) = async_lsp::MainLoop::new_server(|client| {
         let mut router = Router::from_language_server(ServerState::new(client.clone()));
         router.request::<search::PlumbSearchRequest, _>(|state, params| state.search(params));
+        router.request::<next::PlumbNextRequest, _>(|state, params| state.next(params));
         router.event::<InitialIndexResult>(|state, result| state.finish_initial_index(result));
         router.event::<DocumentAnalysisResult>(|state, result| {
             state.finish_document_analysis(result)

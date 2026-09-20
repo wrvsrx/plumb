@@ -45,6 +45,7 @@ use plumb_semantics::{
 };
 use plumb_syntax::{Diagnostic, SourceChange};
 use plumb_workspace::{
+    display_workspace_path,
     load_bibliography, load_bibliography_sources, normalize, scan_workspace_files,
     BatchIndexOptions, Bibliography, BibliographyResolution, CompletionCandidate,
     ExportedSemanticChange, PathRenameInput, PreparedDocumentAnalysis, QueryResult, RenameError,
@@ -64,6 +65,7 @@ use crate::hover::{
     target as target_hover, task as task_hover,
 };
 use crate::position::{byte_range_to_lsp, position_to_offset, LineIndex, PositionIndex};
+use crate::next::{NextItem, NextParams, NextResult, NextSkippedItem};
 use crate::search::{SearchItem, SearchKind, SearchParams, SearchProvenance, SearchResult};
 #[cfg(test)]
 use crate::semantic_tokens::{closed_task_token_ranges, physical_line_ranges};
@@ -941,6 +943,145 @@ impl ServerState {
             search_workspace(&workspace, &roots, index_complete, params)
         })
     }
+
+    pub(crate) fn next(
+        &self,
+        params: NextParams,
+    ) -> BoxFuture<'static, Result<NextResult, ResponseError>> {
+        let workspace = self.workspace.clone();
+        let roots = self.roots.clone();
+        let index_complete = self.index_complete;
+        Box::pin(async move {
+            tokio::task::yield_now().await;
+            next_shortlist(&workspace, &roots, index_complete, params)
+        })
+    }
+}
+
+const NEXT_SCHEMA_VERSION: u32 = 1;
+
+/// Protocol projection of the shared `next` shortlist. Filtering, ordering and
+/// the candidate cap all come from `plumb_workspace::query_next`.
+fn next_shortlist(
+    workspace: &Workspace,
+    roots: &[PathBuf],
+    index_complete: bool,
+    params: NextParams,
+) -> Result<NextResult, ResponseError> {
+    let root = roots
+        .first()
+        .map_or_else(|| Path::new(""), PathBuf::as_path);
+    let query = plumb_workspace::NextQuery {
+        root: root.to_path_buf(),
+        limit: params.limit.unwrap_or(3) as usize,
+        cursor: params.cursor.clone(),
+        workspace_revision: 0,
+        now: Local::now().fixed_offset(),
+    };
+    let result = workspace
+        .query_next(&query)
+        .map_err(task_page_query_response_error)?;
+    let complete = index_complete && result.is_complete();
+    let value = result.value;
+    let focused = value
+        .focused
+        .iter()
+        .map(|task| next_item(workspace, root, task, true))
+        .collect::<Result<Vec<_>, _>>()?;
+    let candidates = value
+        .candidates
+        .iter()
+        .map(|task| next_item(workspace, root, task, false))
+        .collect::<Result<Vec<_>, _>>()?;
+    let skipped_invalid = value
+        .skipped_invalid
+        .iter()
+        .map(|skipped| {
+            Ok(NextSkippedItem {
+                title: skipped.title.clone(),
+                path: display_workspace_path(root, &skipped.path),
+                location: next_location(workspace, &skipped.path, &skipped.range)?,
+                id: skipped.id.clone(),
+                codes: skipped
+                    .codes
+                    .iter()
+                    .map(|code| code.code().to_string())
+                    .collect(),
+            })
+        })
+        .collect::<Result<Vec<_>, ResponseError>>()?;
+    Ok(NextResult {
+        schema_version: NEXT_SCHEMA_VERSION,
+        focused,
+        focused_total: value.focused_total,
+        focused_complete: value.focused_complete,
+        focused_next_cursor: value.focused_next_cursor,
+        candidates,
+        candidate_limit: value.candidate_limit,
+        candidates_complete: value.candidates_complete,
+        skipped_invalid,
+        complete,
+    })
+}
+
+fn next_item(
+    workspace: &Workspace,
+    root: &Path,
+    task: &plumb_workspace::WorkspaceTask,
+    focused: bool,
+) -> Result<NextItem, ResponseError> {
+    let record = &task.task;
+    let focused_since = if focused {
+        record.focused_since().map(str::to_string)
+    } else {
+        None
+    };
+    Ok(NextItem {
+        title: record.title.clone(),
+        path: display_workspace_path(root, &task.path),
+        location: next_location(workspace, &task.path, &record.selection_range)?,
+        id: record.id.as_ref().map(|id| id.value.clone()),
+        state: task.state.as_str().to_string(),
+        wait_reasons: task
+            .wait_reasons
+            .iter()
+            .map(|reason| reason.as_str().to_string())
+            .collect(),
+        focused_since,
+        effective_priority: task.effective_priority,
+        provenance: SearchProvenance {
+            source: "current".to_string(),
+            revision: task.revision,
+        },
+    })
+}
+
+fn next_location(
+    workspace: &Workspace,
+    path: &Path,
+    range: &std::ops::Range<usize>,
+) -> Result<lsp_types::Location, ResponseError> {
+    let disk_source;
+    let source = if let Some(entry) = workspace.get(path) {
+        entry.parsed.source()
+    } else {
+        disk_source = fs::read_to_string(path).map_err(|_| {
+            ResponseError::new(
+                ErrorCode::INTERNAL_ERROR,
+                "next shortlist lost its document",
+            )
+        })?;
+        &disk_source
+    };
+    Ok(lsp_types::Location::new(
+        Url::from_file_path(path).map_err(|_| {
+            ResponseError::new(
+                ErrorCode::INTERNAL_ERROR,
+                format!("next path is not an absolute file path: {}", path.display()),
+            )
+        })?,
+        byte_range_to_lsp(source, range),
+    ))
 }
 
 fn search_workspace(
@@ -1237,6 +1378,10 @@ impl LanguageServer for ServerState {
                             "search": {
                                 "schemaVersion": 3,
                                 "method": "plumb/search"
+                            },
+                            "next": {
+                                "schemaVersion": 1,
+                                "method": "plumb/next"
                             },
                             "foldingRangeRefresh": {
                                 "method": "workspace/foldingRange/refresh",
@@ -2594,6 +2739,22 @@ impl LanguageServer for ServerState {
 
 fn rename_request_error(message: impl Into<String>) -> ResponseError {
     ResponseError::new(ErrorCode::REQUEST_FAILED, message.into())
+}
+
+/// A shortlist cursor that no longer matches the workspace snapshot is a stale
+/// client request, not an internal failure; everything else stays internal.
+fn task_page_query_response_error(
+    error: plumb_workspace::TaskPageQueryError,
+) -> ResponseError {
+    match error {
+        plumb_workspace::TaskPageQueryError::Filter { message, .. }
+        | plumb_workspace::TaskPageQueryError::Cursor(message) => {
+            ResponseError::new(ErrorCode::INVALID_PARAMS, message)
+        }
+        plumb_workspace::TaskPageQueryError::Query(error) => {
+            workspace_query_response_error(error)
+        }
+    }
 }
 
 fn workspace_query_response_error(error: WorkspaceQueryError) -> ResponseError {

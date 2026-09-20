@@ -348,3 +348,94 @@ fn structured_search_marks_failed_workspace_scans_incomplete() {
     );
     assert_eq!(response(&output, 2)["result"]["complete"], false);
 }
+
+#[test]
+fn projects_the_focused_shortlist_over_stdio() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let tasks = root.join("focus.plumb");
+    std::fs::write(
+        &tasks,
+        concat!(
+            "`- 在飞 oldest\n\n `+ task\n\n `@ f-oldest\n\n `= focused 2026-09-18T09:00:00Z--\n",
+            "`- 在飞 waiting\n\n `+ task\n\n `@ f-waiting\n\n `= focused 2026-09-19T09:00:00Z--\n `= wait 2099-01-01T00:00:00Z\n",
+            "`- 历史\n\n `+ task\n\n `@ finished\n `= priority 5\n `= focused 2026-09-01T09:00:00Z--2026-09-01T10:00:00Z\n",
+            "`- 候选低\n\n `+ task\n\n `@ ready-low\n `= priority 1\n",
+            "`- 候选高\n\n `+ task\n\n `@ ready-high\n `= priority 9\n",
+            "`- 非法\n\n `+ task\n\n `@ broken\n\n `= focused\n\n  `- 2026-09-20T09:00:00Z--\n  `- 2026-09-19T09:00:00Z--\n",
+        ),
+    )
+    .unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let messages = [
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "processId": null, "rootUri": root_uri,
+                "workspaceFolders": [{ "uri": root_uri, "name": "test" }],
+                "capabilities": {}
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "plumb/next", "params": { "limit": 2 } }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "plumb/next", "params": { "limit": 11 } }),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "plumb/next",
+            "params": { "limit": 3, "cursor": "v1:0:deadbeef:0:00:0" }
+        }),
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null }),
+        json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
+    ];
+    let output = run_server_after_initial_index(&messages);
+
+    let capabilities = &response(&output, 1)["result"]["capabilities"];
+    assert_eq!(
+        capabilities["experimental"]["plumb"]["next"]["schemaVersion"],
+        1
+    );
+    assert_eq!(
+        capabilities["experimental"]["plumb"]["next"]["method"],
+        "plumb/next"
+    );
+
+    let next = &response(&output, 2)["result"];
+    assert_eq!(next["schemaVersion"], 1);
+    assert_eq!(next["complete"], true);
+    assert_eq!(next["focusedTotal"], 2);
+    assert_eq!(next["focusedComplete"], true);
+    assert_eq!(next["candidateLimit"], 2);
+    assert_eq!(next["candidatesComplete"], false);
+    let focused = next["focused"].as_array().unwrap();
+    let focused_ids = focused
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(focused_ids, ["f-oldest", "f-waiting"]);
+    // Focus is orthogonal to the workflow state: a waiting task stays in flight.
+    assert_eq!(focused[1]["state"], "waiting");
+    assert_eq!(focused[1]["waitReasons"], json!(["time"]));
+    assert_eq!(focused[0]["focusedSince"], "2026-09-18T09:00:00Z");
+    assert!(focused[0]["location"]["uri"]
+        .as_str()
+        .unwrap()
+        .ends_with("focus.plumb"));
+    let candidates = next["candidates"].as_array().unwrap();
+    let candidate_ids = candidates
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(candidate_ids, ["ready-high", "finished"]);
+    let skipped = next["skippedInvalid"].as_array().unwrap();
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(skipped[0]["id"], "broken");
+    assert!(!skipped[0]["codes"].as_array().unwrap().is_empty());
+
+    // The shared layer clamps an explicit limit to 1..=10.
+    let clamped = &response(&output, 3)["result"];
+    assert_eq!(clamped["candidateLimit"], 10);
+
+    // A stale in-flight cursor is a request error, not an internal failure.
+    let stale = &response(&output, 4);
+    assert_eq!(stale["error"]["code"], -32602);
+}
+
