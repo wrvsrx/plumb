@@ -1,7 +1,7 @@
 // Task list folding.
 //
-// A task query returns a flat, source-ordered record list whose parent and
-// subtask records stay contiguous: document groups are ordered by path, and
+// A task query returns a flat, server-ordered record list whose parent and
+// subtask records stay contiguous: focused document groups come first, and
 // within one document every parent is followed by its complete subtree. The
 // Web app renders that list as document headings plus indented task rows, so
 // folding is a pure projection over the records rather than a re-query.
@@ -27,58 +27,106 @@ export function taskChildCounts(tasks) {
   return counts;
 }
 
-// Flatten task records into rendered list items:
-//
-//   { kind: 'document', path, total, hidden, collapsed }
-//   { kind: 'task', task, childCount, collapsed, hiddenCount }
-//
-// Items stay in source order, including the document headings, so the caller
-// can append them directly.
-export function taskListItems(tasks, collapsed = {}) {
-  const collapsedDocuments = keySet(collapsed.documents);
-  const collapsedTasks = keySet(collapsed.tasks);
-  const childCounts = taskChildCounts(tasks);
-  const items = [];
-  let group = null;
-  let documentHidden = false;
-  let hiddenDepth = null;
-  let hiddenRow = null;
-  let previousPath = null;
-
+// Build a presentation forest from the already filtered, ordered server page.
+// Document pages retain complete trees. Missing parents remain filtered out;
+// never invent task records or interpret focus history in the browser.
+function taskForest(tasks) {
+  const documents = new Map();
+  const nodes = new Map(tasks.map((task) => [task.key, {
+    task, children: [], total: 1, focusedCount: task.focused ? 1 : 0,
+  }]));
   for (const task of tasks) {
-    if (task.path !== previousPath) {
-      previousPath = task.path;
-      documentHidden = collapsedDocuments.has(task.path);
-      group = { kind: 'document', path: task.path, total: 0, hidden: 0, collapsed: documentHidden };
-      items.push(group);
-      hiddenDepth = null;
-      hiddenRow = null;
+    if (!documents.has(task.path)) documents.set(task.path, {
+      path: task.path, children: [], total: 0, focusedCount: 0,
+    });
+    const node = nodes.get(task.key);
+    const parent = nodes.get(task.parentKey);
+    (parent && parent.task.path === task.path ? parent : documents.get(task.path)).children.push(node);
+  }
+  // Records are preorder: aggregate descendants before their parents without
+  // recursion, including trees deeper than the JS call stack.
+  for (let index = tasks.length - 1; index >= 0; index -= 1) {
+    const task = tasks[index];
+    const node = nodes.get(task.key);
+    const candidate = nodes.get(task.parentKey);
+    const parent = candidate && candidate.task.path === task.path ? candidate : documents.get(task.path);
+    parent.total += node.total;
+    parent.focusedCount += node.focusedCount;
+  }
+  return { documents: [...documents.values()], nodes };
+}
+
+function groupKey(parent) {
+  return JSON.stringify(parent.task ? ['task', parent.task.key] : ['document', parent.path]);
+}
+const FILES_GROUP = JSON.stringify(['files']);
+
+// Fold projection only: preserve server order within each focus partition.
+// Unfocused sibling subtrees share ONE group, rather than one fold per task.
+export function taskListItems(tasks, collapsed = {}) {
+  const forest = taskForest(tasks);
+  const grouping = forest.documents.some((document) => document.focusedCount > 0);
+  const expanded = keySet(collapsed.expandedGroups);
+  const items = [];
+  const work = [];
+  function schedule(nodes, parent = null, documentRow = null) {
+    const plain = grouping ? nodes.filter((node) => node.focusedCount === 0) : [];
+    const grouped = plain.length > 0;
+    const visible = grouped ? nodes.filter((node) => node.focusedCount > 0) : nodes;
+    if (grouped) {
+      const key = parent ? groupKey(parent) : FILES_GROUP;
+      work.push({ group: {
+        kind: 'group', key, total: plain.reduce((sum, node) => sum + node.total, 0),
+        documents: parent ? 0 : plain.length,
+        depth: parent?.task ? parent.task.depth + 1 : 0,
+        collapsed: !expanded.has(key),
+      }, nodes: plain, documentRow });
     }
-    group.total += 1;
-    if (documentHidden) {
-      group.hidden += 1;
+    for (let index = visible.length - 1; index >= 0; index -= 1) {
+      work.push({ node: visible[index], documentRow });
+    }
+  }
+  schedule(forest.documents);
+  while (work.length) {
+    const entry = work.pop();
+    if (entry.group) {
+      items.push(entry.group);
+      if (entry.group.collapsed) {
+        if (entry.documentRow) entry.documentRow.hidden += entry.group.total;
+      } else {
+        // Do not wrap the contents of an unfocused group in further automatic
+        // groups. Manual subtree folds still apply.
+        for (let index = entry.nodes.length - 1; index >= 0; index -= 1) {
+          work.push({ node: entry.nodes[index], documentRow: entry.documentRow, plain: true });
+        }
+      }
       continue;
     }
-    if (hiddenDepth !== null && task.depth > hiddenDepth) {
-      group.hidden += 1;
-      hiddenRow.hiddenCount += 1;
-      continue;
+    const { node, plain } = entry;
+    let documentRow = entry.documentRow;
+    let folded;
+    if (!node.task) {
+      folded = keySet(collapsed.documents).has(node.path);
+      documentRow = {
+        kind: 'document', path: node.path, total: node.total,
+        hidden: folded ? node.total : 0, collapsed: folded, focusedCount: node.focusedCount,
+      };
+      items.push(documentRow);
+    } else {
+      folded = node.children.length > 0 && keySet(collapsed.tasks).has(node.task.key);
+      const hiddenCount = folded ? node.total - 1 : 0;
+      documentRow.hidden += hiddenCount;
+      items.push({
+        kind: 'task', task: node.task, childCount: node.children.length,
+        collapsed: folded, hiddenCount, focusedCount: node.focusedCount,
+      });
     }
-    hiddenDepth = null;
-    hiddenRow = null;
-    const childCount = childCounts.get(task.key) || 0;
-    const row = {
-      kind: 'task',
-      task,
-      childCount,
-      collapsed: childCount > 0 && collapsedTasks.has(task.key),
-      hiddenCount: 0,
-    };
-    if (row.collapsed) {
-      hiddenDepth = task.depth;
-      hiddenRow = row;
-    }
-    items.push(row);
+    if (folded) continue;
+    if (plain || !grouping) {
+      for (let index = node.children.length - 1; index >= 0; index -= 1) {
+        work.push({ node: node.children[index], documentRow, plain: true });
+      }
+    } else schedule(node.children, node, documentRow);
   }
   return items;
 }
@@ -105,6 +153,23 @@ export function revealTask(collapsed, tasks, task) {
   let changed = collapsedDocuments.delete(task.path);
   for (const key of taskAncestorKeys(tasks, task)) {
     if (collapsedTasks.delete(key)) changed = true;
+  }
+  if (task.focused) return changed;
+  const forest = taskForest(tasks);
+  if (forest.documents.some((document) => document.focusedCount > 0)) {
+    const expanded = collapsed.expandedGroups ||= new Set();
+    const open = (key) => {
+      if (!expanded.has(key)) { expanded.add(key); changed = true; }
+    };
+    const document = forest.documents.find((candidate) => candidate.path === task.path);
+    if (document && document.focusedCount === 0) open(FILES_GROUP);
+    let node = forest.nodes.get(task.key);
+    while (node && node.focusedCount === 0) {
+      const parent = forest.nodes.get(node.task.parentKey);
+      if (parent?.focusedCount > 0) open(groupKey(parent));
+      else if (!parent && document?.focusedCount > 0) open(groupKey(document));
+      node = parent;
+    }
   }
   return changed;
 }

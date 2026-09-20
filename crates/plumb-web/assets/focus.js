@@ -1,8 +1,7 @@
 // Task focus presentation.
 //
 // `focused` is a document fact: an open focus interval on a task whose closure
-// is still open. The interval history is what the task detail expands, and the
-// shared `next` query splits results into "in flight" and "ready to start".
+// is still open. The interval history is what the task detail expands.
 // Everything here is a pure projection over the records the server returned —
 // the Web client never re-filters or re-sorts the shared query result, and it
 // never writes focus state without going through the mutation endpoint.
@@ -89,25 +88,6 @@ export function focusBadge(task, now = Date.now()) {
   return `focused ${age.label}`;
 }
 
-// The shared `next` query returns two independent sections; this only reads the
-// server's split and completeness signals.
-export function nextSections(result) {
-  const inFlight = Array.isArray(result?.focused) ? result.focused : [];
-  const candidates = Array.isArray(result?.candidates) ? result.candidates : [];
-  return {
-    inFlight,
-    candidates,
-    inFlightTotal: Number.isInteger(result?.focusedTotal) ? result.focusedTotal : inFlight.length,
-    inFlightTruncated: result?.focusedComplete === false,
-    candidateLimit: Number.isInteger(result?.candidateLimit)
-      ? result.candidateLimit
-      : candidates.length,
-    candidatesComplete: result?.candidatesComplete !== false,
-    skippedInvalid: Array.isArray(result?.skippedInvalid) ? result.skippedInvalid : [],
-    complete: result?.complete !== false,
-  };
-}
-
 // Timezone-preserving label for one recorded instant. Invalid input renders as
 // an empty string rather than a fabricated date.
 export function focusInstantLabel(value) {
@@ -118,35 +98,4 @@ export function focusInstantLabel(value) {
   if (!match) return '';
   const [, date, time, zone] = match;
   return zone ? `${date} ${time} ${zone}` : `${date} ${time}`;
-}
-
-// In-flight heading: the total is shown whenever the page hides older focus
-// intervals, so a paged section is never mistaken for the whole section.
-export function inFlightHeading(sections) {
-  const shown = sections.inFlight.length;
-  if (sections.inFlightTruncated || sections.inFlightTotal > shown) {
-    return `In flight (${shown} of ${sections.inFlightTotal})`;
-  }
-  return `In flight (${sections.inFlightTotal})`;
-}
-
-// Candidate heading states the requested limit, so a short list is never
-// confused with a complete one.
-export function candidateHeading(sections) {
-  return `Ready to start (limit ${sections.candidateLimit})`;
-}
-
-// One status line for the Tasks view: both section sizes, plus the two
-// independent completeness signals and skipped invalid-focus tasks.
-export function nextSummary(sections) {
-  const parts = [
-    `${sections.inFlightTotal} in flight`,
-    `${sections.candidates.length} ready to start`,
-  ];
-  if (!sections.candidatesComplete) parts.push('limit applied');
-  if (!sections.complete) parts.push('index incomplete');
-  if (sections.skippedInvalid.length > 0) {
-    parts.push(`${sections.skippedInvalid.length} skipped (invalid focus)`);
-  }
-  return parts.join(' · ');
 }

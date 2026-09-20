@@ -9,8 +9,7 @@ use plumb_semantics::{DocumentOutput, TaskRecord, TaskStatus};
 use plumb_workspace::{
     apply_document_edit, display_workspace_path as display_path, load_bibliography, normalize,
     scan_workspace_files, search_score, sort_task_records_by, ApplyDocumentEditError,
-    BatchIndexOptions, DocumentEntry, EventEditError, EventInput, NextQuery, NextResult,
-    NextSkippedFocus, QueryCompleteness, QueryProvenance, ResolvedTarget, SearchRecordKind,
+    BatchIndexOptions, DocumentEntry, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
     SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPageQuery, TaskPageQueryError,
     TaskPlacement, TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortFacts, TaskSortOrder,
     Workspace, WorkspaceEvent, WorkspaceEventCursor, WorkspaceOperationError, WorkspaceTask,
@@ -25,9 +24,6 @@ use query::{assign_task_parents, propagate_task_priorities, sort_task_tree, task
 
 const DEFAULT_GRAPH_LIMIT: usize = 2_000;
 const MAX_GRAPH_LIMIT: usize = 20_000;
-/// Default "ready to start" candidate limit for the shared `next` shortlist.
-/// The shared query clamps requests to 1..=10.
-const DEFAULT_NEXT_CANDIDATES: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -288,7 +284,6 @@ pub enum WebView {
     #[default]
     Graph,
     Tasks,
-    Next,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -378,44 +373,6 @@ pub struct WebTaskCandidate {
     pub locator: WebTaskLocator,
     pub depth: usize,
     pub parent_key: Option<String>,
-}
-
-/// The shared `next` shortlist projected for the Web client: "in flight" tasks
-/// plus the bounded "ready to start" candidates.
-///
-/// The two sections come from one shared query result, so the client never
-/// re-filters or re-sorts them. `complete` is the workspace query completeness,
-/// `candidates_complete` distinguishes "the requested limit cut the candidate
-/// list" from "the underlying index is incomplete", and `focused_complete`
-/// tracks the paged in-flight section.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NextSnapshot {
-    pub revision: u64,
-    pub focused: Vec<WebTask>,
-    pub focused_total: usize,
-    pub focused_complete: bool,
-    pub focused_next_cursor: Option<String>,
-    pub candidates: Vec<WebTask>,
-    pub candidate_limit: usize,
-    pub candidates_complete: bool,
-    pub skipped_invalid: Vec<WebSkippedFocus>,
-    pub complete: bool,
-    pub provenance: String,
-    pub documents: Vec<WebTaskDocument>,
-}
-
-/// A task whose focus history is invalid, reported instead of being silently
-/// treated as "not focused".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WebSkippedFocus {
-    pub path: String,
-    pub id: Option<String>,
-    pub title: String,
-    pub codes: Vec<String>,
-    /// Range of the offending `focused` property, so the editor can locate it.
-    pub location: SourceLocation,
 }
 
 pub const TASK_PRESETS: &[QueryPreset] = &[
@@ -3549,83 +3506,6 @@ mod tests {
     }
 
     #[test]
-    fn next_snapshot_splits_in_flight_tasks_from_ready_candidates() {
-        let root = temp_dir();
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("next.plumb"),
-            concat!(
-                "`- Waiting focus\n\n `+ task\n\n `@ waiting-focus\n\n `= focused 2026-09-17T09:00:00+08:00--\n `= wait 2999-01-01T00:00:00+08:00\n",
-                "`- Oldest focus\n\n `+ task\n\n `@ oldest\n\n `= focused 2026-09-18T09:00:00+08:00--\n",
-                "`- Newer focus\n\n `+ task\n\n `@ newer\n\n `= focused 2026-09-19T09:00:00+08:00--\n",
-                "`- Top candidate\n\n `+ task\n\n `@ ready-one\n\n `= priority 5\n",
-                "`- Second candidate\n\n `+ task\n\n `@ ready-two\n\n `= priority 4\n",
-                "`- Third candidate\n\n `+ task\n\n `@ ready-three\n\n `= priority 3\n",
-                "`- Fourth candidate\n\n `+ task\n\n `@ ready-four\n\n `= priority 2\n",
-                "`- Closed with history\n\n `+ task\n\n `@ closed-history\n\n `= done 2026-09-19T00:00:00+08:00\n `= focused\n\n  `- 2026-09-18T00:00:00+08:00--2026-09-18T01:00:00+08:00\n",
-                "`- Invalid focus\n\n `+ task\n\n `@ invalid-focus\n\n `= focused nonsense--\n",
-            ),
-        )
-        .unwrap();
-        let workspace = WebWorkspace::load(&root).unwrap();
-
-        // The default candidate limit is 3 and the shared query clamps 1..=10.
-        let snapshot = workspace.query_next(None, None).unwrap();
-        assert_eq!(snapshot.revision, workspace.revision());
-        assert_eq!(snapshot.candidate_limit, 3);
-        assert!(snapshot.complete);
-        let focused_ids = snapshot
-            .focused
-            .iter()
-            .map(|task| task.id.clone().unwrap_or_default())
-            .collect::<Vec<_>>();
-        // Oldest focus first; a waiting task stays in flight.
-        assert_eq!(focused_ids, ["waiting-focus", "oldest", "newer"]);
-        assert_eq!(snapshot.focused_total, 3);
-        assert!(snapshot.focused_complete);
-        assert_eq!(snapshot.focused[0].state, "waiting");
-        assert_eq!(snapshot.focused[0].wait_reasons, ["time"]);
-        assert!(snapshot.focused[0].focused);
-        assert!(snapshot.focused[0].focused_since.is_some());
-        // In-flight tasks never consume candidate slots.
-        let candidate_ids = snapshot
-            .candidates
-            .iter()
-            .map(|task| task.id.clone().unwrap_or_default())
-            .collect::<Vec<_>>();
-        assert_eq!(candidate_ids, ["ready-one", "ready-two", "ready-three"]);
-        assert!(!snapshot.candidates_complete);
-        // A finished focus history neither blocks nor promotes a task, and a
-        // closed task is not a candidate.
-        assert!(!candidate_ids.contains(&"closed-history".to_string()));
-        // Invalid focus history is reported instead of being treated as unfocused.
-        assert_eq!(snapshot.skipped_invalid.len(), 1);
-        let skipped = &snapshot.skipped_invalid[0];
-        assert_eq!(skipped.id.as_deref(), Some("invalid-focus"));
-        assert_eq!(skipped.path, "next.plumb");
-        assert_eq!(skipped.codes, ["task.invalid-focus"]);
-        // The reported range points at the offending `focused` value.
-        let source = std::fs::read_to_string(root.join("next.plumb")).unwrap();
-        assert!(skipped.location.end > skipped.location.start);
-        assert!(
-            source[skipped.location.start..skipped.location.end].contains("nonsense--"),
-            "{:?}",
-            &source[skipped.location.start..skipped.location.end]
-        );
-
-        // An explicit limit is honored strictly by task count.
-        let limited = workspace.query_next(Some(1), None).unwrap();
-        assert_eq!(limited.candidate_limit, 1);
-        assert_eq!(limited.candidates.len(), 1);
-        assert!(!limited.candidates_complete);
-        let all = workspace.query_next(Some(10), None).unwrap();
-        assert_eq!(all.candidates.len(), 4);
-        assert!(all.candidates_complete);
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn focus_mutations_guard_the_revision_and_keep_history() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
@@ -3653,7 +3533,10 @@ mod tests {
             .unwrap();
         let focused_source = std::fs::read_to_string(&path).unwrap();
         assert!(focused_source.contains("`= focused "), "{focused_source}");
-        assert!(focused_source.trim_end().ends_with("--"), "{focused_source}");
+        assert!(
+            focused_source.trim_end().ends_with("--"),
+            "{focused_source}"
+        );
 
         let refreshed = WebWorkspace::load_with_revision(&root, 2).unwrap();
         let focused = refreshed
@@ -3664,9 +3547,6 @@ mod tests {
             .find(|task| task.id.as_deref() == Some("ready"))
             .unwrap();
         assert!(focused.focused);
-        let next = refreshed.query_next(None, None).unwrap();
-        assert_eq!(next.focused.len(), 1);
-        assert!(next.candidates.is_empty());
 
         // Focus is idempotent: it must not rewrite the document.
         let before = std::fs::read_to_string(&path).unwrap();
@@ -3675,23 +3555,26 @@ mod tests {
             .unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
 
-        // Unfocus closes the interval and the task returns to the candidates.
+        // Unfocus closes the interval while preserving its history.
         refreshed
             .unfocus_task(&focused.document_id, &focused.locator, &focused.revision)
             .unwrap();
         let closed_source = std::fs::read_to_string(&path).unwrap();
         assert!(!closed_source.trim_end().ends_with("--"), "{closed_source}");
         let refreshed = WebWorkspace::load_with_revision(&root, 3).unwrap();
-        let next = refreshed.query_next(None, None).unwrap();
-        assert!(next.focused.is_empty());
-        assert_eq!(next.candidates.len(), 1);
-        assert!(!next.candidates[0].focused);
-        assert_eq!(next.candidates[0].focus_intervals.len(), 1);
-        assert!(next.candidates[0].focus_intervals[0].end.is_some());
+        let snapshot = refreshed.tasks().unwrap();
+        assert_eq!(snapshot.tasks.len(), 1);
+        let candidate = &snapshot.tasks[0];
+        assert!(!candidate.focused);
+        assert_eq!(candidate.focus_intervals.len(), 1);
+        assert!(candidate.focus_intervals[0].end.is_some());
         // Unfocusing again is an idempotent no-op.
-        let candidate = next.candidates[0].clone();
         refreshed
-            .unfocus_task(&candidate.document_id, &candidate.locator, &candidate.revision)
+            .unfocus_task(
+                &candidate.document_id,
+                &candidate.locator,
+                &candidate.revision,
+            )
             .unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), closed_source);
         std::fs::remove_dir_all(root).unwrap();
@@ -3744,7 +3627,10 @@ mod tests {
             .unfocus_task(&closed.document_id, &closed.locator, &closed.revision)
             .unwrap();
         let updated = std::fs::read_to_string(&path).unwrap();
-        assert!(!updated.contains("2020-01-01T09:00:00+08:00--\n"), "{updated}");
+        assert!(
+            !updated.contains("2020-01-01T09:00:00+08:00--\n"),
+            "{updated}"
+        );
         assert!(updated.contains("`= done"), "{updated}");
         std::fs::remove_dir_all(root).unwrap();
     }

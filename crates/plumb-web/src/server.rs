@@ -308,9 +308,6 @@ async fn query(State(state): State<AppState>, Json(query): Json<WebQuery>) -> Re
         WebView::Tasks => workspace
             .query_tasks(&query)
             .map(|snapshot| json!({ "view": "tasks", "tasks": snapshot })),
-        WebView::Next => workspace
-            .query_next(query.limit, query.cursor.as_deref())
-            .map(|snapshot| json!({ "view": "next", "next": snapshot })),
     };
     match result {
         Ok(result) => Json(result).into_response(),
@@ -1350,7 +1347,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn next_query_and_focus_actions_share_the_task_read_rules() {
+    async fn task_query_preserves_focus_actions_without_a_web_next_view() {
         let root = temp_dir();
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
@@ -1392,8 +1389,6 @@ mod tests {
             listen_addr: "127.0.0.1:3000".parse().unwrap(),
         });
 
-        // The shared shortlist is served by the existing query endpoint, so it
-        // inherits the task query's read rules and error mapping.
         let query = |body: &'static str| {
             Request::post("/api/query")
                 .header(header::CONTENT_TYPE, "application/json")
@@ -1405,49 +1400,7 @@ mod tests {
             .oneshot(query(r#"{"view":"next","traversal":{}}"#))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["view"], "next");
-        assert_eq!(value["next"]["revision"], 1);
-        assert_eq!(value["next"]["focused"].as_array().unwrap().len(), 1);
-        assert_eq!(value["next"]["focusedTotal"], 1);
-        assert_eq!(value["next"]["focusedComplete"], true);
-        assert_eq!(value["next"]["candidateLimit"], 3);
-        assert_eq!(value["next"]["candidates"].as_array().unwrap().len(), 3);
-        assert_eq!(value["next"]["candidatesComplete"], false);
-        assert_eq!(value["next"]["complete"], true);
-        assert!(
-            ["memory", "persistent", "persistentWithOverlay"]
-                .contains(&value["next"]["provenance"].as_str().unwrap()),
-            "{}",
-            value["next"]["provenance"]
-        );
-        assert!(value["next"]["skippedInvalid"]
-            .as_array()
-            .unwrap()
-            .is_empty());
-
-        // An explicit limit is honored and clamped by the shared query.
-        let response = app
-            .clone()
-            .oneshot(query(r#"{"view":"next","limit":1,"traversal":{}}"#))
-            .await
-            .unwrap();
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["next"]["candidateLimit"], 1);
-        assert_eq!(value["next"]["candidates"].as_array().unwrap().len(), 1);
-        assert_eq!(value["next"]["candidates"][0]["id"], "ready-one");
-
-        let response = app
-            .clone()
-            .oneshot(query(r#"{"view":"next","limit":99,"traversal":{}}"#))
-            .await
-            .unwrap();
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["next"]["candidateLimit"], 10);
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
         // Cross-origin focus requests are refused before any edit.
         let focus_body = json!({
@@ -1536,16 +1489,20 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         let response = app
             .clone()
-            .oneshot(query(r#"{"view":"next","traversal":{}}"#))
+            .oneshot(query(r#"{"view":"tasks","traversal":{}}"#))
             .await
             .unwrap();
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        // Only the original in-flight task stays focused, and the unfocused
-        // task returns to the candidate section.
-        assert_eq!(value["next"]["focused"].as_array().unwrap().len(), 1);
-        assert_eq!(value["next"]["focused"][0]["id"], "in-flight");
-        assert_eq!(value["next"]["candidates"][0]["id"], "ready-one");
+        let tasks = value["tasks"]["tasks"].as_array().unwrap();
+        assert_eq!(
+            tasks.iter().filter(|task| task["focused"] == true).count(),
+            1
+        );
+        assert_eq!(tasks[0]["id"], "in-flight");
+        let unfocused = tasks.iter().find(|task| task["id"] == "ready-one").unwrap();
+        assert_eq!(unfocused["focused"], false);
+        assert_eq!(unfocused["focusIntervals"].as_array().unwrap().len(), 1);
         // Unknown actions keep their 404 contract.
         let response = app
             .oneshot(

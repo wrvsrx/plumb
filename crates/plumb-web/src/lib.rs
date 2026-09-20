@@ -6,11 +6,10 @@ mod site;
 
 pub use model::{
     EventSnapshot, GraphDirection, GraphEdge, GraphNode, GraphPresentation, GraphQuery,
-    GraphSnapshot, NextSnapshot, NoteDocument, QueryFailure, QueryPreset, QuerySort, ResourceRecord,
+    GraphSnapshot, NoteDocument, QueryFailure, QueryPreset, QuerySort, ResourceRecord,
     SourceLocation, TaskQuerySnapshot, TaskSnapshot, WebEvent, WebEventDocument, WebEventInput,
-    WebEventLocator, WebQuery, WebSkippedFocus, WebTask, WebTaskDocument, WebTaskInput,
-    WebTaskLocator, WebTaskPlacement, WebTaskReferenceInput, WebView, WebWorkspace, GRAPH_PRESETS,
-    TASK_PRESETS,
+    WebEventLocator, WebQuery, WebTask, WebTaskDocument, WebTaskInput, WebTaskLocator,
+    WebTaskPlacement, WebTaskReferenceInput, WebView, WebWorkspace, GRAPH_PRESETS, TASK_PRESETS,
 };
 pub use pandoc::{adapt_pandoc_targets, render_note_html};
 pub use site::run_site_cli;

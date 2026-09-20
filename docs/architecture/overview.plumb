@@ -115,6 +115,16 @@ Web graph 的 fuzzy search 是基础图的 visibility projection，不建立独�
 
 Web resource endpoint 只为已索引的 workspace-contained resource identity 与匹配的 filename 提供文件；未知 identity、filename 不匹配或文件不可用继续返回 404。已验证的文件通过成熟的 asynchronous streaming file service 提供，不能在 async request handler 中同步读取整个文件到内存。普通 GET 返回 200、正确 MIME、Content-Length 与 Accept-Ranges: bytes；有效 single byte Range 返回 206、精确 byte body、Content-Length 与 Content-Range。至少支持 closed、open-ended 和 suffix byte ranges；不满足文件长度的 range 返回 416 与 Content-Range: bytes */LENGTH。HEAD 返回对应文件 headers 且没有 body。nosniff 和 no-cache policy 在完整与 partial responses 中保持。该 HTTP contract 适用于视频和其他 indexed attachments，浏览器支持且具备有效索引的视频可通过 byte-range requests 跳转到尚未缓冲的位置。
 
+`## Web task focus presentation
+
+Web Tasks 只提供一棵任务树，不提供 Next 页面或 Web next query；CLI / LSP 的 shared next 不受影响。grouped focus presentation 只改变浏览器中的可见性，不产生 authoritative source edits。
+
+shared task page 在分页前按 subtree focused 优先排序；Web 只投影该有序结果。当前筛选结果存在 focused task 时，每层 sibling 中自身及后代均未 focused 的完整子树整体收进一个默认折叠的 Other unfocused tasks 分组；完全未 focused 的 document groups 在最外层收进一个 Other unfocused files 分组。保留 focused task 及其必要祖先路径，不能逐个折叠未关注任务来代替整体分组，也不复制祖先到第二棵树。没有 focused task 时保持普通展开树。
+
+分组展开后保持原有子树结构和次级排序；手动展开与原有 document/task 折叠状态在当前浏览器 session 的查询刷新间保持，不写文档、不进入 URL。选中隐藏任务会展开包含它的分组与祖先；新 focus 的任务也展开其祖先，但普通刷新不覆盖手动折叠。分组 identity 按 document / parent task 区分，不能用当前行号。当前页总数与 Load more 保持可见，分组计数只描述已加载结果，不冒充 workspace 总数。
+
+可折叠文件路径显示其筛选后 task tree 中的 focused 数量，折叠时仍显示；未关注但包含 focused 后代的 task 显示 contains-focused 摘要，不标记其自身 focused。折叠隐藏的记录参与计数，筛选排除的记录不参与；count 与 grouping 从同一保留树计算。focus 的历史与操作语义保持不变。
+
 `# 7. Tree-sitter boundary
 
 tree-sitter grammar 与 strict core 覆盖相同的纯 syntax surface，但容错目标不同。grammar 不能定义 validity，也不能迫使语言设计适应 CFG。

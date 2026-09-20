@@ -208,9 +208,9 @@ try {
   await wait(300);
   assert.equal(await evaluate(`document.body.classList.contains('detail-open')`), false, 'cancelling the task form closes the detail');
 
-  // ---- narrow portrait: the Next shortlist and the focus toggle ----
+  // ---- narrow portrait: focused groups and the focus toggle ----
   // Fixture contract: the served workspace has at least one currently focused
-  // task (with a recorded interval) and at least one ready candidate.
+  // task (with a recorded interval) and at least one unfocused task.
   await open('/tasks', `document.querySelector('.task-row')`);
   const marked = await evaluate(`(() => {
     const row = document.querySelector('.task-list-item.focused');
@@ -226,80 +226,17 @@ try {
   assert.equal(marked.note, 'Focused first', 'the fixed focused-first order is stated in the sort controls');
   assert.ok(marked.summary.includes('focused first'), 'the task summary states the focused-first order');
 
-  await evaluate(`document.querySelector('#task-mode-next').click()`);
-  assert.ok(await waitForReady(`document.querySelector('.next-section-head')`), 'Next renders its two sections');
-  const next = await evaluate(`(() => {
-    const heads = Array.from(document.querySelectorAll('.next-section-head')).map((head) => head.textContent.trim());
-    const limit = document.querySelector('.next-limit select');
-    return {
-      head0: heads[0] || '',
-      head1: heads[1] || '',
-      rows: document.querySelectorAll('.next-list-item').length,
-      toggles: Array.from(document.querySelectorAll('.task-focus-toggle')).map((button) => button.textContent.trim()),
-      limit: limit ? limit.value : null,
-      inFlight: document.querySelectorAll('.next-list-item.focused').length,
-      age: document.querySelector('.next-list-item.focused .task-focus-age')?.textContent || '',
-      state: document.querySelector('.next-list-item.focused .task-state')?.textContent || '',
-      summary: document.querySelector('#task-summary')?.textContent || '',
-      overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    };
-  })()`);
-  assert.ok(next.head0.startsWith('In flight'), `Next names the in-flight section (${next.head0})`);
-  assert.ok(next.head1.includes('Ready to start (limit 3)'), `Next states the candidate limit (${next.head1})`);
-  assert.ok(next.rows >= 2, 'Next renders in-flight and candidate rows');
-  assert.ok(/focused/.test(next.age), `in-flight rows show the focus age (${next.age})`);
-  assert.ok(next.state.length > 0, 'in-flight rows keep their original workflow state');
-  assert.equal(next.limit, '3', 'the requested candidate limit defaults to 3');
-  assert.ok(next.toggles.includes('Unfocus'), 'in-flight rows offer Unfocus');
-  assert.ok(next.toggles.includes('Focus'), 'candidate rows offer Focus');
-  assert.equal(next.overflowX, 0, 'Next must not scroll horizontally');
-  const nextLayout = await evaluate(layout);
-  assert.deepEqual(nextLayout.small, [], 'narrow Next has no sub-24px targets');
-  assert.ok(nextLayout.list.h >= 600, `narrow Next keeps the list height (got ${nextLayout.list.h})`);
-
-  // The requested limit is explicit and re-queries the candidate section.
-  await evaluate(`(() => {
-    const select = document.querySelector('.next-limit select');
-    select.value = '1';
-    select.dispatchEvent(new Event('change'));
-  })()`);
-  assert.ok(
-    await waitForReady(`Array.from(document.querySelectorAll('.next-section-head')).some((head) => head.textContent.includes('limit 1'))`),
-    'changing the limit re-queries Next',
-  );
-
-  // Focus a ready candidate, then unfocus that same task: the in-flight section
-  // grows and shrinks again, and the toggle label follows the server facts.
-  const focusedTitle = await evaluate(`(() => {
-    const button = Array.from(document.querySelectorAll('.task-focus-toggle')).find((candidate) => candidate.textContent.trim() === 'Focus');
-    if (!button) return null;
-    const title = button.closest('.next-list-item').querySelector('.task-identity strong').textContent;
-    button.click();
-    return title;
-  })()`);
-  assert.ok(focusedTitle, 'a candidate row exposes a Focus control');
-  const titleSelector = JSON.stringify(focusedTitle);
-  assert.ok(
-    await waitForReady(`Array.from(document.querySelectorAll('.next-list-item.focused')).some((row) => row.querySelector('.task-identity strong').textContent === ${titleSelector})`),
-    'focusing a candidate moves it into the in-flight section',
-  );
-  const unfocused = await evaluate(`(() => {
-    const row = Array.from(document.querySelectorAll('.next-list-item.focused')).find((candidate) => candidate.querySelector('.task-identity strong').textContent === ${titleSelector});
-    const button = row ? Array.from(row.querySelectorAll('.task-focus-toggle')).find((candidate) => candidate.textContent.trim() === 'Unfocus') : null;
-    if (!button) return false;
-    button.click();
-    return true;
-  })()`);
-  assert.equal(unfocused, true, 'the newly focused row offers Unfocus');
-  assert.ok(
-    await waitForReady(`!Array.from(document.querySelectorAll('.next-list-item.focused')).some((row) => row.querySelector('.task-identity strong').textContent === ${titleSelector})`),
-    'unfocusing returns the task to the candidate section',
-  );
+  assert.equal(await evaluate(`Boolean(document.querySelector('#task-mode-next'))`), false, 'there is no Web Next mode');
+  assert.ok(await evaluate(`Boolean(document.querySelector('.task-document-toggle .task-focused-count'))`), 'file paths show focused counts');
+  assert.ok(await evaluate(`Boolean(document.querySelector('.task-unfocused-group[aria-expanded="false"]'))`), 'unfocused tasks share a collapsed group');
+  await evaluate(`document.querySelector('.task-unfocused-group').click()`);
+  assert.ok(await evaluate(`Boolean(document.querySelector('.task-unfocused-group[aria-expanded="true"]'))`), 'the unfocused group opens manually');
+  assert.equal(await evaluate(`document.documentElement.scrollWidth - document.documentElement.clientWidth`), 0, 'grouped tasks do not overflow');
 
   // The task detail exposes the same toggle and the expandable history.
-  await evaluate(`document.querySelector('.next-list-item.focused .task-row').click()`);
+  await evaluate(`document.querySelector('.task-list-item.focused .task-row').click()`);
   await wait(350);
-  const nextDetail = await evaluate(`(() => {
+  const focusDetail = await evaluate(`(() => {
     const history = document.querySelector('#task-panel .task-focus-history');
     const details = history ? history.querySelector('details') : null;
     return {
@@ -311,11 +248,11 @@ try {
       age: document.querySelector('#task-panel .task-focus-age')?.textContent || '',
     };
   })()`);
-  assert.equal(nextDetail.open, true, 'selecting a Next row pushes the task detail');
-  assert.equal(nextDetail.toggle, 'Unfocus', 'the detail offers Unfocus for a focused task');
-  assert.equal(nextDetail.history, true, 'the detail renders an expandable focus history');
-  assert.ok(nextDetail.intervals >= 1, 'the history lists the recorded intervals');
-  assert.ok(/focused/.test(nextDetail.age), 'the detail badges the current focus span');
+  assert.equal(focusDetail.open, true, 'selecting a focused row pushes the task detail');
+  assert.equal(focusDetail.toggle, 'Unfocus', 'the detail offers Unfocus for a focused task');
+  assert.equal(focusDetail.history, true, 'the detail renders an expandable focus history');
+  assert.ok(focusDetail.intervals >= 1, 'the history lists the recorded intervals');
+  assert.ok(/focused/.test(focusDetail.age), 'the detail badges the current focus span');
   await evaluate(`document.querySelector('#task-panel .task-focus-history details summary').click()`);
   assert.equal(await evaluate(`document.querySelector('#task-panel .task-focus-history details').open`), true, 'the focus history expands in place');
   await evaluate(`document.querySelector('#detail-back').click()`);

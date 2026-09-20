@@ -117,3 +117,76 @@ test('missing fold state means everything is expanded', () => {
     'doc:notes/two.plumb:0/2:false', 'e:false:0', 'f:false:0',
   ]);
 });
+
+const focusedTasks = tasks.map((task) => ({ ...task, focused: task.key === 'c' }));
+const visibleKeys = (items) => items.filter((item) => item.kind === 'task').map((item) => item.task.key);
+
+test('focus retains its ancestor path and groups entire unfocused sibling trees and files', () => {
+  const items = taskListItems(focusedTasks);
+  assert.deepEqual(visibleKeys(items), ['a', 'b', 'c']);
+  const groups = items.filter((item) => item.kind === 'group');
+  assert.deepEqual(groups.map((item) => [item.total, item.documents, item.collapsed]), [[1, 0, true], [2, 1, true]]);
+  assert.equal(items[0].focusedCount, 1);
+  assert.equal(items[0].hidden, 1);
+  assert.equal(items.find((item) => item.task?.key === 'a').focusedCount, 1);
+  assert.equal(focusedTasks[0].focused, false, 'ancestor aggregation does not focus the ancestor');
+});
+
+test('one unfocused group includes multiple siblings and all their descendants', () => {
+  const input = [...focusedTasks.slice(0, 4), task('notes/one.plumb', 'x', 1, 'a'), task('notes/one.plumb', 'y', 2, 'x')];
+  const group = taskListItems(input).find((item) => item.kind === 'group');
+  assert.equal(group.total, 3);
+  const folds = { expandedGroups: new Set([group.key]) };
+  assert.deepEqual(visibleKeys(taskListItems(input, folds)), ['a', 'b', 'c', 'd', 'x', 'y']);
+  // Re-query with fresh objects keeps the manual choice and source order.
+  assert.deepEqual(visibleKeys(taskListItems(structuredClone(input), folds)), ['a', 'b', 'c', 'd', 'x', 'y']);
+});
+
+test('manually expanded unfocused files do not create recursive automatic groups', () => {
+  const items = taskListItems(focusedTasks);
+  const files = items.find((item) => item.kind === 'group' && item.documents);
+  const folds = { expandedGroups: new Set([files.key]) };
+  const expanded = taskListItems(focusedTasks, folds);
+  assert.deepEqual(visibleKeys(expanded), ['a', 'b', 'c', 'e', 'f']);
+  assert.equal(expanded.filter((item) => item.kind === 'group').length, 2);
+});
+
+test('file focus counts survive manual collapse and omit filtered-out tasks', () => {
+  const folds = { documents: new Set(['notes/one.plumb']) };
+  assert.equal(taskListItems(focusedTasks, folds)[0].focusedCount, 1);
+  const filtered = focusedTasks.filter((task) => task.key !== 'c');
+  assert.equal(taskListItems(filtered)[0].focusedCount, 0);
+  assert.equal(taskListItems(filtered).some((item) => item.kind === 'group'), false);
+});
+
+test('selection reveals an unfocused task through its group and manual ancestor folds', () => {
+  const folds = { documents: new Set(['notes/one.plumb']), tasks: new Set(['a']) };
+  assert.equal(revealTask(folds, focusedTasks, focusedTasks[3]), true);
+  assert.deepEqual(visibleKeys(taskListItems(focusedTasks, folds)), ['a', 'b', 'c', 'd']);
+  assert.equal(revealTask(folds, focusedTasks, focusedTasks[3]), false);
+  revealTask(folds, focusedTasks, focusedTasks[5]);
+  assert.deepEqual(visibleKeys(taskListItems(focusedTasks, folds)), ['a', 'b', 'c', 'd', 'e', 'f']);
+});
+
+test('focus transitions reveal the new branch, retain manual folds on refresh, and restore the plain tree', () => {
+  const folds = { tasks: new Set(['b']) };
+  assert.deepEqual(visibleKeys(taskListItems(focusedTasks, folds)), ['a', 'b']);
+  revealTask(folds, focusedTasks, focusedTasks[2]);
+  assert.deepEqual(visibleKeys(taskListItems(focusedTasks, folds)), ['a', 'b', 'c']);
+  folds.tasks.add('b');
+  assert.deepEqual(visibleKeys(taskListItems(structuredClone(focusedTasks), folds)), ['a', 'b']);
+  folds.tasks.clear();
+  assert.deepEqual(visibleKeys(taskListItems(tasks, folds)), ['a', 'b', 'c', 'd', 'e', 'f']);
+});
+
+test('appending an unfocused page keeps one outer group and its manual expansion', () => {
+  const folds = {};
+  const first = taskListItems(focusedTasks, folds);
+  const files = first.find((item) => item.kind === 'group' && item.documents);
+  folds.expandedGroups = new Set([files.key]);
+  const appended = [...focusedTasks, task('notes/three.plumb', 'g', 0)];
+  const items = taskListItems(appended, folds);
+  assert.equal(items.filter((item) => item.kind === 'group' && item.documents).length, 1);
+  assert.equal(items.find((item) => item.kind === 'group' && item.documents).documents, 2);
+  assert.deepEqual(visibleKeys(items), ['a', 'b', 'c', 'e', 'f', 'g']);
+});

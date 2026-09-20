@@ -18,15 +18,11 @@ import {
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 import { revealTask, taskListItems } from './task-tree.js';
 import {
-  candidateHeading,
   focusAge,
   focusBadge,
   focusHistory,
   focusInstantLabel,
-  inFlightHeading,
   isFocused,
-  nextSections,
-  nextSummary,
 } from './focus.js';
 import {
   beginMutation,
@@ -63,11 +59,8 @@ import {
     searchTimer: null,
     view: initialView,
     tasks: null,
-    next: null,
-    taskMode: 'list',
-    nextLimit: 3,
     selectedTask: null,
-    collapsed: { documents: new Set(), tasks: new Set() },
+    collapsed: { documents: new Set(), tasks: new Set(), expandedGroups: new Set() },
     presets: { graph: [], tasks: ['ready', 'blocked'], agenda: [] },
     presetsSpecified: { graph: false, tasks: false, agenda: false },
     query: { graph: '', tasks: '', agenda: '' },
@@ -106,8 +99,6 @@ import {
   const taskList = document.getElementById('task-list');
   const taskEmpty = document.getElementById('task-empty');
   const taskPanel = document.getElementById('task-panel');
-  const taskModeList = document.getElementById('task-mode-list');
-  const taskModeNext = document.getElementById('task-mode-next');
   const newTaskButton = document.getElementById('new-task');
   const notification = document.getElementById('notification');
   const agendaWorkspace = document.querySelector('.agenda-workspace');
@@ -571,9 +562,7 @@ import {
   function runViewQuery(view) {
     if (view === 'graph') return loadGraph();
     if (view === 'tasks') {
-      // Next owns its own sections; refresh the ordinary task snapshot first so
-      // the detail, documents, and revisions stay consistent with it.
-      return state.taskMode === 'next' ? loadTasks().then(() => loadNext()) : loadTasks();
+      return loadTasks();
     }
     return loadEvents();
   }
@@ -1090,63 +1079,22 @@ import {
 
   async function loadTasks(cursor = null) {
     try {
+      const previousFocus = new Set((state.tasks?.tasks || []).filter(isFocused).map((task) => task.key));
       const result = await executeQuery('tasks', cursor);
       observeRevision(state.workspaceRevision, result.tasks.revision);
       state.tasks = cursor ? {
         ...result.tasks,
         tasks: [...state.tasks.tasks, ...result.tasks.tasks],
       } : result.tasks;
+      for (const task of state.tasks.tasks) {
+        if (isFocused(task) && !previousFocus.has(task.key)) revealTask(state.collapsed, state.tasks.tasks, task);
+      }
       setQueryError('tasks', null);
       renderTasks();
     } catch (error) {
       setQueryError('tasks', error);
       if (!state.tasks) taskSummary.textContent = 'Tasks unavailable';
     }
-  }
-
-  // The shared `next` shortlist. The server owns both sections, their order,
-  // and their limits; the client only pages the in-flight section and reads the
-  // completeness signals.
-  async function loadNext(cursor = null) {
-    try {
-      const result = await executeQuery('next', null, {
-        view: 'next',
-        query: '',
-        presets: [],
-        filters: [],
-        sort: [],
-        limit: state.nextLimit,
-        cursor,
-        traversal: {},
-      });
-      observeRevision(state.workspaceRevision, result.next.revision);
-      state.next = cursor && state.next ? {
-        ...result.next,
-        focused: [...state.next.focused, ...result.next.focused],
-      } : result.next;
-      mergeNextTasks(state.next);
-      setQueryError('tasks', null);
-      renderTasks();
-    } catch (error) {
-      setQueryError('tasks', error);
-      renderTasks();
-    }
-  }
-
-  // Keep Next-only tasks resolvable by key (selection, detail, mutations)
-  // without pretending they are part of the ordinary task page.
-  function mergeNextTasks(next) {
-    if (!state.tasks) return;
-    const known = new Map((state.tasks.allTasks || []).map((task) => [task.key, task]));
-    [...next.focused, ...next.candidates].forEach((task) => known.set(task.key, task));
-    state.tasks.allTasks = Array.from(known.values());
-  }
-
-  function setTaskMode(mode) {
-    if (state.taskMode === mode) return;
-    state.taskMode = mode;
-    if (mode === 'next' && !state.next) loadNext();
-    else renderTasks();
   }
 
   async function searchTaskCandidates({ query = '', documentId = null, limit = 50 } = {}) {
@@ -1472,6 +1420,32 @@ import {
     renderTasks();
   }
 
+  function containsFocusBadge(count) {
+    const badge = document.createElement('span');
+    badge.className = 'task-focused-count';
+    badge.textContent = `${count} focused`;
+    badge.title = 'Contains focused tasks in the current results';
+    return badge;
+  }
+
+  function unfocusedGroupItem(item) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'task-unfocused-group';
+    button.dataset.groupKey = item.key;
+    button.style.setProperty('--task-depth', Math.min(item.depth, 5));
+    button.setAttribute('aria-expanded', String(!item.collapsed));
+    const label = item.documents ? `Other unfocused files · ${item.documents}` : `Other unfocused tasks · ${item.total}`;
+    button.textContent = `${item.collapsed ? '▸' : '▾'} ${label}`;
+    button.title = `${item.total} tasks in loaded results`;
+    button.addEventListener('click', () => {
+      if (state.collapsed.expandedGroups.has(item.key)) state.collapsed.expandedGroups.delete(item.key);
+      else state.collapsed.expandedGroups.add(item.key);
+      renderTasks();
+    });
+    return button;
+  }
+
   function taskDocumentItem(item) {
     const heading = document.createElement('button');
     heading.type = 'button';
@@ -1492,6 +1466,10 @@ import {
       ? `${countLabel(item.total, 'task')} hidden`
       : countLabel(item.total, 'task');
     heading.append(mark, path, count);
+    if (item.focusedCount > 0) {
+      heading.classList.add('contains-focused');
+      count.append(containsFocusBadge(item.focusedCount));
+    }
     heading.addEventListener('click', () => toggleTaskDocument(item.path));
     return heading;
   }
@@ -1532,6 +1510,7 @@ import {
     source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
     identity.append(title, source);
     if (isFocused(task)) identity.append(focusAgeBadge(task));
+    else if (item.focusedCount > 0) identity.append(containsFocusBadge(item.focusedCount));
     if (item.collapsed && item.hiddenCount > 0) {
       const hidden = document.createElement('small');
       hidden.className = 'task-hidden-count';
@@ -1581,12 +1560,6 @@ import {
 
   function renderTasks() {
     if (!state.tasks) return;
-    const inNext = state.taskMode === 'next';
-    taskModeList.classList.toggle('active', !inNext);
-    taskModeNext.classList.toggle('active', inNext);
-    taskModeList.setAttribute('aria-pressed', String(!inNext));
-    taskModeNext.setAttribute('aria-pressed', String(inNext));
-    if (inNext) return renderNext();
     const tasks = state.tasks.tasks;
     taskList.replaceChildren();
     taskEmpty.hidden = tasks.length > 0;
@@ -1595,7 +1568,8 @@ import {
     // only inside each focused group.
     taskSummary.textContent = `${tasks.length} tasks${state.tasks.complete ? '' : ' (truncated)'} · focused first`;
     taskListItems(tasks, state.collapsed).forEach((item) => {
-      taskList.append(item.kind === 'document' ? taskDocumentItem(item) : taskListItem(item));
+      taskList.append(item.kind === 'group' ? unfocusedGroupItem(item)
+        : item.kind === 'document' ? taskDocumentItem(item) : taskListItem(item));
     });
     if (state.tasks.nextCursor) {
       const more = document.createElement('button');
@@ -1604,152 +1578,6 @@ import {
       more.textContent = 'Load more';
       more.addEventListener('click', () => loadTasks(state.tasks.nextCursor));
       taskList.append(more);
-    }
-    if (state.selectedTask) {
-      const selected = taskByKey(state.tasks, state.selectedTask);
-      if (selected) renderTaskDetail(selected);
-      else clearTaskDetail('Task unavailable', 'This task is no longer in the workspace.');
-    }
-    syncDetail();
-  }
-
-  function nextNotice(message, className) {
-    const note = document.createElement('p');
-    note.className = `next-notice ${className}`;
-    note.textContent = message;
-    return note;
-  }
-
-  function nextSectionHeading(heading, note = null, control = null) {
-    const element = document.createElement('div');
-    element.className = 'next-section-head';
-    const title = document.createElement('strong');
-    title.textContent = heading;
-    element.append(title);
-    if (note) {
-      const hint = document.createElement('span');
-      hint.className = 'next-section-note';
-      hint.textContent = note;
-      element.append(hint);
-    }
-    if (control) element.append(control);
-    return element;
-  }
-
-  // The requested candidate limit is explicit: 1–10, default 3, owned here and
-  // clamped by the shared query.
-  function nextLimitControl() {
-    const label = document.createElement('label');
-    label.className = 'next-limit';
-    const text = document.createElement('span');
-    text.textContent = 'Limit';
-    const select = document.createElement('select');
-    for (let value = 1; value <= 10; value += 1) select.add(new Option(String(value), String(value)));
-    select.value = String(state.nextLimit);
-    select.disabled = Boolean(state.pendingTask);
-    select.addEventListener('change', () => {
-      state.nextLimit = Number(select.value);
-      loadNext();
-    });
-    label.append(text, select);
-    return label;
-  }
-
-  function nextTaskRow(task, { focused }) {
-    const row = document.createElement('div');
-    row.className = 'next-list-item';
-    row.classList.toggle('selected', task.key === state.selectedTask);
-    row.classList.toggle('focused', focused);
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'task-row';
-    const stateLabel = document.createElement('span');
-    stateLabel.className = `task-state state-${task.state}${task.blocked ? ' blocked' : ''}`;
-    // In-flight rows keep their real workflow state; focus is an extra fact.
-    stateLabel.textContent = taskStateLabel(task);
-    const identity = document.createElement('span');
-    identity.className = 'task-identity';
-    const title = document.createElement('strong');
-    title.textContent = task.title || '(untitled task)';
-    const source = document.createElement('small');
-    source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
-    identity.append(title, source);
-    if (focused) identity.append(focusAgeBadge(task));
-    const due = document.createElement('time');
-    due.textContent = task.due ? task.due.slice(0, 10) : 'No due date';
-    if (task.due) due.dateTime = task.due;
-    button.append(stateLabel, identity, due);
-    button.addEventListener('click', () => selectTask(task, { history: state.narrow ? 'push' : 'replace' }));
-    row.append(button, focusToggleButton(task, 'task-focus-toggle'));
-    return row;
-  }
-
-  function nextSkippedNotice(skipped) {
-    const section = document.createElement('section');
-    section.className = 'next-skipped';
-    const heading = document.createElement('strong');
-    heading.textContent = `${countLabel(skipped.length, 'task')} skipped: invalid focus history`;
-    section.append(heading);
-    skipped.forEach((item) => {
-      const row = document.createElement('div');
-      row.className = 'next-skipped-row';
-      const title = document.createElement('span');
-      title.textContent = item.title || '(untitled task)';
-      const where = document.createElement('small');
-      where.textContent = `${item.id ? `${item.path}#${item.id}` : item.path} · byte ${item.location.start}`;
-      const codes = document.createElement('small');
-      codes.className = 'next-skipped-codes';
-      codes.textContent = (item.codes || []).map((code) => code.replace(/^task\./, '')).join(', ');
-      row.append(title, where, codes);
-      section.append(row);
-    });
-    return section;
-  }
-
-  function renderNext() {
-    taskList.replaceChildren();
-    if (!state.next) {
-      taskEmpty.hidden = false;
-      taskSummary.textContent = 'Next unavailable';
-      syncDetail();
-      return;
-    }
-    const sections = nextSections(state.next);
-    taskEmpty.hidden = true;
-    newTaskButton.disabled = !config.taskMutations || !state.tasks.documents?.length || Boolean(state.pendingTask);
-    taskSummary.textContent = nextSummary(sections);
-    if (!sections.complete) {
-      taskList.append(nextNotice(
-        'Workspace index incomplete: this shortlist may omit tasks.',
-        'next-incomplete',
-      ));
-    }
-    taskList.append(nextSectionHeading(inFlightHeading(sections), 'Oldest focus first'));
-    if (sections.inFlight.length === 0) {
-      taskList.append(nextNotice('Nothing in flight.', 'next-empty'));
-    }
-    sections.inFlight.forEach((task) => {
-      taskList.append(nextTaskRow(task, { focused: true }));
-    });
-    if (state.next.focusedNextCursor) {
-      const remaining = Math.max(0, sections.inFlightTotal - sections.inFlight.length);
-      const more = document.createElement('button');
-      more.type = 'button';
-      more.className = 'load-more-tasks';
-      more.textContent = `Load more in flight (${countLabel(remaining, 'older task')})`;
-      more.disabled = Boolean(state.pendingTask);
-      more.addEventListener('click', () => loadNext(state.next.focusedNextCursor));
-      taskList.append(more);
-    }
-    taskList.append(nextSectionHeading(candidateHeading(sections), null, nextLimitControl()));
-    if (sections.candidates.length === 0) {
-      taskList.append(nextNotice('No ready candidates.', 'next-empty'));
-    }
-    sections.candidates.forEach((task) => {
-      taskList.append(nextTaskRow(task, { focused: false }));
-    });
-    if (sections.skippedInvalid.length > 0) {
-      taskList.append(nextSkippedNotice(sections.skippedInvalid));
     }
     if (state.selectedTask) {
       const selected = taskByKey(state.tasks, state.selectedTask);
@@ -1828,13 +1656,11 @@ import {
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
       observeMutationResponse(response);
       await loadTasks();
-      if (state.taskMode === 'next') await loadNext();
       notify(action === 'focus' ? 'Task focused.' : 'Task unfocused.');
     } catch (error) {
       // Never flip focus optimistically: reload the server facts and surface the
       // failure instead of overwriting the file.
       await loadTasks();
-      if (state.taskMode === 'next') await loadNext();
       const message = String(error);
       const latest = taskByKey(state.tasks, task.key);
       if (latest) {
@@ -2373,8 +2199,6 @@ import {
   });
   graphViewButton.addEventListener('click', () => showView('graph', { historyMode: 'push' }));
   tasksViewButton.addEventListener('click', () => showView('tasks', { historyMode: 'push' }));
-  taskModeList.addEventListener('click', () => setTaskMode('list'));
-  taskModeNext.addEventListener('click', () => setTaskMode('next'));
   newTaskButton.addEventListener('click', () => renderTaskForm());
   agendaViewButton.addEventListener('click', () => showView('agenda', { historyMode: 'push' }));
   agendaNowButton.addEventListener('click', () => {
