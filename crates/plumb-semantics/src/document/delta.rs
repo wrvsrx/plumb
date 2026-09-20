@@ -7,7 +7,8 @@ use std::sync::Arc;
 /// A location within one snapshot and one typed record collection, not a global id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SemanticRecordAddress {
-    pub node_index: usize,
+    /// None denotes a document reducer record, outside syntax shard ownership.
+    pub node_index: Option<usize>,
     pub local_record_index: usize,
 }
 
@@ -28,6 +29,7 @@ mod tests {
         changes: &[SemanticRecordChange<'_, T>],
         records: fn(&SemanticNodeOutput) -> &SemanticRecords<T>,
         expected: &SemanticRecords<T>,
+        document_record: fn(&DocumentOutput) -> Option<SemanticRecordView<'_, T>>,
     ) {
         let mut retained = BTreeMap::new();
         for (node_index, node) in previous.root.tree.nodes.iter().enumerate() {
@@ -39,7 +41,7 @@ mod tests {
             {
                 retained.insert(
                     SemanticRecordAddress {
-                        node_index,
+                        node_index: Some(node_index),
                         local_record_index,
                     },
                     SemanticRecordView {
@@ -49,6 +51,15 @@ mod tests {
                     .to_owned(),
                 );
             }
+        }
+        if let Some(record) = document_record(previous) {
+            retained.insert(
+                SemanticRecordAddress {
+                    node_index: None,
+                    local_record_index: 0,
+                },
+                record.to_owned(),
+            );
         }
         let mut added = Vec::new();
         let mut old_addresses = Vec::new();
@@ -66,11 +77,19 @@ mod tests {
                 old_addresses.push(old.address);
             }
             if let Some(new) = new {
-                let node = &current.root.tree.nodes[new.address.node_index];
-                let actual =
-                    &records(&node.output).owned_records().unwrap()[new.address.local_record_index];
-                assert!(std::ptr::eq(actual, new.value.record));
-                assert_eq!(new.value.offset, node.offset as isize);
+                if let Some(node_index) = new.address.node_index {
+                    let node = &current.root.tree.nodes[node_index];
+                    let actual = &records(&node.output).owned_records().unwrap()
+                        [new.address.local_record_index];
+                    assert!(std::ptr::eq(actual, new.value.record));
+                    assert_eq!(new.value.offset, node.offset as isize);
+                } else {
+                    assert!(std::ptr::eq(
+                        document_record(current).unwrap().record,
+                        new.value.record
+                    ));
+                    assert_eq!(new.value.offset, 0);
+                }
                 added.push(new.value.to_owned());
                 new_addresses.push(new.address);
             }
@@ -78,7 +97,8 @@ mod tests {
         assert!(old_addresses.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(new_addresses.windows(2).all(|pair| pair[0] < pair[1]));
         let mut reconstructed = retained.into_values().chain(added).collect::<Vec<_>>();
-        reconstructed.sort_by_key(RelativeSemanticRecord::start);
+        let root = document_record(current).map(|record| record.to_owned());
+        reconstructed.sort_by_key(|record| (record.start(), root.as_ref() != Some(record)));
         assert_eq!(reconstructed, expected.iter().collect::<Vec<_>>());
     }
 
@@ -105,6 +125,7 @@ mod tests {
             &delta.anchors,
             |node| &node.records.anchors,
             current.anchors(),
+            |_| None,
         );
         verify_records(
             previous,
@@ -112,6 +133,7 @@ mod tests {
             &delta.links,
             |node| &node.records.links,
             current.links(),
+            |_| None,
         );
         verify_records(
             previous,
@@ -119,6 +141,7 @@ mod tests {
             &delta.tasks,
             |node| &node.tasks.tasks,
             &current.tasks().tasks,
+            |output| output.tasks().document_task(),
         );
         verify_records(
             previous,
@@ -126,6 +149,7 @@ mod tests {
             &delta.events,
             |node| &node.events.events,
             &current.events().events,
+            |_| None,
         );
     }
 
@@ -158,6 +182,39 @@ mod tests {
             }
         }
         assert!(count > 500);
+    }
+
+    #[test]
+    fn document_task_delta_tracks_root_fields_owner_changes_and_child_geometry() {
+        let source = "`- First\n `+ task\n\n`= title Project\n`+ task\n`= priority 5\n\nBody.\n\n`= focused 2026-09-21T09:00:00+08:00--\n\n`- Last\n `+ task\n";
+        let previous = output(source);
+        for (needle, replacement) in [
+            ("Project", "Updated project"),
+            ("`+ task\n`= priority", "`+ journal\n`= priority"),
+            ("priority 5", "priority 9"),
+            ("Body.", "Different details."),
+            (
+                "`= focused 2026-09-21T09:00:00+08:00--",
+                "`= focused 2026-09-21T09:00:00+08:00--2026-09-21T10:00:00+08:00",
+            ),
+            ("`- Last\n `+ task", "`- Last\n `+ event"),
+        ] {
+            let start = source.find(needle).unwrap();
+            let changed = source.replacen(needle, replacement, 1);
+            let parsed = plumb_syntax::parse(&changed);
+            let current = analyze_document_incremental(
+                parsed.valid_syntax().unwrap(),
+                &previous,
+                &DocumentChange {
+                    old_range: start..start + needle.len(),
+                    new_range: start..start + replacement.len(),
+                },
+            );
+            let fresh = output(&changed);
+            assert_eq!(current, fresh, "{needle}");
+            verify(&previous, &current);
+            verify(&current, &previous);
+        }
     }
 
     #[test]
@@ -363,6 +420,36 @@ impl DocumentOutput {
                 Some((new_index, &new[new_index])),
             );
         }
+        if changed.tasks {
+            let entry = |value| SemanticRecordEntry {
+                address: SemanticRecordAddress {
+                    node_index: None,
+                    local_record_index: 0,
+                },
+                value,
+            };
+            match (
+                previous.tasks().document_task(),
+                self.tasks().document_task(),
+            ) {
+                (Some(old), Some(new)) if old.to_owned() != new.to_owned() => {
+                    delta.tasks.insert(
+                        0,
+                        SemanticRecordChange::Changed {
+                            previous: entry(old),
+                            current: entry(new),
+                        },
+                    );
+                }
+                (Some(old), None) => delta
+                    .tasks
+                    .insert(0, SemanticRecordChange::Removed(entry(old))),
+                (None, Some(new)) => delta
+                    .tasks
+                    .insert(0, SemanticRecordChange::Added(entry(new))),
+                _ => {}
+            }
+        }
         delta
     }
 }
@@ -382,7 +469,7 @@ fn collect_records<'a, T: RelativeSemanticRecord>(
     let entry = |(node_index, node): (usize, &'a SemanticNode), local_record_index, record| {
         SemanticRecordEntry {
             address: SemanticRecordAddress {
-                node_index,
+                node_index: Some(node_index),
                 local_record_index,
             },
             value: SemanticRecordView {

@@ -119,8 +119,16 @@ impl TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaskOwner {
+    Document,
+    #[default]
+    ListItem,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
+    pub owner: TaskOwner,
     pub range: Range<usize>,
     pub marker_range: Range<usize>,
     pub selection_range: Range<usize>,
@@ -187,7 +195,8 @@ impl TaskRecord {
 impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
     /// Identity/type presence and source-backed outgoing reference inputs, not workflow state.
     pub fn reference_inputs_equal(self, other: crate::SemanticRecordView<'_, TaskRecord>) -> bool {
-        self.range() == other.range()
+        self.owner() == other.owner()
+            && self.range() == other.range()
             && self.id_value() == other.id_value()
             && self.previous_value() == other.previous_value()
             && self
@@ -230,6 +239,10 @@ impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
             .depends
             .iter()
             .map(|dependency| &dependency.target)
+    }
+
+    pub fn owner(self) -> TaskOwner {
+        self.record.owner
     }
 
     pub fn title(self) -> &'a str {
@@ -283,6 +296,15 @@ pub struct TaskOutput {
     pub diagnostics: SemanticDiagnostics,
 }
 
+impl TaskOutput {
+    pub fn document_task(&self) -> Option<crate::SemanticRecordView<'_, TaskRecord>> {
+        self.tasks
+            .views()
+            .next()
+            .filter(|task| task.owner() == TaskOwner::Document)
+    }
+}
+
 impl RelativeSemanticRecord for TaskRecord {
     fn start(&self) -> usize {
         self.range.start
@@ -311,17 +333,21 @@ impl RelativeSemanticRecord for TaskRecord {
         for dependency in &mut self.depends {
             shift_range(&mut dependency.range, delta);
         }
-        if let Some(range) = self.focused.range.as_mut() {
+        shift_focus(&mut self.focused, delta);
+    }
+}
+
+fn shift_focus(focus: &mut TaskFocus, delta: isize) {
+    if let Some(range) = focus.range.as_mut() {
+        shift_range(range, delta);
+    }
+    for interval in &mut focus.intervals {
+        shift_range(&mut interval.range, delta);
+    }
+    for problem in &mut focus.problems {
+        shift_range(&mut problem.range, delta);
+        for range in &mut problem.related {
             shift_range(range, delta);
-        }
-        for interval in &mut self.focused.intervals {
-            shift_range(&mut interval.range, delta);
-        }
-        for problem in &mut self.focused.problems {
-            shift_range(&mut problem.range, delta);
-            for range in &mut problem.related {
-                shift_range(range, delta);
-            }
         }
     }
 }
@@ -332,6 +358,18 @@ fn shift_range(range: &mut Range<usize>, delta: isize) {
 }
 
 pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
+    let metadata = crate::analyze_metadata(valid);
+    let document_task = document_task_record(
+        valid.source(),
+        &metadata,
+        [(valid.syntax(), valid.source(), 0)],
+    );
+    let mut output = analyze_list_tasks(valid, usize::from(document_task.is_some()));
+    prepend_document_task(document_task, &mut output);
+    output
+}
+
+pub(crate) fn analyze_list_tasks(valid: ValidDocument<'_>, depth: usize) -> TaskOutput {
     let source = valid.source();
     let document = valid.syntax();
     let mut output = TaskOutput::default();
@@ -344,7 +382,7 @@ pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
         collect_blocks(
             source,
             std::slice::from_ref(block),
-            0,
+            depth,
             &table_items,
             &mut output,
         );
@@ -354,13 +392,16 @@ pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
 
 pub fn analyze_green_tasks(valid: ValidGreenDocument<'_>) -> TaskOutput {
     let mut output = TaskOutput::default();
+    let metadata = crate::metadata::analyze_green_metadata(valid);
+    let document_task = green_document_task_record(valid, &metadata);
+    let depth = usize::from(document_task.is_some());
     for shard in valid.syntax().shards() {
         let local = shard
             .shard()
             .parsed()
             .valid_syntax()
             .expect("valid green document has valid shards");
-        let local = analyze_tasks(local);
+        let local = analyze_list_tasks(local, depth);
         for mut task in local.tasks.iter() {
             task.shift(shard.offset() as isize);
             output.tasks.push(task);
@@ -373,7 +414,109 @@ pub fn analyze_green_tasks(valid: ValidGreenDocument<'_>) -> TaskOutput {
             output.diagnostics.push(diagnostic);
         }
     }
+    prepend_document_task(document_task, &mut output);
     output
+}
+
+/// Reduce root declarations independently of list-owner shard analysis.
+pub(crate) fn green_document_task_record(
+    valid: ValidGreenDocument<'_>,
+    metadata: &crate::MetadataOutput,
+) -> Option<(TaskRecord, Vec<AttrItem>)> {
+    document_task_record(
+        valid.source(),
+        metadata,
+        valid.syntax().shards().map(|view| {
+            let parsed = view.shard().parsed();
+            (&parsed.syntax, parsed.source.as_str(), view.offset())
+        }),
+    )
+}
+
+fn document_task_record<'a>(
+    source: &str,
+    metadata: &crate::MetadataOutput,
+    documents: impl IntoIterator<Item = (&'a plumb_syntax::Document, &'a str, usize)>,
+) -> Option<(TaskRecord, Vec<AttrItem>)> {
+    let facet = metadata.facets.iter().find(|facet| facet.name == "task")?;
+    let mut attrs = Vec::new();
+    let mut focus_occurrences = Vec::new();
+    for (document, local_source, offset) in documents {
+        let mut focus = focus_field(local_source, &document.blocks, &document.attrs.items);
+        if focus.present {
+            shift_focus(&mut focus, offset as isize);
+            focus_occurrences.push(focus);
+        }
+        for item in &document.attrs.items {
+            let mut item = item.clone();
+            let delta = offset as isize;
+            match &mut item {
+                AttrItem::Id {
+                    range, value_range, ..
+                }
+                | AttrItem::Class {
+                    range, value_range, ..
+                } => {
+                    shift_range(range, delta);
+                    shift_range(value_range, delta);
+                }
+                AttrItem::Pair {
+                    range,
+                    key_range,
+                    value,
+                    ..
+                } => {
+                    shift_range(range, delta);
+                    shift_range(key_range, delta);
+                    shift_range(&mut value.range, delta);
+                }
+            }
+            attrs.push(item);
+        }
+    }
+    let selection_range = metadata
+        .metadata
+        .as_ref()
+        .and_then(|metadata| {
+            metadata
+                .entries
+                .iter()
+                .find(|entry| entry.key == "title")
+                .map(|entry| entry.value.range().clone())
+        })
+        .unwrap_or_else(|| facet.selection_range.clone());
+    let task = TaskRecord {
+        owner: TaskOwner::Document,
+        range: 0..source.len(),
+        marker_range: facet.range.clone(),
+        selection_range,
+        title: metadata.document_title().unwrap_or_default(),
+        depth: 0,
+        attribute_insert: facet.range.end,
+        attribute_range: 0..source.len(),
+        id: None,
+        ..task_properties(source, &attrs, merge_focus_occurrences(focus_occurrences))
+    };
+    Some((task, attrs))
+}
+
+pub(crate) fn prepend_document_task(
+    document: Option<(TaskRecord, Vec<AttrItem>)>,
+    output: &mut TaskOutput,
+) {
+    let Some((task, attrs)) = document else {
+        return;
+    };
+    let mut combined = TaskOutput::default();
+    collect_task_diagnostics(&task, &attrs, &mut combined);
+    combined.tasks.push(task);
+    for task in output.tasks.iter() {
+        combined.tasks.push(task);
+    }
+    for diagnostic in output.diagnostics.iter() {
+        combined.diagnostics.push(diagnostic);
+    }
+    *output = combined;
 }
 
 fn collect_blocks(
@@ -439,8 +582,17 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
             .range
             .clone()
             .unwrap_or(mark.marker_range.end..mark.marker_range.end),
-        persistent_attributes: attrs
-            .items
+        ..task_properties(
+            source,
+            &attrs.items,
+            focus_field(source, &block.children, &attrs.items),
+        )
+    }
+}
+
+fn task_properties(source: &str, items: &[AttrItem], focused: TaskFocus) -> TaskRecord {
+    TaskRecord {
+        persistent_attributes: items
             .iter()
             .filter(|item| !transient_task_attribute(item))
             .map(|item| match item {
@@ -449,7 +601,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
                 | AttrItem::Pair { range, .. } => source[range.clone()].to_string(),
             })
             .collect(),
-        id: attrs.items.iter().find_map(|item| match item {
+        id: items.iter().find_map(|item| match item {
             AttrItem::Id {
                 value, value_range, ..
             } => Some(TaskField {
@@ -458,16 +610,17 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
             }),
             AttrItem::Class { .. } | AttrItem::Pair { .. } => None,
         }),
-        created: datetime_field(attrs.items.as_slice(), "created"),
-        due: datetime_field(attrs.items.as_slice(), "due"),
-        wait: datetime_field(attrs.items.as_slice(), "wait"),
-        done: datetime_field(attrs.items.as_slice(), "done"),
-        canceled: datetime_field(attrs.items.as_slice(), "canceled"),
-        recur: string_field(attrs.items.as_slice(), "recur"),
-        prev: string_field(attrs.items.as_slice(), "prev"),
-        priority: priority_field(attrs.items.as_slice()),
-        depends: dependency_fields(source, attrs.items.as_slice()),
-        focused: focus_field(source, block, attrs.items.as_slice()),
+        created: datetime_field(items, "created"),
+        due: datetime_field(items, "due"),
+        wait: datetime_field(items, "wait"),
+        done: datetime_field(items, "done"),
+        canceled: datetime_field(items, "canceled"),
+        recur: string_field(items, "recur"),
+        prev: string_field(items, "prev"),
+        priority: priority_field(items),
+        depends: dependency_fields(source, items),
+        focused,
+        ..TaskRecord::default()
     }
 }
 
@@ -505,7 +658,7 @@ fn task_field(value: &AttrValue) -> TaskField {
 /// `focused` is either one leaf interval value or a child-bearing `=` declaration whose
 /// direct `-` children each hold exactly one interval. The child-bearing form is not an
 /// `AttrItem`, so it is read from the owning block's children.
-fn focus_field(source: &str, block: &ParsedBlock, items: &[AttrItem]) -> TaskFocus {
+fn focus_field(source: &str, children: &[Block], items: &[AttrItem]) -> TaskFocus {
     let mut occurrences: Vec<TaskFocus> = Vec::new();
 
     for item in items {
@@ -527,7 +680,7 @@ fn focus_field(source: &str, block: &ParsedBlock, items: &[AttrItem]) -> TaskFoc
         }
     }
 
-    for child in &block.children {
+    for child in children {
         let Block::Parsed(child) = child else {
             continue;
         };
@@ -584,10 +737,7 @@ fn focus_field(source: &str, block: &ParsedBlock, items: &[AttrItem]) -> TaskFoc
                 continue;
             };
             let range = trim_source_range(source, &entry.content.range);
-            let marker_is_list_item = entry
-                .mark
-                .as_ref()
-                .is_some_and(|mark| mark.marker == "-");
+            let marker_is_list_item = entry.mark.as_ref().is_some_and(|mark| mark.marker == "-");
             if !marker_is_list_item || !entry.children.is_empty() {
                 push_focus_problem(&mut focus, FocusProblemCode::Invalid, range, Vec::new());
                 continue;
@@ -606,6 +756,10 @@ fn focus_field(source: &str, block: &ParsedBlock, items: &[AttrItem]) -> TaskFoc
         occurrences.push(focus);
     }
 
+    merge_focus_occurrences(occurrences)
+}
+
+fn merge_focus_occurrences(mut occurrences: Vec<TaskFocus>) -> TaskFocus {
     match occurrences.len() {
         0 => TaskFocus::default(),
         1 => occurrences.pop().expect("one focus declaration"),
@@ -910,6 +1064,16 @@ fn collect_task_diagnostics(task: &TaskRecord, attrs: &[AttrItem], output: &mut 
     let Some(recur) = &task.recur else {
         return;
     };
+    if task.owner == TaskOwner::Document {
+        output.diagnostics.push(Diagnostic {
+            code: "task.document-recur",
+            severity: DiagnosticSeverity::Warning,
+            message: "document tasks do not support recurrence".to_owned(),
+            range: recur.range.clone(),
+            related: Vec::new(),
+        });
+        return;
+    }
     if !valid_repeat_rule(&recur.value) {
         output.diagnostics.push(Diagnostic {
             code: "task.invalid-recur",
@@ -1005,6 +1169,72 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn document_task_reduces_interleaved_declarations_once_and_organizes_children() {
+        let source = "`- First\n `+ task\n\n `- Child\n  `+ task\n\n`= title Whole document\n`+ task\n`= priority 7\n\nDetails.\n\n`+ task\n`= focused\n `- 2026-09-20T09:00:00+08:00--2026-09-20T10:00:00+08:00\n `- 2026-09-21T09:00:00+08:00--\n\n`- Last\n `+ task\n";
+        let parsed = parse(source);
+        let green = plumb_syntax::GreenDocument::parse(source);
+        let output = analyze_tasks(parsed.valid_syntax().unwrap());
+        assert_eq!(output, analyze_green_tasks(green.valid_syntax().unwrap()));
+        assert_eq!(
+            output,
+            *crate::analyze_document(parsed.valid_syntax().unwrap()).tasks()
+        );
+        let tasks = output.tasks.iter().collect::<Vec<_>>();
+        assert_eq!(tasks.len(), 4);
+        assert_eq!(
+            tasks.iter().map(|task| task.depth).collect::<Vec<_>>(),
+            [0, 1, 2, 1]
+        );
+        let document = &tasks[0];
+        assert_eq!(document.owner, TaskOwner::Document);
+        assert_eq!(document.title, "Whole document");
+        assert_eq!(&source[document.selection_range.clone()], "Whole document");
+        assert_eq!(document.range, 0..source.len());
+        assert_eq!(document.id, None);
+        assert_eq!(document.priority, Some(7));
+        assert!(document.is_focused());
+        assert_eq!(document.focused.intervals.len(), 2);
+        assert!(tasks[1..]
+            .iter()
+            .all(|task| task.owner == TaskOwner::ListItem && !task.is_focused()));
+        assert!(output.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn document_task_uses_shared_validation_and_rejects_recurrence() {
+        let source = "`+ task\n`= title Project\n`= due bad\n`= priority bad\n`= done 2026-09-21T10:00:00+08:00\n`= recur P1D\n\nBody.\n\n`= focused 2026-09-21T09:00:00+08:00--\n";
+        let parsed = parse(source);
+        let green = plumb_syntax::GreenDocument::parse(source);
+        let output = analyze_tasks(parsed.valid_syntax().unwrap());
+        assert_eq!(output, analyze_green_tasks(green.valid_syntax().unwrap()));
+        let codes = output
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            codes,
+            [
+                "task.invalid-datetime",
+                "task.invalid-priority",
+                "task.focus-on-closed",
+                "task.document-recur"
+            ]
+        );
+        assert!(!output.document_task().unwrap().to_owned().is_focused());
+    }
+
+    #[test]
+    fn duplicate_document_focus_properties_are_diagnosed_across_shards() {
+        let source = "`+ task\n`= focused 2026-09-20T09:00:00+08:00--\n\nBody.\n\n`= focused 2026-09-21T09:00:00+08:00--\n";
+        let parsed = parse(source);
+        let green = plumb_syntax::GreenDocument::parse(source);
+        let output = analyze_tasks(parsed.valid_syntax().unwrap());
+        assert_eq!(output, analyze_green_tasks(green.valid_syntax().unwrap()));
+        assert!(!output.document_task().unwrap().to_owned().focus_valid());
+    }
 
     #[test]
     fn green_task_projection_matches_complete_analysis() {
@@ -1240,7 +1470,7 @@ mod tests {
     }
 
     #[test]
-    fn task_facet_requires_a_list_item_and_specialized_markers_are_ordinary() {
+    fn non_document_task_facets_require_list_items_and_specialized_markers_are_ordinary() {
         let source = "`note Not a task\n  `+ task\n\n`task Legacy marker\n\n`. Work\n `+ task\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
@@ -1400,5 +1630,4 @@ mod tests {
         assert!(!task.is_focused());
         assert_eq!(task.focused_since(), None);
     }
-
 }

@@ -105,7 +105,7 @@ sequence；filename stem 中的 spaces 不引入 anonymous Group。例如 `"Proj
 
 `## 5.1 Document facets and tasks target contract
 
-Status：文档级 task 待实现；generic document facet 已实现。以下 task 规则是实现验收契约。
+Status：generic document facet 与文档级 task 的共享语义投影已实现；workspace 引用、编辑与 adapters 待实现。以下规则是完整功能的验收契约。
 
 文档根层 direct leaf `"+" declaration 接受与普通 owner 相同的 facet name 形态；未知 facet 保留为 opaque 声明，不进入 body。空值、rich name 或带 children 的 facet 发布 semantic diagnostic。根层 `"@" 仍不支持，文档身份始终来自 normalized path。
 

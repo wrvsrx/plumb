@@ -14,10 +14,10 @@ use crate::lists::{ListGroupSegment, ReducedListGroup};
 use crate::records::{DiagnosticSegment, RecordSegment};
 use crate::{
     analyze_citations, analyze_events, analyze_headings, analyze_inline_styles, analyze_lists,
-    analyze_math, analyze_quotes, analyze_tables, analyze_tasks, CitationOutput, EventOutput,
-    HeadingOutput, InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput, MetadataOutput,
-    MetadataValue, QuoteOutput, RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords,
-    TableOutput, TaskOutput,
+    analyze_math, analyze_quotes, analyze_tables, CitationOutput, EventOutput, HeadingOutput,
+    InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput, MetadataOutput, MetadataValue,
+    QuoteOutput, RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords, TableOutput,
+    TaskOutput,
 };
 use crate::{
     headings::{heading_topology_eq, reduce_heading_outputs},
@@ -826,6 +826,9 @@ fn analyze_semantic_tree_observed(
     let metadata = reusable_metadata
         .map(|previous| Arc::clone(&previous.root.metadata))
         .unwrap_or_else(|| Arc::new(analyze_green_metadata(valid)));
+    let has_document_task = metadata.facets.iter().any(|facet| facet.name == "task");
+    let had_document_task =
+        previous.is_some_and(|previous| previous.tasks().document_task().is_some());
     let document_declaration_end = reusable_metadata.map_or_else(
         || document_declaration_end(&syntax),
         |previous| previous.root.document_declaration_end,
@@ -913,7 +916,10 @@ fn analyze_semantic_tree_observed(
                         inline_styles: analyze_inline_styles(local),
                         math: analyze_math(local),
                         quotes: analyze_quotes(local),
-                        tasks: analyze_tasks(local),
+                        tasks: crate::tasks::analyze_list_tasks(
+                            local,
+                            usize::from(has_document_task),
+                        ),
                         events: analyze_events(local, &metadata),
                         lists: analyze_lists(local),
                         tables,
@@ -988,7 +994,10 @@ fn analyze_semantic_tree_observed(
         nodes,
         cache_hits,
         semantic_equal_hits,
-        document_reducers_reused: all_local_summaries_equal && all_node_geometry_equal,
+        document_reducers_reused: all_local_summaries_equal
+            && all_node_geometry_equal
+            && !has_document_task
+            && !had_document_task,
     });
     if tree.document_reducers_reused {
         return rebind_unchanged_document(
@@ -1026,6 +1035,8 @@ fn analyze_semantic_tree_observed(
         root_diagnostics_rebindable && previous.root.diagnostics.is_tree_rebindable()
     });
     let mut projections = if records_rebindable
+        && !has_document_task
+        && !had_document_task
         && diagnostics_rebindable
         && root_diagnostic_projection_source.is_some()
     {
@@ -1078,20 +1089,28 @@ fn analyze_semantic_tree_observed(
             |output| &output.quotes.quotes,
         ),
     };
-    let tasks = TaskOutput {
+    let mut tasks = TaskOutput {
         tasks: projected_records(
             &tree,
-            record_projection_source.map(|previous| &previous.root.tasks.tasks),
+            record_projection_source
+                .filter(|_| !had_document_task)
+                .map(|previous| &previous.root.tasks.tasks),
             std::mem::take(&mut projections.tasks),
             |output| &output.tasks.tasks,
         ),
         diagnostics: projected_diagnostics(
             &tree,
-            diagnostic_projection_source.map(|previous| &previous.root.tasks.diagnostics),
+            diagnostic_projection_source
+                .filter(|_| !had_document_task)
+                .map(|previous| &previous.root.tasks.diagnostics),
             std::mem::take(&mut projections.task_diagnostics),
             |output| &output.tasks.diagnostics,
         ),
     };
+    crate::tasks::prepend_document_task(
+        crate::tasks::green_document_task_record(tree.syntax.valid_syntax().unwrap(), &metadata),
+        &mut tasks,
+    );
     let events = EventOutput {
         events: projected_records(
             &tree,

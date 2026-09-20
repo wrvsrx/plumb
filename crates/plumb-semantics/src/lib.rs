@@ -319,6 +319,6 @@ pub use tables::{analyze_tables, TableCellRecord, TableOutput, TableRecord, Tabl
 pub use tasks::{
     analyze_green_tasks, analyze_tasks, next_task_datetime, parse_task_reference_target,
     valid_task_datetime, FocusInterval, FocusProblem, FocusProblemCode, TaskDependency, TaskField,
-    TaskFocus, TaskOutput, TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
+    TaskFocus, TaskOutput, TaskOwner, TaskRecord, TaskReferenceTarget, TaskState, TaskStatus,
 };
 pub use text::plain_text as semantic_plain_text;
