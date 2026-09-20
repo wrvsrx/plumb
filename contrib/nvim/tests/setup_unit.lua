@@ -9,6 +9,7 @@ local opts = {
   command = repo .. '/target/debug/plumb',
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = false },
+  next = { enabled = false },
 }
 vim.api.nvim_set_hl(0, 'PlumbTaskFoldWaiting', { fg = 0x123456 })
 plumb.setup(opts)
@@ -18,6 +19,7 @@ assert(
 )
 assert(package.loaded['plumb.codelens'] == nil, 'defer the CodeLens implementation')
 assert(package.loaded['plumb.search'] == nil, 'defer the search implementation')
+assert(package.loaded['plumb.next'] == nil, 'defer the next implementation')
 local first = #vim.api.nvim_get_autocmds({ group = 'PlumbNvim' })
 plumb.setup(opts)
 local second = #vim.api.nvim_get_autocmds({ group = 'PlumbNvim' })
@@ -26,6 +28,7 @@ for _, name in ipairs({ 'PlumbFormat', 'PlumbRename', 'PlumbCodeAction', 'PlumbT
   assert(vim.fn.exists(':' .. name) == 0, name .. ' should remain a native LSP action')
 end
 assert(vim.fn.exists(':PlumbNotes') == 0)
+assert(vim.fn.exists(':PlumbNext') == 0)
 assert(vim.fn.exists(':PlumbReferences') == 0)
 assert(type(vim.lsp.commands['plumb.showReferences']) == 'function')
 assert(vim.fn.exists(':PlumbWeb') == 0)
@@ -36,5 +39,6 @@ plumb.setup({
   lsp = { enabled = false },
   codelens = { enabled = false },
   search = { enabled = false },
+  next = { enabled = false },
 })
 assert(vim.lsp.commands['plumb.showReferences'] == nil, 'remove a disabled CodeLens handler')

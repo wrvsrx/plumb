@@ -379,7 +379,7 @@ revision 或 disk bytes；query completeness、source ordering、reference count
 References position projection 复用相同 request-local cache，覆盖 anchor 与 document targets；
 includeDeclaration 为 true 时声明仍在首项，其余 references 保持 workspace query 的原始顺序。
 
-官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3。request 的可选 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative `"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item 还可包含 `"id"、resolved `"start"/`"end" 与 associated `"tasks"。增加 record kind 或改变 typed fields 必须提升 schema version；client 必须按 initialize capability 中声明的 version 接受或明确拒绝。
+官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3；shared `"next" shortlist 的 projection 使用 `"plumb/next" schema version 1，只映射两段结果、上限、completeness 与 skipped-invalid 报告，adapter 不重新过滤或排序。request 的可选 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative `"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item 还可包含 `"id"、resolved `"start"/`"end" 与 associated `"tasks"。增加 record kind 或改变 typed fields 必须提升 schema version；client 必须按 initialize capability 中声明的 version 接受或明确拒绝。
 
 `# 9. Operations and editing
 

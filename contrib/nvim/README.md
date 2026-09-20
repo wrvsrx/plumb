@@ -31,7 +31,7 @@ setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；`lsp`、`code
 
 standard ftplugin 对 plumb buffers 设置 buffer-local `expandtab`、`shiftwidth=1` 与跟随它的 `softtabstop`，并在 filetype 变化时恢复这些选项。它保留用户的 `tabstop`，避免改变 verbatim payload 中真实 tab bytes 的显示宽度。
 
-modules 要求 Neovim 0.12。`plumb.search` 还要求 attached plumb LSP 声明 `experimental.plumb.search` schema version 3。native search 使用 `vim.ui.input/select`；`live_search` 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和 incomplete-result state。
+modules 要求 Neovim 0.12。`plumb.search` 还要求 attached plumb LSP 声明 `experimental.plumb.search` schema version 3；`plumb.next` 要求 `experimental.plumb.next` schema version 1。native search 使用 `vim.ui.input/select`；`live_search` 接受 picker adapter，并负责 debounce、request cancellation、stale-result suppression、locations 和 incomplete-result state。`PlumbNext` 用同一个 native picker 显示 shared `plumb/next` 的两段结果：`in flight`（当前 focused 的任务，含 waiting/blocked）与 `ready`（ready 且未 focused 的任务，默认 3 条）。 标签只显示"已关注多久"或绝对起点，不把 focus 说成工作时长；`require('plumb.next').toggle(item)` 复用 server 的 task Focus/Unfocus code action，client 不自己构造编辑。
 
 plugin 不修改 window-local folding settings。`plumb lsp` 仍提供 folding ranges 与 task `collapsedText`；editor configuration 决定是否使用 `vim.lsp.foldexpr()` 与 `require('plumb').foldtext()`。后者包装原生 `vim.lsp.foldtext()`，并为 waiting、blocked、done、canceled、 conflicted task 的整条 label 使用独立 fold highlight groups；ready 保持原样。waiting、blocked、done、 conflicted 保持原有 DiagnosticInfo、DiagnosticHint、Comment、DiagnosticWarn links。Canceled 使用 resolved `Comment` 的弱化颜色，并叠加 DiagnosticDeprecated 的删除线而不继承它的颜色。这不会改变 task body 的 semantic highlight。LSP protocol 自身不传递 fold label highlight。 LSP formatting 只返回 changed-line edits，因此原生 `vim.lsp.buf.format()` 和 format-on-save 不会用整篇 replacement 重置未变化 blocks 的 window-local fold overrides。server 会向 `lineFoldingOnly` client 返回 `startLine == endLine` 的单行 task/event range；支持这类 range 的 editor 还需要 `foldminlines = 0` 才能关闭只占一个 screen line 的 fold。上游 Neovim 0.12 的 LSP fold adapter 会忽略这类 range；plugin 不提供额外的 folding-range adapter。
 
@@ -59,7 +59,7 @@ lazy.nvim 使用 source checkout 时：
 
 # Commands and API
 
-setup 只注册 `PlumbNotes` 与 `PlumbTasks`。References CodeLens 使用 `vim.lsp.codelens.run()`； formatting、rename、CodeAction 与 task operations 使用 Neovim 原生 LSP API；Web app 通过 `plumb site serve` CLI 启动。完整 public Lua API 和 default-free keymap examples 见 editor integration guide 与 `doc/plumb.txt`。
+setup 只注册 `PlumbNotes`、`PlumbTasks` 与 `PlumbNext`。References CodeLens 使用 `vim.lsp.codelens.run()`； formatting、rename、CodeAction 与 task operations 使用 Neovim 原生 LSP API；Web app 通过 `plumb site serve` CLI 启动。完整 public Lua API 和 default-free keymap examples 见 editor integration guide 与 `doc/plumb.txt`。
 
 # Reference CodeLens
 

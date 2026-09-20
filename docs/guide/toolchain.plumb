@@ -39,7 +39,7 @@ diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line
 
 `"plumb lsp" 提供 strict syntax 与 semantic diagnostics、document symbols、definition、references、 hover、completion、anchor/document rename、metadata insertion、task conversion/created/status actions、 metadata document-reference 与 explicit-anchor CodeLens、task semantic tokens 和 whole-document formatting。server 会扫描 workspace，并在 editor 支持时 监听 `"..plumb" 与 `".ignore" file changes。ignore rule 变化会 resynchronize disk index；ignored document 若作为 open buffer 存在，仍由 open-buffer snapshot 覆盖 disk index。
 
-标准 `"workspace/symbol" 支持 `"note QUERY"、`"task QUERY"、`"event QUERY" 和无 prefix 的混合搜索， 结果包含可跳转 Location。`"plumb/search" custom request 提供 schema version 3 的 typed records：
+标准 `"workspace/symbol" 支持 `"note QUERY"、`"task QUERY"、`"event QUERY" 和无 prefix 的混合搜索， 结果包含可跳转 Location。`"plumb/search" custom request 提供 schema version 3 的 typed records，`"plumb/next" custom request 提供 schema version 1 的 shortlist：
 
 `json"
   {

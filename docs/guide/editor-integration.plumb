@@ -176,7 +176,7 @@ SpaceRun，不写 pipe。whole/range formatting 使用同一 formatter与 change
 
 `"live_search" 允许 picker adapter 提供 debounce、cancellation、preview 和 incomplete-result UI；Lua API 见 `"contrib/nvim/README.plumb"。
 
-`"plumb.search.search_notes(opts)" 与 `"search_tasks(opts)" 使用当前 buffer，或者显式的 `"opts.bufnr"， 选择 attached clients 中声明 `"experimental.plumb.search"、`"{method = "plumb/search"}" 与 `"schemaVersion = 3" 的一个。没有兼容 client、schema 不匹配、request error 与 malformed response 都通过 `"vim.notify" 报告；空结果交给 `"vim.ui.select"，选择结果后使用对应 client 的 `"offset_encoding" 调用 `"vim.lsp.util.show_document" 跳转到 `"Location"。
+`"plumb.search.search_notes(opts)" 与 `"search_tasks(opts)" 使用当前 buffer，或者显式的 `"opts.bufnr"， 选择 attached clients 中声明 `"experimental.plumb.search"、`"{method = "plumb/search"}" 与 `"schemaVersion = 3" 的一个。 `"plumb.next.open(opts)" 与 `"toggle(item, opts)" 同理选择声明 `"experimental.plumb.next"、`"{method = "plumb/next"}" 与 `"schemaVersion = 1" 的 client，并把两段 shortlist 交给 `"vim.ui.select"，Focus/Unfocus 由 server 的 task code action 完成。没有兼容 client、schema 不匹配、request error 与 malformed response 都通过 `"vim.notify" 报告；空结果交给 `"vim.ui.select"，选择结果后使用对应 client 的 `"offset_encoding" 调用 `"vim.lsp.util.show_document" 跳转到 `"Location"。
 
 可以直接执行一行命令：
 

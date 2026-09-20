@@ -63,6 +63,7 @@ COMMANDS                                                      *plumb-commands*
 
 :PlumbNotes           Search workspace notes.
 :PlumbTasks           Search ready workspace tasks.
+:PlumbNext            Show tasks in flight and tasks ready to start.
 
 =============================================================================
 LUA API                                                            *plumb-api*
@@ -73,6 +74,8 @@ require('plumb').foldtext()                   Render LSP fold text with task hig
 require('plumb.search').search_notes(opts)    Search notes.
 require('plumb.search').search_tasks(opts)    Search tasks.
 require('plumb.search').live_search(...)      Adapter-driven cancellable search.
+require('plumb.next').open(opts)              Show the shared next shortlist.
+require('plumb.next').toggle(item, opts)      Focus or unfocus one shortlist entry.
 
 =============================================================================
 HEALTH                                                          *plumb-health*

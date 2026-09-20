@@ -5,12 +5,14 @@ local defaults = {
   lsp = { enabled = true, root_markers = { '.plumb', '.git' } },
   codelens = { enabled = true, picker = 'quickfix' },
   search = { enabled = true, picker = 'native', task_filter = 'state == "ready"' },
+  next = { enabled = true, picker = 'native', limit = 3 },
 }
 
 local config = vim.deepcopy(defaults)
 local commands = {
   'PlumbNotes',
   'PlumbTasks',
+  'PlumbNext',
 }
 local codelens_command = 'plumb.showReferences'
 
@@ -64,6 +66,14 @@ function M.setup(opts)
         filter = config.search.task_filter,
       })
     end, 'Search plumb tasks')
+  end
+  if config.next.enabled then
+    command('PlumbNext', function()
+      require('plumb.next').open({
+        picker = config.next.picker,
+        limit = config.next.limit,
+      })
+    end, 'Show tasks in flight and ready to start')
   end
   return M
 end

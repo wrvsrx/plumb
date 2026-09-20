@@ -226,12 +226,14 @@ fn bundled_neovim_help_covers_public_entrypoints() {
     for entrypoint in [
         ":PlumbNotes",
         ":PlumbTasks",
+        ":PlumbNext",
         "require('plumb').setup(opts)",
         "require('plumb').config()",
         "require('plumb').foldtext()",
         "require('plumb.search').search_notes(opts)",
         "require('plumb.search').search_tasks(opts)",
         "require('plumb.search').live_search(...)",
+        "require('plumb.next').open(opts)",
         ":checkhealth plumb",
     ] {
         assert!(help.contains(entrypoint), "plumb.txt omits {entrypoint}");
