@@ -219,9 +219,7 @@ import {
       scrim.hidden = true;
       return;
     }
-    const modal = !sheet.hidden || !shellMenu.hidden;
-    const agendaSheet = state.view === 'agenda' && document.body.classList.contains('detail-open');
-    scrim.hidden = !(modal || agendaSheet);
+    scrim.hidden = sheet.hidden && shellMenu.hidden;
   }
 
   function detailOpenFor(view) {
@@ -235,8 +233,7 @@ import {
   function syncDetail() {
     const open = state.narrow && detailOpenFor(state.view);
     document.body.classList.toggle('detail-open', open);
-    // A bottom sheet already carries its own dismissal affordances.
-    detailBack.hidden = !open || state.view === 'agenda';
+    detailBack.hidden = !open;
     if (open) {
       detailBackLabel.textContent = state.view === 'tasks' ? 'Tasks' : (state.view === 'agenda' ? 'Agenda' : 'Graph');
     }
@@ -2048,11 +2045,6 @@ import {
   scrim.addEventListener('click', () => {
     if (!sheet.hidden) return closeSheet();
     if (!shellMenu.hidden) return closeShellMenu();
-    // The agenda sheet is the pushed detail, so dismissing the scrim closes it.
-    if (document.body.classList.contains('detail-open')) {
-      if (history.state && history.state.detail) history.back();
-      else closeDetail();
-    }
   });
   detailBack.addEventListener('click', () => {
     if (history.state && history.state.detail) history.back();

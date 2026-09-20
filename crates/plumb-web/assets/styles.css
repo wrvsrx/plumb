@@ -364,20 +364,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   }
   .graph-stage, .task-list-pane, .event-list-pane { grid-column: 1; grid-row: 1; }
   .note-panel, .task-panel, .event-panel { display: none; }
-  body.detail-open .note-panel, body.detail-open .task-panel {
-    position: fixed; inset: 0; z-index: 30; display: block; border: 0;
-    padding: calc(54px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
-    background: var(--paper); overflow: auto;
-  }
+  /* Every detail is a pushed layer: one host, one dismissal contract. */
+  body.detail-open .note-panel,
+  body.detail-open .task-panel,
   body.detail-open .event-panel {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: block; border: 0;
-    height: 62dvh; max-height: 62dvh; border-radius: 16px 16px 0 0;
-    padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
-    background: var(--paper); overflow: auto; box-shadow: 0 -8px 26px rgba(32, 33, 36, .22);
-  }
-  body.detail-open .event-panel::before {
-    content: ''; display: block; width: 38px; height: 4px; margin: 2px auto 10px;
-    border-radius: 2px; background: #cdd0ca;
+    position: fixed; inset: 0; z-index: 30; display: block; border: 0;
+    padding: calc(54px + env(safe-area-inset-top)) 16px calc(84px + env(safe-area-inset-bottom));
+    background: var(--paper); overflow: auto;
   }
 
   .task-row { grid-template-columns: 72px minmax(0, 1fr); }
@@ -385,10 +378,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .task-form-grid { grid-template-columns: 1fr; }
   .event-row { grid-template-columns: 96px minmax(0, 1fr); }
   .task-list-pane, .event-list-pane { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
-  body.detail-open .note-panel, body.detail-open .task-panel {
-    padding-bottom: calc(84px + env(safe-area-inset-bottom));
-  }
-  body.detail-open .event-panel { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
   body.detail-open .task-actions {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 32; margin: 0;
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom));

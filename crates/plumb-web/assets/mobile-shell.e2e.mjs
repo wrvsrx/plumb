@@ -161,21 +161,36 @@ try {
   assert.equal(menu.open, true, 'overflow button opens the menu');
   assert.ok(menu.labels.some((label) => label.startsWith('Direction')), 'menu carries the graph controls');
   await evaluate(`document.querySelector('#scrim').click()`);
+  // A note selection uses the same pushed layer as tasks.
+  const nodeId = await evaluate(`window.plumbGraph.graphData().nodes[0].id`);
+  await open(`/graph?selected=${encodeURIComponent(nodeId)}`, `document.body.classList.contains('detail-open')`);
+  const note = await evaluate(layout);
+  assert.equal(note.panel.position, 'fixed', 'note detail is a pushed layer');
+  assert.equal(note.panel.h, 844, 'note detail covers the viewport');
+  assert.equal(note.backHidden, false, 'note detail exposes the shared back affordance');
+  assert.equal(note.scrimHidden, true, 'a pushed detail needs no scrim');
+  await evaluate(`document.querySelector('#detail-back').click()`);
+  await wait(350);
+  assert.equal(await evaluate(`document.body.classList.contains('detail-open')`), false, 'back closes the note detail');
 
-  // ---- narrow portrait: agenda sheet ----
+  // ---- narrow portrait: agenda pushes its detail too ----
   await open('/agenda', `document.querySelector('.event-row')`);
   const agenda = await evaluate(layout);
   assert.equal(agenda.overflowX, 0, 'agenda must not scroll horizontally');
   assert.ok(agenda.filters === null, 'narrow agenda has no filter row');
+  const agendaHistory = await evaluate('history.length');
   await evaluate(`document.querySelector('.event-row').click()`);
   await wait(350);
   const event = await evaluate(layout);
-  assert.equal(event.panel.position, 'fixed', 'event detail is a bottom sheet');
-  assert.ok(event.panel.h < 700, 'event sheet keeps the surrounding list visible');
-  assert.equal(event.scrimHidden, false, 'event sheet dims the list behind it');
-  await evaluate(`document.querySelector('#scrim').click()`);
-  await wait(300);
-  assert.equal(await evaluate(`document.body.classList.contains('detail-open')`), false, 'scrim closes the event sheet');
+  assert.equal(event.detailOpen, true, 'selecting an event pushes its detail');
+  assert.equal(event.panel.position, 'fixed', 'event detail is a pushed layer');
+  assert.equal(event.panel.h, 844, 'event detail covers the viewport');
+  assert.equal(event.backHidden, false, 'event detail exposes the same back affordance');
+  assert.equal(event.scrimHidden, true, 'a pushed detail needs no scrim');
+  assert.equal(await evaluate('history.length'), agendaHistory + 1, 'pushing the event detail adds a history entry');
+  await evaluate(`document.querySelector('#detail-back').click()`);
+  await wait(350);
+  assert.equal(await evaluate(`document.body.classList.contains('detail-open')`), false, 'back closes the event detail');
 
   // ---- narrow creation flows use the pushed detail / sheet ----
   await open('/tasks', `document.querySelector('.task-row')`);
@@ -196,10 +211,14 @@ try {
   await open('/agenda', `document.querySelector('.event-row')`);
   await evaluate(`document.querySelector('#new-event-fab').click()`);
   await wait(400);
-  const eventForm = await evaluate(`({ open: document.body.classList.contains('detail-open'), form: Boolean(document.querySelector('#event-panel .event-form')), scrim: !document.querySelector('#scrim').hidden })`);
-  assert.equal(eventForm.open, true, 'agenda FAB opens the event form in the sheet');
-  assert.equal(eventForm.form, true, 'event form renders inside the sheet');
-  assert.equal(eventForm.scrim, true, 'event form sheet keeps its scrim');
+  const eventForm = await evaluate(`(() => {
+    const panel = document.querySelector('#event-panel');
+    return { open: document.body.classList.contains('detail-open'), form: Boolean(document.querySelector('#event-panel .event-form')), scrim: !document.querySelector('#scrim').hidden, h: Math.round(panel.getBoundingClientRect().height) };
+  })()`);
+  assert.equal(eventForm.open, true, 'agenda FAB pushes the event form');
+  assert.equal(eventForm.form, true, 'event form renders inside the pushed layer');
+  assert.equal(eventForm.h, 844, 'event form gets the full height, not a sheet');
+  assert.equal(eventForm.scrim, false, 'a pushed form needs no scrim');
   await evaluate(`document.querySelector('.event-form .cancel-event').click()`);
   await wait(300);
   assert.equal(await evaluate(`document.body.classList.contains('detail-open')`), false, 'cancelling the event form closes the sheet');
