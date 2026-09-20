@@ -297,8 +297,8 @@ pub use lists::{analyze_lists, ListGroup, ListGroups, ListItemRecord, ListKind, 
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord, MathRecordView};
 pub use metadata::{
     analyze_metadata, green_recovered_bibliography_sources, recovered_bibliography_sources,
-    BibliographySource, MetadataBlock, MetadataEntry, MetadataListItem, MetadataOutput,
-    MetadataValue,
+    BibliographySource, DocumentFacet, MetadataBlock, MetadataEntry, MetadataListItem,
+    MetadataOutput, MetadataValue,
 };
 pub use queries::{
     attribute_completion_context, citation_completion_context, construct_completion_context,

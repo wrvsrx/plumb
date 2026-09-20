@@ -77,8 +77,46 @@ pub struct BibliographySource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MetadataOutput {
+    pub facets: Vec<DocumentFacet>,
     pub metadata: Option<MetadataBlock>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// A direct document facet, preserving its source identity across projection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentFacet {
+    pub name: String,
+    pub range: Range<usize>,
+    pub selection_range: Range<usize>,
+}
+
+fn collect_document_facets(document: &Document, offset: usize, output: &mut MetadataOutput) {
+    for block in &document.blocks {
+        if parsed_marker(block) != Some("+") {
+            continue;
+        }
+        let range = block.range();
+        let facet = document.attrs.items.iter().find_map(|item| match item {
+            plumb_syntax::AttrItem::Class {
+                value,
+                value_range,
+                range: item_range,
+            } if item_range == range && !value.is_empty() => Some((value, value_range)),
+            _ => None,
+        });
+        match facet {
+            Some((name, selection)) => output.facets.push(DocumentFacet {
+                name: name.clone(),
+                range: range.start + offset..range.end + offset,
+                selection_range: selection.start + offset..selection.end + offset,
+            }),
+            None => output.diagnostics.push(warning(
+                "document.invalid-facet",
+                "document facet must be a leaf declaration with one nonempty plain name",
+                range.start + offset..range.end + offset,
+            )),
+        }
+    }
 }
 
 impl MetadataOutput {
@@ -203,11 +241,6 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
                 continue;
             };
             let diagnostic = match marker(block) {
-                Some("+") => Some(warning(
-                    "document.unsupported-facet",
-                    "document root does not support facets",
-                    block.range.start + shard.offset()..block.range.end + shard.offset(),
-                )),
                 Some("@") => Some(warning(
                     "document.unsupported-identity",
                     "document identity is defined by its workspace-relative path",
@@ -219,6 +252,9 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
         }
     }
     lint_standard_entries(&entries, &mut output.diagnostics);
+    for shard in valid.syntax().shards() {
+        collect_document_facets(&shard.shard().parsed().syntax, shard.offset(), &mut output);
+    }
     output.diagnostics.extend(unsupported);
     if let (Some(range), Some(selection_range)) = (metadata_range, metadata_selection) {
         output.metadata = Some(MetadataBlock {
@@ -332,16 +368,12 @@ fn analyze_metadata_document(document: &Document) -> MetadataOutput {
         });
     }
 
+    collect_document_facets(document, 0, &mut output);
     for block in &document.blocks {
         let Block::Parsed(block) = block else {
             continue;
         };
         match marker(block) {
-            Some("+") => output.diagnostics.push(warning(
-                "document.unsupported-facet",
-                "document root does not support facets",
-                block.range.clone(),
-            )),
             Some("@") => output.diagnostics.push(warning(
                 "document.unsupported-identity",
                 "document identity is defined by its workspace-relative path",
@@ -754,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn declarations_can_interleave_with_body_and_reject_document_facets() {
+    fn declarations_can_interleave_with_body_and_preserve_document_facets() {
         let parsed = parse(
             "`= title Root\n\nBody before.\n\n`+ journal\n\nBody after.\n\n`= created 2026-08-26T00:00:00+08:00\n",
         );
@@ -765,8 +797,13 @@ mod tests {
                 .expect("semantic analysis requires valid syntax"),
         );
         assert_eq!(output.document_title().as_deref(), Some("Root"));
-        assert_eq!(output.diagnostics.len(), 1, "{:?}", output.diagnostics);
-        assert_eq!(output.diagnostics[0].code, "document.unsupported-facet");
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.facets.len(), 1);
+        assert_eq!(output.facets[0].name, "journal");
+        assert_eq!(
+            &parsed.source[output.facets[0].selection_range.clone()],
+            "journal"
+        );
         assert_eq!(
             output
                 .metadata
@@ -776,6 +813,35 @@ mod tests {
                 .map(|entry| entry.key.as_str())
                 .collect::<Vec<_>>(),
             ["title", "created"]
+        );
+    }
+
+    #[test]
+    fn document_facets_reject_children_empty_and_rich_names_across_shards() {
+        let source =
+            "`+ task\n\nBody.\n\n`+ {}\n`+ `*{rich}\n`+ journal\n `- child\n\n`+ {custom facet}\n";
+        let parsed = parse(source);
+        let green = plumb_syntax::GreenDocument::parse(source);
+        let output = analyze_metadata(parsed.valid_syntax().unwrap());
+        assert_eq!(
+            output,
+            analyze_green_metadata(green.valid_syntax().unwrap())
+        );
+        assert_eq!(
+            output
+                .facets
+                .iter()
+                .map(|facet| facet.name.as_str())
+                .collect::<Vec<_>>(),
+            ["task", "custom facet"]
+        );
+        assert_eq!(
+            output
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code == "document.invalid-facet")
+                .count(),
+            3
         );
     }
 
@@ -875,7 +941,7 @@ mod tests {
         assert_eq!(
             codes
                 .iter()
-                .filter(|code| **code == "document.unsupported-facet")
+                .filter(|code| **code == "document.invalid-facet")
                 .count(),
             2
         );

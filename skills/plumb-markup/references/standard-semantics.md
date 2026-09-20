@@ -44,7 +44,9 @@ With children, the complete head is the term and children are the block body.
 ## Metadata and Direct Declarations
 
 Direct top-level `=` blocks are document metadata. Document identity comes
-from workspace-relative path, so top-level `@` and `+` are unsupported.
+from workspace-relative path, so top-level `@` is unsupported. Direct leaf `+`
+declarations preserve document facets with one nonempty plain name; unknown
+facets are opaque and do not render as body content.
 
 ```plumb
 `= title Document title

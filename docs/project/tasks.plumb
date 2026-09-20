@@ -18,3 +18,10 @@
  `- 故障策略：扫描不完整、权限或读取失败不得沿用旧结果宣称检查通过。缓存不存在、损坏或版本不兼容时安全重建或明确降级至无缓存路径；失败必须可见，不能把错误当空查询结果。提供无缓存运行入口，用于排错和一致性对照，并复用现有 cache inspect/prune 生命周期。
  `- 验收：各适用命令在同一输入和固定时间下，冷缓存、热缓存、禁用缓存的输出、排序、诊断位置、退出码和写操作结果一致。覆盖新增/删除/重命名、被引用目标修改、anchor 歧义、依赖环变化、附件删除、语法错误出现与修复、版本失效、损坏缓存、读取失败、并发读写及中断事务。测试热缓存确实跳过未变文档解析，而非仅断言输出相等。
  `- 性能：在代表性大小 workspace 上记录冷启动、全热缓存和少量文件修改的耗时、解析数量、命中率与内存；区分扫描/读取/hash、解析/本地分析、数据库和全局关系检查成本，避免未经测量承诺加速倍数。
+
+`- 实现文档级 facet 与 task
+ `+ task
+ `@ document-task
+ `= created 2026-09-21T09:00:00+08:00
+
+ 依据 standard-semantics 的 Document facets and tasks target contract 和 editing 的 Document task editing target，贯通共享语义、引用和存储、owned editing、LSP/Neovim 与 Web。验证 incremental/fresh 和 memory/persistent/overlay parity、混合 owner dependency cycles、rename、失败原子性、export 及桌面/窄屏树交互；完成后更新指南与 bundled skill，移除规范待实现标记。

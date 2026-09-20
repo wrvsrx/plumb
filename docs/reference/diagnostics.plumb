@@ -61,7 +61,7 @@ official profile 至少区分：
 `- association/property：invalid key/arity/value shape。
 `- heading/anchor：invalid level、duplicate explicit id。
 `- metadata：duplicate/invalid key、invalid location、mixed/unsupported value、invalid created timestamp、
- unsupported document identity/facet。
+ unsupported document identity；document.invalid-facet 表示根层 facet 不是单个非空 plain name 的 leaf declaration。
 `- link/embed/citation：missing/invalid target/source/id 与 workspace unresolved/ambiguous target。embed 的非 Link owner 发布 resource.invalid-owner；遗留 src 发布 resource.unexpected-source。未知媒体 type 是 Link fallback，不是 error。
 `- task/event：invalid fields/reference/time/interval/recurrence/closure state、dependency consistency 与 mutually
  exclusive facets；focus interval 的 invalid format、duplicate property、顺序、重叠、多个或非末尾的 open interval，

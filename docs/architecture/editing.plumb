@@ -154,3 +154,11 @@ target，保留 fragment；span 内 interleaved direct declarations按原 source
 
 editing 只接收 current parser 的 recovered/valid tree 或 current owned syntax。edit layer 不拥有 legacy reader、
 syntax epoch detection 或 source migration API。
+
+`# 10. Document task editing target
+
+Status：待实现。Document task 与 ListItem task 使用显式 owner variant，不以空 id、伪造 marker range 或 list wrapper 表达 document。根层声明可能跨 green shards；document reducer 汇总一次，并在 facet、title 或 task property 修改后正确失效。source ownership、导航选择和高亮范围分别定义，文档任务不能覆盖子任务的高亮或 folding。
+
+plumb-edit 提供 root declaration 的 owned mutation，跨 shards 返回 non-overlapping edits，不 materialize revision-wide compatibility tree。标记文档为 task 是幂等操作，缺少 created 时补充，已有相关 properties 必须通过校验。取消身份仅移除 task facet。完成或取消时结束开放 focus interval 与 closure field 更新属于同一 guarded proposal。失败不应用部分编辑。
+
+LSP、CLI 和 Web 使用同一 document task locator 与 revision guard。document task 不提供列表的 parent、position 或 recur 编辑；通用 task delete/move 不能隐式删除或移动文件。Web 以真实 document task 替代虚拟 file row，展开与选中使用独立 controls；无 task facet 的文件保持虚拟行。显示树沿用 focused 排序、unfocused siblings 整体分组与按树边统一缩进，focused 标识不同于 selection 样式，不恢复 Web Next 页面。筛选中的结构性父节点不计入实际匹配数量。
