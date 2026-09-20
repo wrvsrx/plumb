@@ -60,6 +60,46 @@ pub struct TaskPage {
     pub next_cursor: Option<String>,
 }
 
+/// Bounded page size for the in-flight section. The candidate limit never
+/// truncates this section; callers page it through `focused_next_cursor`.
+pub const NEXT_FOCUSED_PAGE: usize = 50;
+
+/// Shared shortlist query: the tasks currently in flight plus the tasks to
+/// start next. Defaults live at the adapter boundary; the shared layer clamps
+/// the candidate limit to 1..=10.
+#[derive(Debug, Clone)]
+pub struct NextQuery {
+    pub root: PathBuf,
+    pub limit: usize,
+    pub cursor: Option<String>,
+    pub workspace_revision: u64,
+    pub now: DateTime<FixedOffset>,
+}
+
+/// A task skipped because its focus history is invalid, so it can never be
+/// mistaken for "not focused".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NextSkippedFocus {
+    pub path: PathBuf,
+    pub range: std::ops::Range<usize>,
+    pub codes: Vec<plumb_semantics::FocusProblemCode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NextResult {
+    pub focused: Vec<WorkspaceTask>,
+    /// Total currently focused tasks, independent of the focused page size.
+    pub focused_total: usize,
+    /// False when `focused` is only the first page of `focused_total`.
+    pub focused_complete: bool,
+    pub focused_next_cursor: Option<String>,
+    pub candidates: Vec<WorkspaceTask>,
+    pub candidate_limit: usize,
+    /// False when more ready candidates exist than the requested limit.
+    pub candidates_complete: bool,
+    pub skipped_invalid: Vec<NextSkippedFocus>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskDocumentMetrics {
     pub path: PathBuf,
@@ -136,7 +176,6 @@ struct TaskFact {
     focused_since_millis: Option<i64>,
     /// Read by the protocol-neutral `next` shortlist to skip invalid-focus
     /// tasks instead of treating them as `focused == false` candidates.
-    #[allow(dead_code)]
     focus_valid: bool,
     state: TaskWorkflowState,
     wait_reasons: Vec<TaskWaitReason>,
@@ -341,6 +380,289 @@ impl Workspace {
             next_cursor,
         }))
     }
+
+    /// Protocol-neutral shortlist: "in flight" plus "ready to start".
+    ///
+    /// Both sections read one workspace snapshot and one query instant. Focus is
+    /// an orthogonal fact, so a focused task stays in the in-flight section even
+    /// while it is waiting or blocked, and a finished focus history never keeps a
+    /// task out of the candidate list.
+    pub fn query_next(
+        &self,
+        query: &NextQuery,
+    ) -> Result<QueryResult<NextResult>, TaskPageQueryError> {
+        let candidate_limit = query.limit.clamp(1, 10);
+        let (mut facts, open_records) = task_facts(self, None, query.now.timestamp_millis())?;
+        let (identities, task_refs_by_key, states) = task_identity_context(self, &facts, false)?;
+        let relations = task_relations(self, &open_records, &identities, &states)?;
+        let dependencies = dependencies_by_source(&relations);
+        let dependents = dependents_by_target(&relations, &task_refs_by_key);
+
+        for fact in &mut facts {
+            let blocked = dependencies.get(&fact.key).is_some_and(|targets| {
+                targets.iter().any(|target| {
+                    identities
+                        .get(target)
+                        .and_then(|key| states.get(key))
+                        .is_some_and(|state| *state == TaskState::Open)
+                })
+            });
+            let (state, wait_reasons) = workflow_state(fact, blocked, query.now);
+            fact.state = state;
+            fact.wait_reasons = wait_reasons;
+            fact.blocked = blocked;
+            fact.actionable = state == TaskWorkflowState::Ready;
+        }
+
+        // Effective priority follows the full relation graph and is computed
+        // before any focus filtering, so a focused task still propagates to the
+        // candidates it blocks.
+        propagate_effective_priorities(&mut facts, &relations, &identities, &states);
+
+        let invalid = facts
+            .iter()
+            .filter(|fact| !fact.focus_valid)
+            .cloned()
+            .collect::<Vec<_>>();
+        let skipped_invalid = if invalid.is_empty() {
+            Vec::new()
+        } else {
+            let mut records = hydrate_task_records(self, &invalid, open_records.clone())?;
+            invalid
+                .iter()
+                .map(|fact| {
+                    let record = records.remove(&fact.key);
+                    NextSkippedFocus {
+                        path: fact.key.path.clone(),
+                        range: record
+                            .as_ref()
+                            .and_then(|record| record.focused.range.clone())
+                            .unwrap_or(fact.key.start..fact.key.start),
+                        codes: record
+                            .as_ref()
+                            .map(|record| {
+                                record
+                                    .focused
+                                    .problems
+                                    .iter()
+                                    .map(|problem| problem.code)
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    }
+                })
+                .collect()
+        };
+
+        let mut focused = facts
+            .iter()
+            .filter(|fact| fact.focus_valid && fact.focused)
+            .cloned()
+            .collect::<Vec<_>>();
+        focused.sort_by(|left, right| {
+            left.focused_since_millis
+                .cmp(&right.focused_since_millis)
+                .then_with(|| path_order_key(&left.key.path).cmp(&path_order_key(&right.key.path)))
+                .then_with(|| left.key.start.cmp(&right.key.start))
+        });
+        let focused_total = focused.len();
+        apply_next_cursor(&mut focused, query)?;
+        let focused_complete = focused.len() <= NEXT_FOCUSED_PAGE;
+        focused.truncate(NEXT_FOCUSED_PAGE);
+        let focused_next_cursor = (!focused_complete)
+            .then(|| {
+                focused
+                    .last()
+                    .map(|fact| encode_next_cursor(query, fact))
+            })
+            .flatten();
+
+        let mut candidates = facts
+            .into_iter()
+            .filter(|fact| {
+                fact.focus_valid && !fact.focused && fact.state == TaskWorkflowState::Ready
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| {
+            right
+                .effective_priority
+                .cmp(&left.effective_priority)
+                .then_with(|| path_order_key(&left.key.path).cmp(&path_order_key(&right.key.path)))
+                .then_with(|| left.key.start.cmp(&right.key.start))
+        });
+        let candidates_complete = candidates.len() <= candidate_limit;
+        candidates.truncate(candidate_limit);
+
+        let focused_len = focused.len();
+        let mut selected = focused;
+        selected.extend(candidates);
+        let mut records = hydrate_task_records(self, &selected, open_records)?;
+        let mut tasks = Vec::with_capacity(selected.len());
+        for fact in selected {
+            tasks.push(workspace_task(
+                fact,
+                &mut records,
+                &dependencies,
+                &dependents,
+                &identities,
+            )?);
+        }
+        let candidates = tasks.split_off(focused_len);
+        let focused = tasks;
+
+        Ok(self.query_result(NextResult {
+            focused,
+            focused_total,
+            focused_complete,
+            focused_next_cursor,
+            candidates,
+            candidate_limit,
+            candidates_complete,
+            skipped_invalid,
+        }))
+    }
+
+}
+
+/// Hydrate full records for exactly the selected keys; the lightweight facts
+/// stay the only thing the query enumerates.
+
+
+fn hydrate_task_records(
+    workspace: &Workspace,
+    facts: &[TaskFact],
+    open_records: HashMap<TaskKey, TaskRecord>,
+) -> Result<HashMap<TaskKey, TaskRecord>, TaskPageQueryError> {
+    let page_keys = facts
+        .iter()
+        .map(|fact| fact.key.clone())
+        .collect::<HashSet<_>>();
+    let stored_keys = facts
+        .iter()
+        .filter(|fact| !open_records.contains_key(&fact.key))
+        .map(|fact| StoredTaskKey {
+            path: fact.key.path.clone(),
+            start: fact.key.start,
+        })
+        .collect::<Vec<_>>();
+    let mut records = open_records
+        .into_iter()
+        .filter(|(key, _)| page_keys.contains(key))
+        .collect::<HashMap<_, _>>();
+    if let Some(store) = &workspace.disk_store {
+        for stored in store.tasks_by_keys(&stored_keys)? {
+            records.insert(
+                TaskKey {
+                    path: stored.path,
+                    start: stored.record.range.start,
+                },
+                stored.record,
+            );
+        }
+    }
+    Ok(records)
+}
+
+fn workspace_task(
+    fact: TaskFact,
+    records: &mut HashMap<TaskKey, TaskRecord>,
+    dependencies: &HashMap<TaskKey, Vec<TaskRef>>,
+    dependents: &HashMap<TaskRef, Vec<TaskRef>>,
+    identities: &HashMap<TaskRef, TaskKey>,
+) -> Result<WorkspaceTask, TaskPageQueryError> {
+    let task = records.remove(&fact.key).ok_or_else(|| {
+        TaskPageQueryError::Query(WorkspaceQueryError::Store(super::StoreError::InvalidStoredValue))
+    })?;
+    let depends_on = dependencies.get(&fact.key).cloned().unwrap_or_default();
+    let directly_blocking = fact
+        .id
+        .as_ref()
+        .and_then(|id| {
+            dependents.get(&TaskRef {
+                path: fact.key.path.clone(),
+                id: id.clone(),
+            })
+        })
+        .cloned()
+        .unwrap_or_default();
+    let previous = fact.prev.as_deref().and_then(|source| {
+        task_reference(
+            &fact.key.path,
+            &plumb_semantics::parse_task_reference_target(source),
+        )
+        .filter(|target| identities.contains_key(target))
+    });
+    Ok(WorkspaceTask {
+        path: fact.key.path,
+        revision: fact.revision,
+        task,
+        state: fact.state,
+        wait_reasons: fact.wait_reasons,
+        blocked: fact.blocked,
+        actionable: fact.actionable,
+        effective_priority: fact.effective_priority,
+        relevance: fact.relevance,
+        depends_on,
+        directly_blocking,
+        previous,
+    })
+}
+
+fn next_cursor_signature(query: &NextQuery) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"plumb-next-shortlist-v1");
+    hash_field(&mut digest, query.root.to_string_lossy().as_bytes());
+    digest.finalize().into()
+}
+
+fn apply_next_cursor(
+    facts: &mut Vec<TaskFact>,
+    query: &NextQuery,
+) -> Result<(), TaskPageQueryError> {
+    let Some(cursor) = &query.cursor else {
+        return Ok(());
+    };
+    let parts = cursor.split(':').collect::<Vec<_>>();
+    let [version, revision, signature, since, path, start] = parts.as_slice() else {
+        return Err(TaskPageQueryError::Cursor(
+            "next cursor is malformed".to_string(),
+        ));
+    };
+    let since = since.parse::<i64>().ok();
+    let start = start.parse::<usize>().ok();
+    if *version != "v1"
+        || revision.parse::<u64>().ok() != Some(query.workspace_revision)
+        || *signature != hex(&next_cursor_signature(query))
+        || since.is_none()
+        || start.is_none()
+    {
+        return Err(TaskPageQueryError::Cursor(
+            "next cursor is stale or does not match this query".to_string(),
+        ));
+    }
+    let (since, start) = (since.unwrap(), start.unwrap());
+    let Some(last) = facts.iter().rposition(|fact| {
+        fact.focused_since_millis == Some(since)
+            && path_order_key(&fact.key.path) == *path
+            && fact.key.start == start
+    }) else {
+        return Err(TaskPageQueryError::Cursor(
+            "next cursor no longer identifies a result task".to_string(),
+        ));
+    };
+    facts.drain(..=last);
+    Ok(())
+}
+
+fn encode_next_cursor(query: &NextQuery, fact: &TaskFact) -> String {
+    format!(
+        "v1:{}:{}:{}:{}:{}",
+        query.workspace_revision,
+        hex(&next_cursor_signature(query)),
+        fact.focused_since_millis.unwrap_or_default(),
+        path_order_key(&fact.key.path),
+        fact.key.start
+    )
 }
 
 fn compile_filters(
@@ -1699,5 +2021,174 @@ mod tests {
             workspace.query_task_page(&stale),
             Err(TaskPageQueryError::Cursor(_))
         ));
+    }
+
+    fn next_query() -> NextQuery {
+        NextQuery {
+            root: PathBuf::new(),
+            limit: 3,
+            cursor: None,
+            workspace_revision: 11,
+            now: now(),
+        }
+    }
+
+    fn shortlist_source() -> &'static str {
+        concat!(
+            "`- Focused newest\n\n `+ task\n\n `@ f-newest\n\n `= focused 2026-09-20T09:00:00Z--\n",
+            "`- Focused waiting\n\n `+ task\n\n `@ f-waiting\n\n `= focused 2026-09-19T09:00:00Z--\n `= wait 2099-01-01T00:00:00Z\n",
+            "`- Focused oldest\n\n `+ task\n\n `@ f-oldest\n\n `= focused 2026-09-18T09:00:00Z--\n",
+            "`- Finished history\n\n `+ task\n\n `@ finished\n `= priority 5\n `= focused 2026-09-01T09:00:00Z--2026-09-01T10:00:00Z\n",
+            "`- Ready low\n\n `+ task\n\n `@ ready-low\n `= priority 1\n",
+            "`- Ready high\n\n `+ task\n\n `@ ready-high\n `= priority 9\n",
+            "`- Invalid focus\n\n `+ task\n\n `@ invalid\n\n `= focused\n\n  `- 2026-09-20T09:00:00Z--\n  `- 2026-09-19T09:00:00Z--\n",
+        )
+    }
+
+    fn shortlist(workspace: &mut Workspace, persistent: bool) -> NextResult {
+        let source = shortlist_source();
+        if persistent {
+            workspace.insert_disk("focus.plumb", 1, source).unwrap();
+        } else {
+            workspace.insert("focus.plumb", 1, source);
+        }
+        workspace.query_next(&next_query()).unwrap().value
+    }
+
+    fn ids(tasks: &[WorkspaceTask]) -> Vec<&str> {
+        tasks
+            .iter()
+            .map(|task| task.task.id.as_ref().expect("fixture tasks have ids").value.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn next_splits_in_flight_from_candidates_without_touching_state() {
+        let mut workspace = Workspace::new();
+        let result = shortlist(&mut workspace, false);
+        assert_eq!(ids(&result.focused), vec!["f-oldest", "f-waiting", "f-newest"]);
+        assert_eq!(result.focused_total, 3);
+        assert!(result.focused_complete);
+        assert!(result.focused_next_cursor.is_none());
+        assert_eq!(result.candidate_limit, 3);
+        assert!(result.candidates_complete);
+        assert_eq!(ids(&result.candidates), vec!["ready-high", "finished", "ready-low"]);
+        // Focus is orthogonal to workflow state: a focused waiting task stays in
+        // flight, and a finished history still competes as a candidate.
+        let waiting = result
+            .focused
+            .iter()
+            .find(|task| task.task.id.as_ref().unwrap().value == "f-waiting")
+            .unwrap();
+        assert_eq!(waiting.state, TaskWorkflowState::Waiting);
+        // Invalid focus data is reported instead of being treated as unfocused.
+        assert_eq!(result.skipped_invalid.len(), 1);
+        assert_eq!(result.skipped_invalid[0].path, Path::new("focus.plumb"));
+        assert!(!result.skipped_invalid[0].codes.is_empty());
+        assert!(result
+            .candidates
+            .iter()
+            .all(|task| task.task.id.as_ref().unwrap().value != "invalid"));
+        assert!(result
+            .focused
+            .iter()
+            .all(|task| task.task.id.as_ref().unwrap().value != "invalid"));
+    }
+
+    #[test]
+    fn next_candidate_limit_is_strict_and_independent_of_in_flight() {
+        let mut workspace = Workspace::new();
+        workspace.insert("focus.plumb", 1, shortlist_source());
+        let mut query = next_query();
+        query.limit = 1;
+        let result = workspace.query_next(&query).unwrap().value;
+        assert_eq!(ids(&result.candidates), vec!["ready-high"]);
+        assert!(!result.candidates_complete);
+        // The in-flight section is never truncated by the candidate limit.
+        assert_eq!(result.focused.len(), 3);
+        assert_eq!(result.focused_total, 3);
+    }
+
+    #[test]
+    fn next_propagates_priority_from_focused_subtasks_before_filtering() {
+        let mut workspace = Workspace::new();
+        workspace.insert(
+            "focus.plumb",
+            1,
+            concat!(
+                "`- Parent candidate\n\n `+ task\n\n `@ parent\n",
+                "\n `- Focused child\n\n  `+ task\n\n  `@ child\n  `= priority 50\n  `= focused 2026-09-20T09:00:00Z--\n",
+                "`- Other ready\n\n `+ task\n\n `@ other\n `= priority 9\n",
+            ),
+        );
+        let result = workspace.query_next(&next_query()).unwrap().value;
+        // A focused subtask is excluded from the candidates itself, but its
+        // priority still reaches its parent because propagation runs over the
+        // full relation graph before focus filtering.
+        assert_eq!(ids(&result.focused), vec!["child"]);
+        assert_eq!(ids(&result.candidates), vec!["parent", "other"]);
+        assert_eq!(result.candidates[0].effective_priority, 50);
+    }
+
+    fn many_focused_source(count: usize) -> String {
+        let mut source = String::from("`= title many\n");
+        for index in 0..count {
+            source.push_str(&format!(
+                "\n`- Focused {index}\n\n `+ task\n\n `@ focused-{index}\n\n `= focused 2026-09-{:02}T09:00:00Z--\n",
+                index % 28 + 1
+            ));
+        }
+        source
+    }
+
+    #[test]
+    fn next_in_flight_section_pages_with_an_opaque_cursor() {
+        let mut workspace = Workspace::new();
+        workspace.insert("many.plumb", 1, many_focused_source(NEXT_FOCUSED_PAGE + 1));
+        let first = workspace.query_next(&next_query()).unwrap().value;
+        assert_eq!(first.focused_total, NEXT_FOCUSED_PAGE + 1);
+        assert_eq!(first.focused.len(), NEXT_FOCUSED_PAGE);
+        assert!(!first.focused_complete);
+        let cursor = first.focused_next_cursor.clone().expect("continuation cursor");
+
+        let mut paged = next_query();
+        paged.cursor = Some(cursor.clone());
+        let second = workspace.query_next(&paged).unwrap().value;
+        assert_eq!(second.focused.len(), 1);
+        assert_eq!(second.focused_total, NEXT_FOCUSED_PAGE + 1);
+        assert!(second.focused_complete);
+        assert!(second.focused_next_cursor.is_none());
+
+        let mut stale = next_query();
+        stale.cursor = Some(cursor);
+        stale.workspace_revision = 12;
+        assert!(matches!(
+            workspace.query_next(&stale),
+            Err(TaskPageQueryError::Cursor(_))
+        ));
+    }
+
+    #[test]
+    fn next_shortlist_matches_memory_and_persistent_store() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut persistent = Workspace::with_sqlite_store(store);
+        let stored = shortlist(&mut persistent, true);
+        let mut memory = Workspace::new();
+        let in_memory = shortlist(&mut memory, false);
+        assert_eq!(ids(&stored.focused), ids(&in_memory.focused));
+        assert_eq!(ids(&stored.candidates), ids(&in_memory.candidates));
+        assert_eq!(stored.focused_total, in_memory.focused_total);
+        assert_eq!(
+            stored
+                .skipped_invalid
+                .iter()
+                .map(|skipped| (skipped.path.clone(), skipped.codes.clone()))
+                .collect::<Vec<_>>(),
+            in_memory
+                .skipped_invalid
+                .iter()
+                .map(|skipped| (skipped.path.clone(), skipped.codes.clone()))
+                .collect::<Vec<_>>()
+        );
     }
 }
