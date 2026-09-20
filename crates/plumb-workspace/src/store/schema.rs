@@ -51,6 +51,7 @@ diesel::table! {
 
 diesel::table! {
     tasks (path, start) {
+        document_task -> Bool,
         path -> Binary,
         id -> Nullable<Text>,
         title -> Text,

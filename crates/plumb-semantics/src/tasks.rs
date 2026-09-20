@@ -151,6 +151,11 @@ pub struct TaskRecord {
 }
 
 impl TaskRecord {
+    /// Revision-local identity of the actual task declaration, distinct from ownership range.
+    pub fn source_key(&self) -> usize {
+        self.marker_range.start
+    }
+
     pub fn state(&self) -> TaskState {
         match (self.done.is_some(), self.canceled.is_some()) {
             (false, false) => TaskState::Open,
@@ -239,6 +244,13 @@ impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
             .depends
             .iter()
             .map(|dependency| &dependency.target)
+    }
+
+    pub fn source_key(self) -> usize {
+        self.record
+            .source_key()
+            .checked_add_signed(self.offset)
+            .unwrap()
     }
 
     pub fn owner(self) -> TaskOwner {

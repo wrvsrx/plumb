@@ -15,7 +15,7 @@ use diesel::sqlite::{Sqlite, SqliteConnection};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use plumb_semantics::{
     AnchorRecord, DocumentOutput, EventRecord, LinkRecord, LinkTarget, MetadataValue, TaskField,
-    TaskRecord, TaskReferenceTarget, TaskState,
+    TaskOwner, TaskRecord, TaskReferenceTarget, TaskState,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -47,6 +47,7 @@ use schema::{
 type TaskDependencyRow = (Vec<u8>, i64, Option<String>, Vec<u8>, String, String);
 type EventTaskAssociationRow = (Vec<u8>, i64, Vec<u8>, String, String, i64, i64);
 type TaskFactRow = (
+    bool,
     Vec<u8>,
     i64,
     i64,
@@ -73,6 +74,8 @@ type EventFactRow = (Vec<u8>, i64, i64, i64, i64, Option<String>, String, i64);
 
 #[derive(QueryableByName)]
 struct TaskFactSqlRow {
+    #[diesel(sql_type = Bool)]
+    document_task: bool,
     #[diesel(sql_type = Binary)]
     path: Vec<u8>,
     #[diesel(sql_type = BigInt)]
@@ -119,7 +122,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -215,6 +218,7 @@ pub struct StoredTaskKey {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredTaskFact {
+    pub document_task: bool,
     pub path: PathBuf,
     pub revision: i64,
     pub start: usize,
@@ -243,6 +247,7 @@ pub struct StoredTaskFact {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredTaskIdentity {
+    pub document_task: bool,
     pub path: PathBuf,
     pub start: usize,
     pub id: Option<String>,
@@ -708,7 +713,7 @@ impl SqliteSemanticStore {
         let rows = tasks::table
             .inner_join(documents::table.on(documents::path.eq(tasks::path)))
             .select((tasks::path, documents::revision, tasks::record))
-            .order((tasks::path, tasks::start))
+            .order((tasks::path, tasks::document_task.desc(), tasks::start))
             .load_iter::<(Vec<u8>, i64, Vec<u8>), DefaultLoadingMode>(&mut *connection)?;
         decode_records(rows, excluded)
     }
@@ -721,7 +726,7 @@ impl SqliteSemanticStore {
         let rows = tasks::table
             .filter(tasks::path.eq(path_bytes(&normalize(path))))
             .select(tasks::record)
-            .order(tasks::start)
+            .order((tasks::document_task.desc(), tasks::start))
             .load::<Vec<u8>>(&mut *connection)?;
         rows.into_iter()
             .map(|record| Ok(bincode::deserialize(&record)?))
@@ -736,6 +741,7 @@ impl SqliteSemanticStore {
         let rows = tasks::table
             .inner_join(documents::table.on(documents::path.eq(tasks::path)))
             .select((
+                tasks::document_task,
                 tasks::path,
                 documents::revision,
                 tasks::start,
@@ -758,7 +764,7 @@ impl SqliteSemanticStore {
                 tasks::focused_since_millis,
                 tasks::focus_valid,
             ))
-            .order((tasks::path, tasks::start))
+            .order((tasks::path, tasks::document_task.desc(), tasks::start))
             .load::<TaskFactRow>(&mut *connection)?;
         decode_task_facts(rows, excluded)
     }
@@ -774,7 +780,7 @@ impl SqliteSemanticStore {
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
         let query = diesel::sql_query(
-            "SELECT tasks.path AS path, documents.revision AS revision, \
+            "SELECT tasks.document_task AS document_task, tasks.path AS path, documents.revision AS revision, \
              tasks.start AS start, tasks.selection_start AS selection_start, \
              tasks.selection_end AS selection_end, tasks.id AS id, tasks.title AS title, \
              tasks.closure_state AS closure_state, tasks.created_millis AS created_millis, \
@@ -788,7 +794,7 @@ impl SqliteSemanticStore {
         )
         .into_boxed::<Sqlite>();
         let query = append_task_candidate_sql(query, predicate, now_millis)
-            .sql(" ORDER BY tasks.path, tasks.start");
+            .sql(" ORDER BY tasks.path, tasks.document_task DESC, tasks.start");
         let rows = query.load::<TaskFactSqlRow>(&mut *connection)?;
         decode_task_fact_sql_rows(rows, excluded)
     }
@@ -802,19 +808,26 @@ impl SqliteSemanticStore {
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
         let rows = tasks::table
-            .select((tasks::path, tasks::start, tasks::id, tasks::closure_state))
-            .order((tasks::path, tasks::start))
-            .load::<(Vec<u8>, i64, Option<String>, String)>(&mut *connection)?;
+            .select((
+                tasks::document_task,
+                tasks::path,
+                tasks::start,
+                tasks::id,
+                tasks::closure_state,
+            ))
+            .order((tasks::path, tasks::document_task.desc(), tasks::start))
+            .load::<(bool, Vec<u8>, i64, Option<String>, String)>(&mut *connection)?;
         let mut excluded = excluded
             .iter()
             .map(|path| normalize(path))
             .collect::<Vec<_>>();
         excluded.sort();
         rows.into_iter()
-            .map(|(path, start, id, closure_state)| {
+            .map(|(document_task, path, start, id, closure_state)| {
                 let path = path_from_bytes(path)?;
                 Ok(
                     (excluded.binary_search(&path).is_err()).then_some(StoredTaskIdentity {
+                        document_task,
                         path,
                         start: to_usize(start)?,
                         id,
@@ -848,7 +861,7 @@ impl SqliteSemanticStore {
                 .filter(tasks::path.eq(path))
                 .filter(tasks::start.eq_any(starts))
                 .select((tasks::path, documents::revision, tasks::record))
-                .order(tasks::start)
+                .order((tasks::document_task.desc(), tasks::start))
                 .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
             records.extend(decode_records(rows.into_iter().map(Ok), &[])?);
         }
@@ -934,7 +947,7 @@ impl SqliteSemanticStore {
                     .or(tasks::wait_millis.le(now_millis)),
             )
             .select((tasks::path, documents::revision, tasks::record))
-            .order((tasks::path, tasks::start))
+            .order((tasks::path, tasks::document_task.desc(), tasks::start))
             .load_iter::<(Vec<u8>, i64, Vec<u8>), DefaultLoadingMode>(&mut *connection)?;
         decode_records(rows, excluded)
     }
@@ -1607,12 +1620,16 @@ fn insert_output(
         }
     }
     let mut task_ancestors = Vec::new();
-    for task in &output.tasks().tasks {
+    for mut task in &output.tasks().tasks {
+        if task.owner == TaskOwner::Document && task.title.is_empty() {
+            task.title = document_title(output, path).0;
+        }
         task_ancestors.truncate(task.depth);
         let parent_start = task_ancestors.last().copied().map(to_i64).transpose()?;
-        let start = to_i64(task.range.start)?;
+        let start = to_i64(task.source_key())?;
         diesel::insert_into(tasks::table)
             .values((
+                tasks::document_task.eq(task.owner == TaskOwner::Document),
                 tasks::path.eq(encoded_path.clone()),
                 tasks::id.eq(task.id.as_ref().map(|id| id.value.as_str())),
                 tasks::title.eq(&task.title),
@@ -1639,7 +1656,7 @@ fn insert_output(
                 tasks::focus_valid.eq(task.focus_valid()),
             ))
             .execute(connection)?;
-        task_ancestors.push(task.range.start);
+        task_ancestors.push(task.source_key());
         for dependency in &task.depends {
             let Some(reference) = task_reference(
                 path,
@@ -1941,6 +1958,7 @@ fn decode_task_fact_sql_rows(
                 return Ok(None);
             }
             Ok(Some(StoredTaskFact {
+                document_task: row.document_task,
                 path,
                 revision: row.revision,
                 start: to_usize(row.start)?,
@@ -1979,6 +1997,7 @@ fn decode_task_facts(
     rows.into_iter()
         .map(
             |(
+                document_task,
                 path,
                 revision,
                 start,
@@ -2007,6 +2026,7 @@ fn decode_task_facts(
                         return Ok(None);
                     }
                     Ok(Some(StoredTaskFact {
+                        document_task,
                         path,
                         revision,
                         start: to_usize(start)?,
@@ -2117,7 +2137,7 @@ fn task_field_millis(field: Option<&TaskField>) -> Option<i64> {
         .map(|value| value.timestamp_millis())
 }
 
-fn fallback_title(path: &Path) -> String {
+pub(super) fn fallback_title(path: &Path) -> String {
     path.file_stem()
         .and_then(OsStr::to_str)
         .unwrap_or_default()
@@ -2733,7 +2753,7 @@ mod tests {
         let plan = diesel::sql_query(
             "EXPLAIN QUERY PLAN SELECT tasks.path, tasks.start FROM tasks \
              INNER JOIN documents ON documents.path = tasks.path \
-             WHERE tasks.closure_state = 'done' ORDER BY tasks.path, tasks.start",
+             WHERE tasks.closure_state = 'done' ORDER BY tasks.path, tasks.document_task DESC, tasks.start",
         )
         .load::<QueryPlanRow>(&mut *connection)
         .unwrap();

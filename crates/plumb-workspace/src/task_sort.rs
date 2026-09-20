@@ -65,7 +65,7 @@ pub fn sort_task_records_by<T>(
 ) {
     records.sort_by_key(|record| {
         let facts = facts(record);
-        (facts.document, facts.source_start)
+        (facts.document, facts.source_start, facts.depth)
     });
 
     let mut grouped = BTreeMap::<String, Vec<(T, TaskSortFacts)>>::new();

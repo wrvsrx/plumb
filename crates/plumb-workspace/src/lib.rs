@@ -731,7 +731,7 @@ impl Workspace {
             };
             for task in &current.output.tasks().tasks {
                 if self.is_task_blocked_value(&entry.path, &task)? {
-                    blocked.insert((entry.path.clone(), task.range.start));
+                    blocked.insert((entry.path.clone(), task.source_key()));
                 }
             }
         }
@@ -749,7 +749,7 @@ impl Workspace {
                         states.contains(
                             &derive_task_workflow_state(
                                 task,
-                                blocked.contains(&(entry.path.clone(), task.range.start)),
+                                blocked.contains(&(entry.path.clone(), task.source_key())),
                                 now,
                             )
                             .0,
@@ -764,7 +764,7 @@ impl Workspace {
         if let Some(store) = &self.disk_store {
             for stored in store.tasks(&open)? {
                 let is_blocked = if open.is_empty() {
-                    blocked.contains(&(stored.path.clone(), stored.record.range.start))
+                    blocked.contains(&(stored.path.clone(), stored.record.source_key()))
                 } else {
                     self.is_task_blocked_value(&stored.path, &stored.record)?
                 };
@@ -4616,3 +4616,9 @@ fn valid_bare_attribute_value(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+fn apply_document_task_title(task: &mut plumb_semantics::TaskRecord, path: &Path) {
+    if task.owner == plumb_semantics::TaskOwner::Document && task.title.is_empty() {
+        task.title = store::fallback_title(path);
+    }
+}

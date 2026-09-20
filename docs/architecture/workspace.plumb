@@ -33,3 +33,9 @@ Persistent prepare 的 transaction input 只保留 source bytes、revision 与 d
 reference CodeLens 是 workspace reverse-reference query 的 LSP projection。`"references_to_document" 聚合 current-valid documents 中的 document/anchor links 与 task references，并保留真实 same-document occurrences；Graph 等 consumer 可以按自己的 edge policy 隐藏 self-edge。`"references_to" 继续查询单个 explicit anchor。server 只为 current-valid metadata 与 anchors 生成 lenses，count 与 command locations 来自同一次 query，避免 UI title 与执行结果偏移。一个 document 的 CodeLens projection 必须通过一次 batched reverse-reference query 同时取得 document occurrence 与所有 direct explicit-anchor occurrences，不得为每个 anchor 重新遍历 workspace records。 workspace query composition 以 source document 与被查询 target component 的精确 source range 作为 occurrence identity，并在 persistent rows 与 open overlay 合并后统一去重。一个 Link 同时作为普通 link record 和 event-to-task association 的 source 时仍只产生一个 occurrence；adapter 与 rename operation 不得各自补做不同的去重规则。 `"plumb.showReferences" 是 client-side command，不把 editor UI 行为放入 protocol-neutral workspace。
 
 workspace identity 使用 normalized document path/URI boundary。跨文件 query 必须说明 index completeness；不能把 partial result 表示成 complete negative result。
+
+`# Document task query identity
+
+Status：query identity 与 owner facts 已实现；path-only task references 和 adapter integration 待实现。TaskRecord 的 source ownership range 与查询 key 分开：同一 revision 内，list task key 使用 list marker 的实际 start，document task key 使用首个有效 task facet declaration 的实际 start。两者均为真实 syntax location，不使用空 id 或 sentinel offset；跨 revision 不保证 offset identity。文档任务的对外身份仍是文件路径，adapter 不把该内部 key 当 document id。
+
+持久化 task facts 保存 document owner 标志，完整 records 保存 typed owner。parent key、dependency source、分页 cursor、hydrate lookup 与 open overlay 使用相同 key。显示 source order 将文档任务置于其所有 children 前，即使根层 facet 写在正文之后；没有 title 的文档任务沿用已有 filename fallback。memory、disk、open overlay 的任务集合、数量和排序必须一致。

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset};
-use plumb_semantics::{TaskRecord, TaskReferenceTarget, TaskState};
+use plumb_semantics::{TaskOwner, TaskRecord, TaskReferenceTarget, TaskState};
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -154,6 +154,7 @@ struct TaskKey {
 
 #[derive(Clone)]
 struct TaskFact {
+    document_task: bool,
     key: TaskKey,
     document_order: String,
     revision: i64,
@@ -289,7 +290,11 @@ impl Workspace {
         propagate_effective_priorities(&mut retained, &relations, &identities, &states);
         sort_task_records_by(&mut retained, &query.sort, |fact| TaskSortFacts {
             document: fact.document_order.clone(),
-            source_start: fact.key.start,
+            source_start: if fact.document_task {
+                0
+            } else {
+                fact.key.start
+            },
             depth: fact.depth,
             focused: fact.focused,
             priority: Some(fact.effective_priority),
@@ -328,7 +333,7 @@ impl Workspace {
                 records.insert(
                     TaskKey {
                         path: stored.path,
-                        start: stored.record.range.start,
+                        start: stored.record.source_key(),
                     },
                     stored.record,
                 );
@@ -477,11 +482,7 @@ impl Workspace {
         let focused_complete = focused.len() <= NEXT_FOCUSED_PAGE;
         focused.truncate(NEXT_FOCUSED_PAGE);
         let focused_next_cursor = (!focused_complete)
-            .then(|| {
-                focused
-                    .last()
-                    .map(|fact| encode_next_cursor(query, fact))
-            })
+            .then(|| focused.last().map(|fact| encode_next_cursor(query, fact)))
             .flatten();
 
         let mut candidates = facts
@@ -561,7 +562,7 @@ fn hydrate_task_records(
             records.insert(
                 TaskKey {
                     path: stored.path,
-                    start: stored.record.range.start,
+                    start: stored.record.source_key(),
                 },
                 stored.record,
             );
@@ -578,7 +579,9 @@ fn workspace_task(
     identities: &HashMap<TaskRef, TaskKey>,
 ) -> Result<WorkspaceTask, TaskPageQueryError> {
     let task = records.remove(&fact.key).ok_or_else(|| {
-        TaskPageQueryError::Query(WorkspaceQueryError::Store(super::StoreError::InvalidStoredValue))
+        TaskPageQueryError::Query(WorkspaceQueryError::Store(
+            super::StoreError::InvalidStoredValue,
+        ))
     })?;
     let depends_on = dependencies.get(&fact.key).cloned().unwrap_or_default();
     let directly_blocking = fact
@@ -736,11 +739,12 @@ fn task_facts(
             continue;
         };
         let mut ancestors = Vec::new();
-        for task in &current.output.tasks().tasks {
+        for mut task in &current.output.tasks().tasks {
+            super::apply_document_task_title(&mut task, &entry.path);
             ancestors.truncate(task.depth);
             let key = TaskKey {
                 path: entry.path.clone(),
-                start: task.range.start,
+                start: task.source_key(),
             };
             facts.push(fact_from_record(
                 key.clone(),
@@ -748,7 +752,7 @@ fn task_facts(
                 &task,
                 ancestors.last().copied(),
             ));
-            ancestors.push(task.range.start);
+            ancestors.push(task.source_key());
             open_records.insert(key, task.clone());
         }
     }
@@ -858,6 +862,7 @@ fn fact_from_record(
     parent_start: Option<usize>,
 ) -> TaskFact {
     TaskFact {
+        document_task: task.owner == TaskOwner::Document,
         document_order: path_order_key(&key.path),
         key,
         revision,
@@ -892,6 +897,7 @@ fn fact_from_stored(stored: StoredTaskFact) -> TaskFact {
         start: stored.start,
     };
     TaskFact {
+        document_task: stored.document_task,
         document_order: path_order_key(&key.path),
         key,
         revision: stored.revision,
@@ -1397,6 +1403,63 @@ mod tests {
             } else {
                 workspace.insert(path, 1, source);
             }
+        }
+    }
+
+    #[test]
+    fn document_task_keys_titles_and_tree_order_match_disk_and_overlays() {
+        let source =
+            "`- First\n `+ task\n `@ first\n `= priority 9\n\n`+ task\n\n`- Second\n `+ task\n";
+        let mut memory = Workspace::new();
+        let mut persistent =
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap());
+        memory.insert("project.plumb", 1, source);
+        persistent.insert_disk("project.plumb", 1, source).unwrap();
+        for (revision, changed) in [
+            (1, source.to_owned()),
+            (
+                2,
+                source.replace("`+ task\n\n`- Second", "`+ journal\n\n`- Second"),
+            ),
+            (3, source.replace("First", "Updated")),
+        ] {
+            if revision > 1 {
+                memory.insert("project.plumb", revision, changed.clone());
+                persistent.insert("project.plumb", revision, changed);
+            }
+            let expected = memory.query_task_page(&query()).unwrap().value;
+            let actual = persistent.query_task_page(&query()).unwrap().value;
+            assert_eq!(actual, expected);
+            if revision != 2 {
+                assert_eq!(actual.tasks.len(), 3);
+                assert_eq!(actual.tasks[0].task.owner, TaskOwner::Document);
+                assert_eq!(actual.tasks[0].task.title, "project");
+                assert_eq!(actual.tasks[0].effective_priority, 9);
+                assert_eq!(
+                    actual
+                        .tasks
+                        .iter()
+                        .map(|task| task.task.depth)
+                        .collect::<Vec<_>>(),
+                    [0, 1, 1]
+                );
+            } else {
+                assert_eq!(actual.tasks.len(), 2);
+            }
+            assert_eq!(
+                persistent.task_document_metrics().unwrap().value,
+                memory.task_document_metrics().unwrap().value
+            );
+            assert_eq!(
+                persistent
+                    .search_records("", Some(crate::SearchRecordKind::Task), "", 100, now())
+                    .unwrap()
+                    .value,
+                memory
+                    .search_records("", Some(crate::SearchRecordKind::Task), "", 100, now())
+                    .unwrap()
+                    .value
+            );
         }
     }
 
@@ -2065,7 +2128,14 @@ mod tests {
     fn ids(tasks: &[WorkspaceTask]) -> Vec<&str> {
         tasks
             .iter()
-            .map(|task| task.task.id.as_ref().expect("fixture tasks have ids").value.as_str())
+            .map(|task| {
+                task.task
+                    .id
+                    .as_ref()
+                    .expect("fixture tasks have ids")
+                    .value
+                    .as_str()
+            })
             .collect()
     }
 

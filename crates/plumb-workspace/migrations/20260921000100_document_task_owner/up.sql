@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN document_task BOOL NOT NULL DEFAULT 0;

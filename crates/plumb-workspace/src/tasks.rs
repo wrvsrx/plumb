@@ -192,7 +192,11 @@ impl Workspace {
         self.current_output(path.as_ref())?
             .tasks()
             .document_task()
-            .map(|task| task.to_owned())
+            .map(|task| {
+                let mut task = task.to_owned();
+                super::apply_document_task_title(&mut task, path.as_ref());
+                task
+            })
     }
 
     pub fn focus_document_task(
@@ -985,7 +989,7 @@ impl Workspace {
                 };
                 let key = StoredTaskKey {
                     path: entry.path.clone(),
-                    start: task.range().start,
+                    start: task.source_key(),
                 };
                 let task_ref = TaskRef {
                     path: entry.path.clone(),

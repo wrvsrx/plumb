@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 use cel::{Context, ExecutionError, Program, Value};
 use chrono::{DateTime, FixedOffset};
-use plumb_semantics::{EventRecord, MetadataValue, TaskRecord, TaskReferenceTarget, TaskState};
+use plumb_semantics::{
+    EventRecord, MetadataValue, TaskOwner, TaskRecord, TaskReferenceTarget, TaskState,
+};
 
 use crate::store::{StoredEventSourceKey, StoredTaskKey};
 use crate::{
@@ -59,6 +61,7 @@ impl TaskWaitReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchRecord {
     pub kind: SearchRecordKind,
+    pub task_owner: Option<TaskOwner>,
     pub title: String,
     pub path: PathBuf,
     pub relative_path: String,
@@ -205,6 +208,7 @@ impl Workspace {
                             score,
                             SearchRecord {
                                 kind: SearchRecordKind::Note,
+                                task_owner: None,
                                 title,
                                 path: entry.path.clone(),
                                 relative_path: relative_path.clone(),
@@ -232,7 +236,8 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
-                for task in &current.output.tasks().tasks {
+                for mut task in &current.output.tasks().tasks {
+                    super::apply_document_task_title(&mut task, &entry.path);
                     let id = task.id.as_ref().map(|id| id.value.clone());
                     let fields = [
                         task.title.as_str(),
@@ -273,6 +278,7 @@ impl Workspace {
                         score,
                         SearchRecord {
                             kind: SearchRecordKind::Task,
+                            task_owner: Some(task.owner),
                             title: task.title.clone(),
                             path: entry.path.clone(),
                             relative_path: relative_path.clone(),
@@ -319,6 +325,7 @@ impl Workspace {
                         score,
                         SearchRecord {
                             kind: SearchRecordKind::Event,
+                            task_owner: None,
                             title: event.title.clone(),
                             path: entry.path.clone(),
                             relative_path: relative_path.clone(),
@@ -381,6 +388,7 @@ impl Workspace {
                             score,
                             SearchRecord {
                                 kind: SearchRecordKind::Note,
+                                task_owner: None,
                                 title: document.title,
                                 path: document.path,
                                 relative_path,
@@ -433,7 +441,7 @@ impl Workspace {
                         continue;
                     };
                     let blocked = if open.is_empty() {
-                        blocked_sources.contains(&(stored.path.clone(), task.range.start))
+                        blocked_sources.contains(&(stored.path.clone(), task.source_key()))
                     } else {
                         self.is_task_blocked_value(&stored.path, &task)?
                     };
@@ -467,6 +475,7 @@ impl Workspace {
                         score,
                         SearchRecord {
                             kind: SearchRecordKind::Task,
+                            task_owner: Some(task.owner),
                             title: task.title,
                             path: stored.path,
                             relative_path,
@@ -521,6 +530,7 @@ impl Workspace {
                         score,
                         SearchRecord {
                             kind: SearchRecordKind::Event,
+                            task_owner: None,
                             title: event.title,
                             path: stored.path,
                             relative_path,
@@ -607,12 +617,14 @@ impl Workspace {
                 }
             }
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
-                for task in &current.output.tasks().tasks {
+                for mut task in &current.output.tasks().tasks {
+                    super::apply_document_task_title(&mut task, &entry.path);
                     let key = StoredTaskKey {
                         path: entry.path.clone(),
-                        start: task.range.start,
+                        start: task.source_key(),
                     };
                     task_facts.push(SearchTaskFact {
+                        document_task: task.owner == TaskOwner::Document,
                         key: key.clone(),
                         revision: current.revision,
                         selection_range: task.selection_range.clone(),
@@ -678,6 +690,7 @@ impl Workspace {
             if kind.is_none_or(|kind| kind == SearchRecordKind::Task) {
                 task_facts.extend(store.task_facts(&open_paths)?.into_iter().map(|fact| {
                     SearchTaskFact {
+                        document_task: fact.document_task,
                         key: StoredTaskKey {
                             path: fact.path,
                             start: fact.start,
@@ -762,6 +775,11 @@ impl Workspace {
                     score,
                     SearchRecord {
                         kind: SearchRecordKind::Task,
+                        task_owner: Some(if fact.document_task {
+                            TaskOwner::Document
+                        } else {
+                            TaskOwner::ListItem
+                        }),
                         title: fact.title.clone(),
                         path: fact.key.path.clone(),
                         relative_path,
@@ -830,6 +848,7 @@ impl Workspace {
                         score,
                         SearchRecord {
                             kind: SearchRecordKind::Event,
+                            task_owner: None,
                             title: fact.title,
                             path: fact.path,
                             relative_path,
@@ -886,7 +905,11 @@ impl Workspace {
             .collect::<Vec<_>>();
         task_indexes.sort_by_key(|index| {
             let record = &matches[*index].1;
-            (record.path.clone(), record.range.start)
+            (
+                record.path.clone(),
+                record.task_owner != Some(TaskOwner::Document),
+                record.range.start,
+            )
         });
         let node_by_record = task_indexes
             .iter()
@@ -977,6 +1000,7 @@ impl Workspace {
 
 #[derive(Clone)]
 struct SearchTaskFact {
+    document_task: bool,
     key: StoredTaskKey,
     revision: i64,
     selection_range: std::ops::Range<usize>,
@@ -1012,6 +1036,7 @@ fn note_search_record(
 ) -> SearchRecord {
     SearchRecord {
         kind: SearchRecordKind::Note,
+        task_owner: None,
         title,
         path,
         relative_path,
@@ -1044,6 +1069,7 @@ fn event_search_record(
 ) -> SearchRecord {
     SearchRecord {
         kind: SearchRecordKind::Event,
+        task_owner: None,
         title: event.title.clone(),
         path,
         relative_path,
@@ -1123,7 +1149,11 @@ fn propagate_lightweight_task_priorities(
         .collect::<Vec<_>>();
     task_indexes.sort_by_key(|index| {
         let record = &matches[*index].1;
-        (record.path.clone(), record.range.start)
+        (
+            record.path.clone(),
+            record.task_owner != Some(TaskOwner::Document),
+            record.range.start,
+        )
     });
     let mut node_by_key = HashMap::new();
     let mut node_by_ref = HashMap::new();
@@ -1268,7 +1298,7 @@ fn hydrate_selected_search_records(
             stored_tasks.insert(
                 StoredTaskKey {
                     path: stored.path,
-                    start: stored.record.range.start,
+                    start: stored.record.source_key(),
                 },
                 stored.record,
             );
