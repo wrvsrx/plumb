@@ -512,7 +512,7 @@ fn parse_direct_value(
     parse_direct_children(&property.children, body_range(property), diagnostics)
 }
 
-fn direct_property_parts(
+pub(crate) fn direct_property_parts(
     property: &ParsedBlock,
 ) -> Option<(String, Range<usize>, Option<InlineContent>)> {
     let head = &property.content;

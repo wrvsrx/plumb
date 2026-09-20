@@ -456,7 +456,7 @@ pub fn analyze_green_document_task(valid: ValidGreenDocument<'_>) -> TaskOutput 
 pub(crate) fn green_document_task_record(
     valid: ValidGreenDocument<'_>,
     metadata: &crate::MetadataOutput,
-) -> Option<(TaskRecord, Vec<AttrItem>)> {
+) -> Option<(TaskRecord, Vec<AttrItem>, Vec<Diagnostic>)> {
     document_task_record(
         valid.source(),
         metadata,
@@ -471,17 +471,61 @@ fn document_task_record<'a>(
     source: &str,
     metadata: &crate::MetadataOutput,
     documents: impl IntoIterator<Item = (&'a plumb_syntax::Document, &'a str, usize)>,
-) -> Option<(TaskRecord, Vec<AttrItem>)> {
+) -> Option<(TaskRecord, Vec<AttrItem>, Vec<Diagnostic>)> {
     let facet = metadata.facets.iter().find(|facet| facet.name == "task")?;
     let mut attrs = Vec::new();
     let mut focus_occurrences = Vec::new();
+    let mut field_diagnostics = Vec::new();
     for (document, local_source, offset) in documents {
+        for block in &document.blocks {
+            let Block::Parsed(property) = block else {
+                continue;
+            };
+            if !property
+                .mark
+                .as_ref()
+                .is_some_and(|mark| mark.marker == "=")
+            {
+                continue;
+            }
+            let Some((key, _, scalar)) = crate::metadata::direct_property_parts(property) else {
+                continue;
+            };
+            if matches!(
+                key.as_str(),
+                "created" | "due" | "wait" | "done" | "canceled" | "recur" | "priority" | "prev"
+            ) && (!property.children.is_empty()
+                || scalar
+                    .as_ref()
+                    .is_none_or(|value| plain_text(value).trim().is_empty()))
+            {
+                field_diagnostics.push(Diagnostic {
+                    code: "task.invalid-field-shape",
+                    severity: DiagnosticSeverity::Warning,
+                    message: format!(
+                        "document task field '{key}' must be a nonempty leaf scalar property"
+                    ),
+                    range: property.range.start + offset..property.range.end + offset,
+                    related: Vec::new(),
+                });
+            }
+        }
         let mut focus = focus_field(local_source, &document.blocks, &document.attrs.items);
         if focus.present {
             shift_focus(&mut focus, offset as isize);
             focus_occurrences.push(focus);
         }
         for item in &document.attrs.items {
+            if let AttrItem::Pair { range, .. } = item {
+                if field_diagnostics.iter().any(|diagnostic| {
+                    diagnostic.range.start <= range.start + offset
+                        && diagnostic.range.end >= range.end + offset
+                }) {
+                    // Shape diagnostics own these declarations; do not also
+                    // diagnose their empty value as an invalid datetime, etc.
+                    continue;
+                }
+            }
             let mut item = item.clone();
             let delta = offset as isize;
             match &mut item {
@@ -531,17 +575,20 @@ fn document_task_record<'a>(
         id: None,
         ..task_properties(source, &attrs, merge_focus_occurrences(focus_occurrences))
     };
-    Some((task, attrs))
+    Some((task, attrs, field_diagnostics))
 }
 
 pub(crate) fn prepend_document_task(
-    document: Option<(TaskRecord, Vec<AttrItem>)>,
+    document: Option<(TaskRecord, Vec<AttrItem>, Vec<Diagnostic>)>,
     output: &mut TaskOutput,
 ) {
-    let Some((task, attrs)) = document else {
+    let Some((task, attrs, diagnostics)) = document else {
         return;
     };
     let mut combined = TaskOutput::default();
+    for diagnostic in diagnostics {
+        combined.diagnostics.push(diagnostic);
+    }
     collect_task_diagnostics(&task, &attrs, &mut combined);
     combined.tasks.push(task);
     for task in output.tasks.iter() {
@@ -1203,6 +1250,40 @@ mod tests {
     use plumb_syntax::parse;
 
     use super::*;
+
+    #[test]
+    fn document_task_scalar_fields_require_nonempty_leaf_properties() {
+        for key in [
+            "created", "due", "wait", "done", "canceled", "recur", "priority", "prev",
+        ] {
+            for value in ["", " {}", "\n `+ invalid"] {
+                let declaration = format!("`= {key}{value}\n");
+                let source = format!("Body.\n\n{declaration}\n`+ task\n");
+                let parsed = parse(&source);
+                let green = plumb_syntax::GreenDocument::parse(&source);
+                let output = analyze_tasks(parsed.valid_syntax().unwrap());
+                assert_eq!(output, analyze_green_tasks(green.valid_syntax().unwrap()));
+                let diagnostics = output
+                    .diagnostics
+                    .iter()
+                    .filter(|d| d.code == "task.invalid-field-shape")
+                    .collect::<Vec<_>>();
+                assert_eq!(diagnostics.len(), 1, "{source}");
+                assert_eq!(
+                    source[diagnostics[0].range.clone()].trim_end(),
+                    declaration.trim_end()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn document_task_scalar_shape_checks_do_not_consume_opaque_or_nested_keys() {
+        let source = "`+ task\n`= done other\n `+ opaque\n`= custom\n `= due\n `= done\n";
+        let parsed = parse(source);
+        let output = analyze_tasks(parsed.valid_syntax().unwrap());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    }
 
     #[test]
     fn document_task_reduces_interleaved_declarations_once_and_organizes_children() {

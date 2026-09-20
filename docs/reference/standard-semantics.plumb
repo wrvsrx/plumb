@@ -117,6 +117,8 @@ focus history、状态推导、priority 和 dependency 规则复用 list task �
 
 文档 task 的根层 focused property 由 task profile 校验；其历史列表使用与 list task 相同的 direct leaf `"-" 子项，并在 metadata 中投影为 List，不产生 metadata.unsupported-value。非法历史形态由 task focus diagnostic 报告。此例外只适用于有有效 task facet 的文档根层 focused，不扩展普通 metadata 或嵌套 map 的 sequence 语法；facet 可出现在历史字段之后。
 
+文档 task 的 created、due、wait、done、canceled、recur、priority 与 prev 必须使用带非空 scalar value 的 leaf property。空声明或带 children 的声明发布 task.invalid-field-shape，不能因 leaf attribute projection 跳过该字段而静默忽略；multiword property key 与这些 key 不同，不作为任务字段消费。
+
 `# 6. Links
 
 未带 resource facets 的 `"->" group 与 compact marked Verbatim 使用本节 navigation Link projection；resource-faceted Group 由第 7 节消费，但共享 positional binding。唯一 standard Link kind 是 `"->"。direct declaration与 whitespace不占 positional index。一个 non-declaration
