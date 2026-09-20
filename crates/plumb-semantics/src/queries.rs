@@ -48,6 +48,7 @@ pub struct EmbedCompletionContext {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskDependencyCompletionContext {
+    pub id_replace: Option<Range<usize>>,
     pub replace: Range<usize>,
     pub query: String,
     pub task_range: Range<usize>,
@@ -624,6 +625,7 @@ pub fn green_task_dependency_completion_context(
         task_dependency_completion_context,
         |context, delta| {
             shift_range(&mut context.replace, delta);
+            if let Some(range) = &mut context.id_replace { shift_range(range, delta); }
             shift_range(&mut context.task_range, delta);
         },
     )
@@ -640,9 +642,18 @@ fn task_reference_record_context(
         let Some(current) = current else { continue; };
         // Invalid structural declarations are not reference text to replace.
         if source[current.range.clone()].contains('\n') { continue; }
+        let id_replace = current.id_range.clone().filter(|range| range.start <= offset && offset <= range.end);
+        let query = if let Some(range) = &id_replace {
+            let path = match &current.target {
+                TaskReferenceTarget::External { path, .. } => path.as_str(),
+                _ => "",
+            };
+            format!("{path}#{}", &source[range.start..offset])
+        } else { source[current.range.start..offset].to_owned() };
         return Some(TaskDependencyCompletionContext {
+            id_replace,
             replace: current.range.clone(),
-            query: source[current.range.start..offset].to_owned(),
+            query,
             task_range: task.range.clone(),
             existing: references.iter().filter(|reference| reference.range != current.range)
                 .map(|reference| reference.target.clone()).collect(),
@@ -730,6 +741,7 @@ fn task_dependency_context(
         .map(|(token, _)| parse_task_reference_target(token))
         .collect();
     Some(TaskDependencyCompletionContext {
+        id_replace: query.rfind('#').map(|separator| replace.start + separator + 1..replace.end),
         replace,
         query,
         task_range,

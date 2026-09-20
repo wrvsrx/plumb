@@ -6404,6 +6404,7 @@ fn document_dependency_completion_includes_paths_and_excludes_self_and_existing(
             else { workspace.insert(path, 1, source); }
         }
         let mut context = TaskDependencyCompletionContext {
+            id_replace: None,
             replace: 0..0, query: String::new(), task_range: 0..source.len(), existing: Vec::new(),
         };
         let result = workspace.complete_task_dependency("source.plumb", &context).unwrap().value;
@@ -6462,4 +6463,74 @@ fn task_tree_pages_keep_whole_documents_and_reject_cross_mode_and_stale_cursors(
     assert!(last.next_cursor.is_none());
     query.workspace_revision += 1;
     assert!(workspace.query_task_tree_page(&query).is_err());
+}
+
+#[test]
+fn escaped_task_reference_renames_preserve_decoded_paths_and_anchor_components() {
+    for spelling in ["{项目 `{计划`}.plumb#build}", "`\"项目 {计划}.plumb#build\""] {
+        let path = "项目 {计划}.plumb";
+        let source = format!("`+ task\n`= prev {spelling}\n`= depends {spelling}\n");
+        let mut workspace = Workspace::new();
+        workspace.insert(path, 1, "`+ task\n\n`- Build\n `+ task\n `@ build\n");
+        workspace.insert("source.plumb", 1, &source);
+        let offset = source.find("#build").unwrap() + 1;
+        let target = workspace.anchor_rename_target_at("source.plumb", offset).unwrap();
+        let renamed = workspace.rename_anchor(&target, "renamed").unwrap();
+        let edits = renamed.document_changes.iter().find(|change| change.path == Path::new("source.plumb")).unwrap();
+        let updated = apply_text_edits(source.clone(), edits.edits.clone()).unwrap();
+        let parsed = plumb_syntax::parse(&updated);
+        let task = plumb_semantics::analyze_tasks(parsed.valid_syntax().unwrap()).document_task().unwrap().to_owned();
+        assert_eq!(task.prev.unwrap().value, format!("{path}#renamed"));
+        assert_eq!(task.depends[0].source, format!("{path}#renamed"));
+
+        let target = workspace.path_rename_target_at("source.plumb", source.find("项目").unwrap()).unwrap();
+        let replacement = "新 {计划} \".plumb";
+        let renamed = workspace.rename_document(&target, replacement).unwrap();
+        let edits = renamed.document_changes.iter().find(|change| change.path == Path::new("source.plumb")).unwrap();
+        let updated = apply_text_edits(source.clone(), edits.edits.clone()).unwrap();
+        let parsed = plumb_syntax::parse(&updated);
+        assert!(parsed.is_valid(), "{updated}: {:?}", parsed.diagnostics);
+        let task = plumb_semantics::analyze_tasks(parsed.valid_syntax().unwrap()).document_task().unwrap().to_owned();
+        assert_eq!(task.prev.unwrap().value, format!("{replacement}#build"));
+        assert_eq!(task.depends[0].source, format!("{replacement}#build"));
+    }
+}
+
+#[test]
+fn completion_after_escaped_path_replaces_only_the_anchor() {
+    for spelling in ["{项目 `{计划`}.plumb#bu}", "`\"项目 {计划}.plumb#bu\""] {
+        let source = format!("`+ task\n`= depends {spelling}\n");
+        let mut workspace = Workspace::new();
+        workspace.insert("source.plumb", 1, &source);
+        workspace.insert("项目 {计划}.plumb", 1, "`- Build\n `+ task\n `@ build\n");
+        let green = plumb_syntax::GreenDocument::parse(&source);
+        let offset = source.find("#bu").unwrap() + 3;
+        let context = plumb_semantics::green_task_dependency_completion_context(&green, offset).unwrap();
+        let candidates = workspace.complete_task_dependency("source.plumb", &context).unwrap().value;
+        let candidate = candidates.iter().find(|candidate| candidate.label == "build").unwrap();
+        assert_eq!(&source[candidate.replace.clone()], "bu");
+        let mut updated = source.clone();
+        updated.replace_range(candidate.replace.clone(), &candidate.new_text);
+        let parsed = plumb_syntax::parse(&updated);
+        let task = plumb_semantics::analyze_tasks(parsed.valid_syntax().unwrap()).document_task().unwrap().to_owned();
+        assert_eq!(task.depends[0].source, "项目 {计划}.plumb#build");
+    }
+}
+
+#[test]
+fn document_parent_placement_creates_root_list_task_without_wrapping_document() {
+    let source = "`+ task\n`= title Project\n\nBody.\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("project.plumb", 1, source);
+    let placement = TaskPlacement { parent: Some(0..source.len()), after: None };
+    let edit = workspace.create_task("project.plumb", &TaskAuthoringInput {
+        title: "Child".into(), ..Default::default()
+    }, &placement, "2026-09-21T10:00:00+08:00").unwrap();
+    let updated = apply_text_edits(source.into(), edit.document_changes[0].edits.clone()).unwrap();
+    assert!(updated.starts_with(source));
+    assert!(updated.contains("\n`- Child\n"));
+    let parsed = plumb_syntax::parse(&updated);
+    let tasks = plumb_semantics::analyze_tasks(parsed.valid_syntax().unwrap());
+    assert_eq!(tasks.tasks.len(), 2);
+    assert_eq!(tasks.tasks.get(1).unwrap().depth, 1);
 }

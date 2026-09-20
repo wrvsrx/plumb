@@ -311,10 +311,11 @@ fn set_task_focus_target(
 ) -> Result<(), String> {
     let (path, id) = parse_task_target(root, target)?;
     let loaded = load_workspace(root)?;
-    let edit = if focused {
-        loaded.workspace.focus_task_by_id(&path, &id, timestamp)
-    } else {
-        loaded.workspace.unfocus_task_by_id(&path, &id, timestamp)
+    let edit = match (id.as_deref(), focused) {
+        (Some(id), true) => loaded.workspace.focus_task_by_id(&path, id, timestamp),
+        (Some(id), false) => loaded.workspace.unfocus_task_by_id(&path, id, timestamp),
+        (None, true) => loaded.workspace.focus_document_task(&path, timestamp),
+        (None, false) => loaded.workspace.unfocus_document_task(&path, timestamp),
     }
     .map_err(|error| error.to_string())?;
     let entry = loaded
@@ -337,10 +338,10 @@ fn set_task_status_target(
 ) -> Result<(), String> {
     let (path, id) = parse_task_target(root, target)?;
     let loaded = load_workspace(root)?;
-    let edit = loaded
-        .workspace
-        .set_task_status_by_id(&path, &id, status, timestamp)
-        .map_err(|error| error.to_string())?;
+    let edit = match id.as_deref() {
+        Some(id) => loaded.workspace.set_task_status_by_id(&path, id, status, timestamp),
+        None => loaded.workspace.set_document_task_status(&path, status, timestamp),
+    }.map_err(|error| error.to_string())?;
     let entry = loaded
         .workspace
         .get(&path)
@@ -353,11 +354,12 @@ fn set_task_status_target(
         .map_err(|error| format!("cannot write {}: {error}", path.display()))
 }
 
-fn parse_task_target(root: &Path, target: &str) -> Result<(PathBuf, String), String> {
-    let (path, id) = target
-        .split_once('#')
-        .filter(|(path, id)| !path.is_empty() && !id.is_empty())
-        .ok_or_else(|| format!("task target must be path.plumb#task-id: {target}"))?;
+fn parse_task_target(root: &Path, target: &str) -> Result<(PathBuf, Option<String>), String> {
+    let (path, id) = match target.split_once('#') {
+        Some((path, id)) if !path.is_empty() && !id.is_empty() => (path, Some(id.to_string())),
+        None if !target.is_empty() => (target, None),
+        _ => return Err(format!("task target must be path.plumb or path.plumb#task-id: {target}")),
+    };
     let root = normalize(root);
     let path = normalize(&root.join(path));
     if !path.starts_with(&root) {
@@ -369,7 +371,7 @@ fn parse_task_target(root: &Path, target: &str) -> Result<(PathBuf, String), Str
     {
         return Err(format!("task target is not a .plumb file: {target}"));
     }
-    Ok((path, id.to_string()))
+    Ok((path, id))
 }
 
 #[cfg(test)]
@@ -575,6 +577,23 @@ mod tests {
         let records = task_records(&root, &loaded, None, true).unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].source, "tasks.plumb#valid");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn document_path_target_focuses_and_completes_only_the_document_task() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("project.plumb");
+        std::fs::write(&path, "`+ task\n\n`- Child\n `+ task\n").unwrap();
+        set_task_focus_target(&root, "project.plumb", true, "2026-09-21T09:00:00+08:00").unwrap();
+        set_task_status_target(&root, "project.plumb", TaskStatus::Done, "2026-09-21T10:00:00+08:00").unwrap();
+        let source = std::fs::read_to_string(&path).unwrap();
+        let parsed = plumb_syntax::parse(source);
+        let output = plumb_semantics::analyze_tasks(parsed.valid_syntax().unwrap());
+        assert_eq!(output.document_task().unwrap().state(), plumb_semantics::TaskState::Done);
+        assert!(!output.document_task().unwrap().to_owned().has_open_focus_interval());
+        assert_eq!(output.tasks.get(1).unwrap().state(), plumb_semantics::TaskState::Open);
         std::fs::remove_dir_all(root).unwrap();
     }
 

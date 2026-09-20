@@ -46,6 +46,8 @@ scanner 不进入 directory symlink；扩展名为 `"..plumb" 的 file symlink �
   plumb task unfocus notes/tasks.plumb#write-parser
   plumb task next --limit 3
 
+任务操作的 TARGET 可以是文档任务的 `"path.plumb"，或列表任务的 `"path.plumb#task-id"。
+
 task output 默认是 nested table；`"--flat" 省略 nesting indentation，`"--no-heading" 适合脚本。 complete/cancel 使用带 revision guard 的 shared operation 修改文件，并在同一次编辑里为 open 的 `"focused" 区间补上结束时间。
 
 `"focus" 与 `"unfocus" 手工标记任务是否列入当前工作线：focus 写入或追加一个 open 区间（已有全部结束的历史时追加并把 single value 转成列表）， 已经 focused 时幂等不变；unfocus 为 open 区间补当前时刻，没有 open 区间时同一幂等。两者都支持多目标， 拒绝 closed task，focus 允许 waiting/blocked 的未关闭任务；非法区间历史或时间回拨导致无法满足顺序时明确失败且不写入。
@@ -62,7 +64,7 @@ Graph 的 fuzzy search 只隐藏当前基础图中未匹配的 nodes 和相关 e
 
 本地视频附件使用浏览器原生播放控件。媒体服务支持分段读取，浏览器支持且具备有效索引的视频可以拖动进度条跳转到未缓冲的位置，无需先下载整个文件。
 
-`"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、 selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。 Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。每个 document 是 task forest 的 虚拟结构节点。Document heading 与含 subtasks 的 task 都可折叠：点击 heading 收起该文件的全部 tasks， 点击 task 的 disclosure control 收起其完整 subtask subtree，collapsed row 仍显示被隐藏的 subtask 数量； 选中被折叠的 task 会自动展开其 ancestors，折叠状态在同一浏览器 session 的 task list 刷新之间保持， 但不进入 URL 或跨刷新保存。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时 默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后， Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task 不会参与这些聚合；详情显示 derived state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示， 切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。 点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
+`"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、 selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。 Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。没有 task facet 的 document 是 task forest 的虚拟结构节点；文档任务直接替代该文件行，不重复显示。Document heading 与含 subtasks 的 task 都可折叠：点击 heading 收起该文件的全部 tasks， 点击 task 的 disclosure control 收起其完整 subtask subtree，collapsed row 仍显示被隐藏的 subtask 数量； 选中被折叠的 task 会自动展开其 ancestors，折叠状态在同一浏览器 session 的 task list 刷新之间保持， 但不进入 URL 或跨刷新保存。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时 默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后， Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task 不会参与这些聚合；详情显示 derived state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示， 切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。 点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
 
 Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 
@@ -108,3 +110,7 @@ server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET r
   plumb site serve --exclude 'path in ["closed.plumb", "diary.plumb"]'
 
 `".ignore" 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document 的其它工具能力，只从 graph projection 移除 node、degree、local traversal 和 force layout effects。
+
+文档任务在详情中可修改字段、focus 或关闭；展开子树与选中任务使用独立控件。New task 表单的 Use selected document as task 把所选文件标记为任务；文档任务详情的 Remove task facet 只移除身份，保留文件内容。文档任务隐藏 Parent、Position 和 Recurrence 控件。
+
+筛选命中子任务时，任务树保留完整祖先链；这些结构性父节点不计入任务匹配数量，行提示说明其上下文用途。文档任务的标题或 facet 可以写在文件后面，仍显示为整棵任务树的父节点。

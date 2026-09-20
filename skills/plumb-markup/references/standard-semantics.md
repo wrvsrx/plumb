@@ -169,6 +169,27 @@ elements inside a style need no anonymous group.
 
 ## Tasks
 
+A root `+ task` facet makes the document itself a task. Its title is document
+metadata `title` (fallback: filename), and its body is the details. Top-level
+list tasks become children without inheriting closure, focus, or dependencies.
+Document tasks have path identity, no root anchor, and do not support `recur`.
+Removing the facet preserves properties, focus history, body, and children.
+
+```plumb
+`= title Release plan
+`+ task
+`= depends
+ `+ Project Plan.plumb
+ `+ other.plumb#review
+
+Release details.
+```
+
+A path without a fragment refers only to a document task; `path.plumb#id`
+refers to a list task. Paths are relative to the referring file. For multiple
+references use separate groups or direct `+` sequence items, preserving spaces
+inside each path. `prev` accepts one scalar reference.
+
 A list item becomes a task through direct leaf `+ task`:
 
 ```plumb
@@ -182,7 +203,7 @@ A list item becomes a task through direct leaf `+ task`:
 
 The complete item head is title and body children are details. Defined fields
 include `created`, `due`, `wait`, `done`, `canceled`, `recur`, `prev`,
-`priority`, and `depends`. Datetimes are RFC 3339. State is derived as ready,
+`priority`, `depends`, and `focused`. Datetimes are RFC 3339. State is derived as ready,
 waiting, blocked, done, canceled, or conflicted; no status field or checkbox
 syntax exists. `task` as a block marker is generic.
 

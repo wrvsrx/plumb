@@ -251,3 +251,9 @@ Note preview 对 `"cite" 运行 Pandoc citeproc。Bibliography relative path 从
 `- nested workspace 未生效时，确认 marker 是 `".plumb/" directory，并在重新打开 buffer 后检查 root。
 `- ignored note 意外出现在 search 或 graph 时，检查生效 workspace root 及其 root-scoped `".ignore"。
 `- repository-local parser 或 LSP 需要调试时，以 `"dev/nvim.lua" 作为可运行参考配置。
+
+`# 文档任务操作
+
+在空文档或根层 metadata/facet 声明处，LSP code action 提供 Mark document as task 或 Remove document task facet。已有文档任务还可使用 Complete task、Cancel task、Focus task 和 Unfocus task。子任务内部的操作只作用于对应列表任务。Neovim 使用原生 code action 入口即可，无需另写编辑命令。
+
+文档任务完成或取消时，仅对 title 或 task facet 的选择范围提供状态高亮，不覆盖正文或子任务；文档任务不生成整文件的列表折叠标签，现有结构折叠继续使用原有边界。

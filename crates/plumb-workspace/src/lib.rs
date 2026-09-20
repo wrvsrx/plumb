@@ -2759,6 +2759,7 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.current.is_some())
             .ok_or(TaskAuthoringError::StaleOrInvalidDocument)?;
+        let placement = document_task_placement(entry, placement)?;
         let id = format!("task-{}", uuid::Uuid::new_v4().simple());
         self.validate_authored_task_references(&path, Some(TaskRef { path: path.clone(), id: Some(id.clone()) }), input)?;
         let task = owned_authored_task(input, &id, timestamp);
@@ -2975,6 +2976,7 @@ impl Workspace {
         placement: &TaskPlacement,
         moved: OwnedBlock,
     ) -> Result<WorkspaceEdit, TaskAuthoringError> {
+        let placement = document_task_placement(entry, placement)?;
         if let Some(parent_range) = &placement.parent {
             let is_task = entry
                 .current
@@ -3466,7 +3468,7 @@ impl Workspace {
         }
         let now = chrono::Local::now().fixed_offset();
         let id_replace_start = context.replace.start + path_query.len() + 1;
-        let id_replace = id_replace_start..context.replace.end;
+        let id_replace = context.id_replace.clone().unwrap_or(id_replace_start..context.replace.end);
         let relative = relative_path(&from, &target_path).unwrap_or_else(|| path_query.to_string());
         let target_tasks = self.tasks_for_path(&target_path)?;
         let mut candidates = Vec::new();
@@ -4508,4 +4510,18 @@ fn apply_document_task_title(task: &mut plumb_semantics::TaskRecord, path: &Path
     if task.owner == plumb_semantics::TaskOwner::Document && task.title.is_empty() {
         task.title = store::fallback_title(path);
     }
+}
+
+fn document_task_placement(
+    entry: &DocumentEntry,
+    placement: &TaskPlacement,
+) -> Result<TaskPlacement, TaskAuthoringError> {
+    let document = entry.current.as_ref().and_then(|current| current.output.tasks().document_task().map(|task| task.range()));
+    if document.is_some() && placement.after == document {
+        return Err(TaskAuthoringError::InvalidPlacement);
+    }
+    Ok(TaskPlacement {
+        parent: if document.is_some() && placement.parent == document { None } else { placement.parent.clone() },
+        after: placement.after.clone(),
+    })
 }

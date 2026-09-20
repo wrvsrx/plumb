@@ -258,7 +258,7 @@ struct NextConfig {
 
 #[derive(Debug, Args)]
 struct TaskTargetsConfig {
-    /// Task targets, written as path.plumb#task-id.
+    /// Task targets: path.plumb for a document task, or path.plumb#task-id for a list task.
     #[arg(value_name = "TARGET", required = true)]
     targets: Vec<String>,
 }

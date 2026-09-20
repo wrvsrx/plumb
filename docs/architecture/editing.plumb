@@ -161,7 +161,7 @@ OwnedDeclarationValue 除 Scalar 与 direct `"-" List 外，支持 direct `"+" S
 
 引用 component rename 向 plumb-edit 提供 current green revision、source-backed component range 与 decoded replacement。edit layer 为 parsed text 转义特殊字符；若 component 在 inline Verbatim payload 内，则保留其余 payload 并按需重建 quote envelope。验证新 revision 后才返回 edit，不能把 decoded filename 原样写进 parsed source 或破坏 raw delimiters。
 
-Status：root declaration mutation、身份/focus/closure 基本操作已实现；完整 task authoring 与 adapter integration 待实现。Document task 与 ListItem task 使用显式 owner variant，不以空 id、伪造 marker range 或 list wrapper 表达 document。根层声明可能跨 green shards；document reducer 汇总一次，并在 facet、title 或 task property 修改后正确失效。source ownership、导航选择和高亮范围分别定义，文档任务不能覆盖子任务的高亮或 folding。
+Document task 与 ListItem task 使用显式 owner variant，不以空 id、伪造 marker range 或 list wrapper 表达 document。根层声明可能跨 green shards；document reducer 汇总一次，并在 facet、title 或 task property 修改后正确失效。source ownership、导航选择和高亮范围分别定义，文档任务不能覆盖子任务的高亮或 folding。
 
 plumb-edit 提供 root declaration 的 owned mutation，跨 shards 返回 non-overlapping edits，不 materialize revision-wide compatibility tree。标记文档为 task 是幂等操作，缺少 created 时补充，已有相关 properties 必须通过校验。取消身份仅移除 task facet。完成或取消时结束开放 focus interval 与 closure field 更新属于同一 guarded proposal。失败不应用部分编辑。
 
@@ -176,3 +176,5 @@ transaction 在原位置替换已有声明，在根层插入新声明；根层 f
 Document task 字段 patch 只修改明确提供的根层属性；未提供的 title、字段、focus history 与正文保持原样。删除 title 恢复文件名显示。非空 recur 被拒绝，依赖修改按文档路径身份校验自环与混合 owner 环。带 placement 的更新和 move 明确拒绝 Document owner。
 
 Document task 的显式操作按 document owner 定位，不转成任意 list offset。cursor 操作保留原有 list task 向开放 list ancestor 回退的规则，但命中 child 时不能进一步退回 document parent 并修改整个文件任务。
+
+列表任务的 create/move 若显式选择 Document task 为 parent，shared editing 将其映射到文档根层插入位置；不构造整文件列表 wrapper。文档任务本身不能作为 after sibling。

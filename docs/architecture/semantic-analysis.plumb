@@ -454,8 +454,10 @@ syntax diagnostics 由 `"plumb-syntax" 拥有；semantic profile diagnostics 由
 
 任务 depends、prev 与 event tasks 的每个 reference record 保存 decoded target、完整 source range、optional path range 与 optional id range。component ranges 必须来自 Stringify 的 decoded-to-source boundary mapping，不得以 decoded 字符串长度推算源码位置。green shard projection 同时平移所有 ranges；磁盘 event association facts 保留这些位置，打开文档与磁盘查询结果一致。
 
-Status：共享 task reducer 与 workspace query/reference integration 已实现；完整 editing 与 adapters 待集成。TaskRecord 使用 Document/ListItem owner。Document task 的 range 是全文 source ownership，marker_range 指向有效 task facet declaration，selection_range 指向 title value（缺省为 facet name）；range 不是高亮或 mutation 的目标。document id 不使用根层 anchor，也不借用任何 list item id。列表 task 的 depth 在文档任务存在时统一增加一层，source topology 保持不变。
+TaskRecord 使用 Document/ListItem owner。Document task 的 range 是全文 source ownership，marker_range 指向有效 task facet declaration，selection_range 指向 title value（缺省为 facet name）；range 不是高亮或 mutation 的目标。document id 不使用根层 anchor，也不借用任何 list item id。列表 task 的 depth 在文档任务存在时统一增加一层，source topology 保持不变。
 
 Document task 在完整 root declarations 上汇总一次；跨 shard 的 properties 与 focus intervals 必须投影到同一 revision 的 absolute ranges。local shard task analysis 只处理 list items，并接受 document task context。root task 及其诊断由 reducer 合并；不得用伪造 syntax owner 运行 list analysis。修改 title、facet、字段或 source geometry 后，fresh/incremental records 与 diagnostics 必须相同。
 
 Exported semantic delta 的 record address 显式区分 document reducer record 与 shard-local record：document address 的 node_index 为 None，local_record_index 为该 reducer collection 的索引；不能伪造 shard index。文档任务增删或字段变化必须出现在 task delta，即使所有 list records 均被复用。文档与第一条 list task 可以具有相同 source start；start offset 单独不能作为跨 owner 的唯一身份。
+
+任务引用补全在 anchor component 内使用解码后的目标路径进行候选查询，并使用 source-backed id range 替换 anchor；不能用 decoded path 长度推算源码 offset。普通 parsed spelling 与 inline Verbatim 必须保持其路径和 envelope。

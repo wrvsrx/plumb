@@ -1134,3 +1134,37 @@ fn completes_recursive_direct_members() {
     assert!(response(&output, 3)["result"].is_null());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn completes_document_task_paths_from_root_sequence_declarations() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "`+ task\n`= depends\n `+ Project\n";
+    let path = root.join("source.plumb");
+    std::fs::write(&path, source).unwrap();
+    std::fs::write(root.join("Project Plan.plumb"), "`+ task\n`= title Plan\n").unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let uri = lsp_types::Url::from_file_path(&path).unwrap();
+    let messages = [
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+            "processId":null,"rootUri":root_uri,"capabilities":{}
+        }}),
+        json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+            "textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":source}
+        }}),
+        json!({"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{
+            "textDocument":{"uri":uri},"position":{"line":2,"character":11}
+        }}),
+        json!({"jsonrpc":"2.0","id":3,"method":"shutdown","params":null}),
+        json!({"jsonrpc":"2.0","method":"exit","params":null}),
+    ];
+    let output = run_server_after_initial_index(&messages);
+    let items = response(&output, 2)["result"].as_array().unwrap();
+    let item = items.iter().find(|item| item["label"] == "Project Plan.plumb").unwrap();
+    assert_eq!(item["textEdit"]["newText"], "Project Plan.plumb");
+    assert_eq!(item["textEdit"]["range"], json!({
+        "start":{"line":2,"character":4},"end":{"line":2,"character":11}
+    }));
+    std::fs::remove_dir_all(root).unwrap();
+}

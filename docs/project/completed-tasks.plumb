@@ -1436,3 +1436,15 @@
  `note 补齐 lazy.nvim 等常见 plugin manager、手动 runtimepath 与 Nix 安装说明；bundled plugin 与 `"plumb" binary 的 version compatibility 必须明确且可检查，tree-sitter compatibility 由独立 parser package 负责。
  `note 使用 Neovim 0.12 headless E2E 覆盖真实 LSP initialize/attach、diagnostics、completion、CodeLens native/Snacks UI、search cancellation 与 shutdown；Lua unit tests 覆盖 setup idempotence 和 degraded dependencies。
  `note 初版继续随本仓库与 Nix package 发布；只有 configuration/API 稳定且独立 release 能保证 binary/grammar compatibility 后，才迁移为单独 `"plumb.nvim" repository。
+
+`# Document tasks
+
+`- 实现文档级 facet 与 task
+ `+ task
+ `@ document-task
+ `= done 2026-09-21T03:01:48+08:00
+ `= created 2026-09-21T09:00:00+08:00
+
+ 依据 standard-semantics 的 Document facets and tasks target contract 和 editing 的 Document task editing target，贯通共享语义、引用和存储、owned editing、LSP/Neovim 与 Web。验证 incremental/fresh 和 memory/persistent/overlay parity、混合 owner dependency cycles、rename、失败原子性、export 及桌面/窄屏树交互；完成后更新指南与 bundled skill，移除规范待实现标记。
+
+ 已贯通 Document/ListItem owner、根层 owned editing、路径引用与精确 component rename、SQL/overlay 查询、CLI/LSP/Neovim code actions、Web 文档行替换与筛选 ancestor 保留。全 workspace all-targets 验收通过，后续改动经 workspace lib/tests 回归；桌面与窄屏截图、Web 创建/移除、导出不重复正文均已检查。

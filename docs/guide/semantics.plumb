@@ -232,7 +232,7 @@ bullet 或 ordered list item 添加 direct leaf `"+ event" facet 后成为 event
    `= tasks #write-parser
 
 first positional element是 schedule，remaining head elements是 nonempty title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS"
-point 或 `"START--END" interval，并继承 date/timezone context。tasks 关联 explicit task ids；event/task facets
+point 或 `"START--END" interval，并继承 date/timezone context。tasks 关联文档任务路径或 explicit task ids；event/task facets
 mutually exclusive。完整边界见 standard semantics reference。
 
 `"date"/`"timezone" 沿 marked-block subtree 继承，最近的 override 优先，dedent 后恢复 parent context：
@@ -269,6 +269,29 @@ Web Agenda 提供在线创建、编辑和删除；Calendar/khal 只读取 projec
 
 `# Task
 
+文档根层添加 direct leaf `"+ task" facet 后，整个文件成为一个任务：
+
+`plumb"
+ `= title Release plan
+ `+ task
+ `= priority 10
+
+ Release details.
+
+ `- Verify release
+  `+ task
+  `@ verify
+
+文档任务标题取 title，缺省使用文件名；正文是详情，顶层列表任务成为它的子任务。父子关系不自动传播 focused、完成状态或依赖。文档任务不支持 recur；移除 task facet 保留正文、字段、focus 历史和子任务。文件身份使用相对路径，不需要也不支持根层 id。
+
+引用 `"Release Plan.plumb" 指向文档任务，`"Release Plan.plumb#verify" 指向列表任务；目标没有 task facet 时不会退回第一个子任务。单个无 fragment 的值整体作为一个路径。多个引用可逐项书写，路径内的空格不会拆项：
+
+`plumb"
+ `+ task
+ `= depends
+  `+ Release Plan.plumb
+  `+ other.plumb#review
+
 bullet 或 ordered list item 添加 direct leaf `"+ task" facet 后成为 task：
 
 `plumb"
@@ -288,7 +311,7 @@ head 是 title，未被声明消费的 children 是 details。nested task items 
    `+ task
    `= depends #local Project A.plumb#build Project B.plumb#test
 
-LSP 在 `"depends" scalar value 内分两阶段补全 workspace tasks：当前 reference 尚无 `"#" 时只列出含有 可选 task 的 document，选择后插入 same-file `"#" 或 cross-file `"`path.plumb#"；`"#" 后只列出已选 document 中的 explicit task ids，并仅替换 id fragment。task id 候选显示 title、relative document path 和 derived workflow state。补全保留同一 value 中其他 references，并排除当前 task、已经列出的 dependencies 与 non-task anchors。
+LSP 在 depends 与 prev 的引用项内补全 workspace tasks：没有 fragment 时可选择文档任务路径，或以 same-file `"#"、cross-file `"path.plumb#" 继续选择列表任务 id；fragment 后只替换 id。根层声明、grouped 项和 direct `"+" sequence 复用相同引用上下文。候选排除自身、已有引用和 non-task anchors。
 
 `"focused" 把一个 task 标记为已列入当前工作线，值为一个时间区间或 direct `"-" 子项区间列表；endpoint 是带 explicit offset 的 RFC 3339 timestamp，按 instant 而不是字符串比较：
 
