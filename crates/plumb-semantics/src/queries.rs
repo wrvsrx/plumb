@@ -598,6 +598,11 @@ pub fn task_dependency_completion_context(
     if offset > document.source.len() || !document.source.is_char_boundary(offset) {
         return None;
     }
+    if let Some(valid) = document.valid_syntax() {
+        if let Some(context) = task_reference_record_context(&document.source, offset, &crate::analyze_tasks(valid)) {
+            return Some(context);
+        }
+    }
     task_dependency_context_in_blocks(&document.syntax.blocks, &document.source, offset)
 }
 
@@ -605,6 +610,14 @@ pub fn green_task_dependency_completion_context(
     document: &GreenDocument,
     offset: usize,
 ) -> Option<TaskDependencyCompletionContext> {
+    if offset > document.source().len() || !document.source().is_char_boundary(offset) {
+        return None;
+    }
+    if let Some(valid) = document.valid_syntax() {
+        if let Some(context) = task_reference_record_context(document.source(), offset, &crate::analyze_green_tasks(valid)) {
+            return Some(context);
+        }
+    }
     green_completion_context(
         document,
         offset,
@@ -614,6 +627,28 @@ pub fn green_task_dependency_completion_context(
             shift_range(&mut context.task_range, delta);
         },
     )
+}
+
+fn task_reference_record_context(
+    source: &str,
+    offset: usize,
+    tasks: &crate::TaskOutput,
+) -> Option<TaskDependencyCompletionContext> {
+    for task in tasks.tasks.iter() {
+        let references = task.depends.iter().chain(task.prev_reference.iter()).collect::<Vec<_>>();
+        let current = references.iter().find(|reference| reference.range.start <= offset && offset <= reference.range.end);
+        let Some(current) = current else { continue; };
+        // Invalid structural declarations are not reference text to replace.
+        if source[current.range.clone()].contains('\n') { continue; }
+        return Some(TaskDependencyCompletionContext {
+            replace: current.range.clone(),
+            query: source[current.range.start..offset].to_owned(),
+            task_range: task.range.clone(),
+            existing: references.iter().filter(|reference| reference.range != current.range)
+                .map(|reference| reference.target.clone()).collect(),
+        });
+    }
+    None
 }
 
 fn task_dependency_context_in_blocks(
@@ -1353,6 +1388,27 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("prev", "`= prev "), ("priority", "`= priority 0")]
         );
+    }
+
+    #[test]
+    fn document_reference_completion_uses_whole_grouped_and_structured_items() {
+        for field in [
+            "`= depends {Project Pl|an.plumb} {other.plumb}\n",
+            "`= depends\n `+ Project Pl|an.plumb\n `+ other.plumb\n",
+            "`= prev Project Pl|an.plumb\n",
+        ] {
+            let (source, cursor) = strip_cursor(&format!("Body.\n\n`+ task\n\n{field}"));
+            let parsed = parse(&source);
+            let green = GreenDocument::parse(&source);
+            let context = task_dependency_completion_context(&parsed, cursor).unwrap();
+            assert_eq!(Some(context.clone()), green_task_dependency_completion_context(&green, cursor));
+            assert_eq!(context.task_range, 0..source.len());
+            assert_eq!(context.query, "Project Pl");
+            assert_eq!(&source[context.replace], "Project Plan.plumb");
+            if field.contains("depends") {
+                assert_eq!(context.existing, vec![TaskReferenceTarget::Document { path: "other.plumb".into() }]);
+            }
+        }
     }
 
     #[test]

@@ -15,7 +15,7 @@ use diesel::sqlite::{Sqlite, SqliteConnection};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use plumb_semantics::{
     AnchorRecord, DocumentOutput, EventRecord, LinkRecord, LinkTarget, MetadataValue, TaskField,
-    TaskOwner, TaskRecord, TaskReferenceTarget, TaskState,
+    TaskOwner, TaskRecord, TaskDependency, TaskReferenceTarget, TaskState,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -25,7 +25,7 @@ use crate::cache::CacheNamespaceLease;
 use crate::task_predicate::{
     TaskCandidatePredicate, TaskPredicateField, TaskPredicateOp, TaskPredicateValue,
 };
-use crate::{normalize, resolve_relative, task_reference_fields, task_reference_ranges};
+use crate::{normalize, resolve_relative, task_reference_fields};
 
 diesel::define_sql_function! {
     fn plumb_fuzzy_score(
@@ -52,7 +52,7 @@ type TaskDependencyRow = (
     Option<String>,
     String,
 );
-type EventTaskAssociationRow = (Vec<u8>, i64, Vec<u8>, Option<String>, String, i64, i64);
+type EventTaskAssociationRow = (Vec<u8>, i64, Vec<u8>, Option<String>, String, i64, i64, Option<i64>, Option<i64>, Option<i64>, Option<i64>);
 type TaskFactRow = (
     bool,
     Vec<u8>,
@@ -129,7 +129,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -293,6 +293,8 @@ pub struct StoredEventTaskAssociation {
     pub target_id: Option<String>,
     pub source: String,
     pub source_range: Range<usize>,
+    pub path_range: Option<Range<usize>>,
+    pub id_range: Option<Range<usize>>,
 }
 
 #[derive(Clone)]
@@ -1225,6 +1227,10 @@ impl SqliteSemanticStore {
                 event_task_associations::source_text,
                 event_task_associations::source_start,
                 event_task_associations::source_end,
+                event_task_associations::path_start,
+                event_task_associations::path_end,
+                event_task_associations::id_start,
+                event_task_associations::id_end,
             ))
             .order(event_task_associations::source_start)
             .load::<EventTaskAssociationRow>(&mut *connection)?;
@@ -1456,6 +1462,7 @@ impl SqliteSemanticStore {
                             target_path: path_from_bytes(target_path)?,
                             target_id,
                             source_range: to_usize(start)?..to_usize(end)?,
+
                             path_range: convert_range(optional_range(path_start, path_end))?,
                             id_range: convert_range(optional_range(id_start, id_end))?,
                         }))
@@ -1667,12 +1674,7 @@ fn insert_output(
             .execute(connection)?;
         task_ancestors.push(task.source_key());
         for dependency in &task.depends {
-            let Some(reference) = task_reference(
-                path,
-                &dependency.source,
-                &dependency.range,
-                &dependency.target,
-            ) else {
+            let Some(reference) = task_reference(path, dependency) else {
                 continue;
             };
             diesel::insert_into(task_dependencies::table)
@@ -1686,8 +1688,8 @@ fn insert_output(
                 ))
                 .execute(connection)?;
         }
-        for (source, range, target) in task_reference_fields(&task) {
-            if let Some(reference) = task_reference(path, source, range, &target) {
+        for dependency in task_reference_fields(&task) {
+            if let Some(reference) = task_reference(path, dependency) {
                 insert_reference(connection, &reference)?;
             }
         }
@@ -1723,16 +1725,15 @@ fn insert_output(
                     event_task_associations::source_start
                         .eq(to_i64(association.source_range.start)?),
                     event_task_associations::source_end.eq(to_i64(association.source_range.end)?),
+                    event_task_associations::path_start.eq(association.path_range.as_ref().map(|range| to_i64(range.start)).transpose()?),
+                    event_task_associations::path_end.eq(association.path_range.as_ref().map(|range| to_i64(range.end)).transpose()?),
+                    event_task_associations::id_start.eq(association.id_range.as_ref().map(|range| to_i64(range.start)).transpose()?),
+                    event_task_associations::id_end.eq(association.id_range.as_ref().map(|range| to_i64(range.end)).transpose()?),
                 ))
                 .execute(connection)?;
         }
         for dependency in &event.tasks {
-            if let Some(reference) = task_reference(
-                path,
-                &dependency.source,
-                &dependency.range,
-                &dependency.target,
-            ) {
+            if let Some(reference) = task_reference(path, dependency) {
                 insert_reference(connection, &reference)?;
             }
         }
@@ -1778,12 +1779,7 @@ fn projected_event_task_associations(
             .tasks
             .iter()
             .filter_map(|dependency| {
-                task_reference(
-                    source_path,
-                    &dependency.source,
-                    &dependency.range,
-                    &dependency.target,
-                )
+                task_reference(source_path, dependency)
                 .and_then(|reference| {
                     Some(StoredEventTaskAssociation {
                         source_path: source_path.to_path_buf(),
@@ -1792,6 +1788,8 @@ fn projected_event_task_associations(
                         target_id: reference.target_id,
                         source: dependency.source.clone(),
                         source_range: dependency.range.clone(),
+                        path_range: reference.path_range,
+                        id_range: reference.id_range,
                     })
                 })
             })
@@ -1810,6 +1808,8 @@ fn projected_event_task_associations(
                 target_id: reference.target_id,
                 source: link.target.value.clone(),
                 source_range: link.target.range.clone(),
+                path_range: reference.path_range,
+                id_range: reference.id_range,
             })
         })
         .collect()
@@ -1837,38 +1837,15 @@ fn link_reference(source_path: &Path, link: &LinkRecord) -> Option<StoredReferen
     })
 }
 
-fn task_reference(
-    source_path: &Path,
-    source: &str,
-    range: &Range<usize>,
-    target: &TaskReferenceTarget,
-) -> Option<StoredReference> {
-    let (target_path, target_id) = match target {
-        TaskReferenceTarget::Internal { id } => (normalize(source_path), id.clone()),
-        TaskReferenceTarget::External { path, id } => {
-            (resolve_relative(source_path, path), id.clone())
-        }
-        TaskReferenceTarget::Document { path } => {
-            return Some(StoredReference {
-                source_path: source_path.to_path_buf(),
-                target_path: resolve_relative(source_path, path),
-                target_id: None,
-                source_range: range.clone(),
-                path_range: Some(range.clone()),
-                id_range: None,
-            })
-        }
+fn task_reference(source_path: &Path, reference: &TaskDependency) -> Option<StoredReference> {
+    let (target_path, target_id) = match &reference.target {
+        TaskReferenceTarget::Internal { id } => (normalize(source_path), Some(id.clone())),
+        TaskReferenceTarget::External { path, id } => (resolve_relative(source_path, path), Some(id.clone())),
+        TaskReferenceTarget::Document { path } => (resolve_relative(source_path, path), None),
         TaskReferenceTarget::Invalid => return None,
     };
-    let (path_range, id_range) = task_reference_ranges(source, range, &target_id)?;
-    Some(StoredReference {
-        source_path: source_path.to_path_buf(),
-        target_path,
-        target_id: Some(target_id),
-        source_range: range.clone(),
-        path_range,
-        id_range: Some(id_range),
-    })
+    Some(StoredReference { source_path: source_path.to_path_buf(), target_path, target_id,
+        source_range: reference.range.clone(), path_range: reference.path_range.clone(), id_range: reference.id_range.clone() })
 }
 
 fn delete_document_rows(connection: &mut SqliteConnection, path: &Path) -> StoreResult<()> {
@@ -2111,7 +2088,7 @@ fn decode_event_task_associations(
 ) -> StoreResult<Vec<StoredEventTaskAssociation>> {
     rows.into_iter()
         .map(
-            |(source_path, event_start, target_path, target_id, source, start, end)| {
+            |(source_path, event_start, target_path, target_id, source, start, end, path_start, path_end, id_start, id_end)| {
                 Ok(StoredEventTaskAssociation {
                     source_path: path_from_bytes(source_path)?,
                     event_start: to_usize(event_start)?,
@@ -2119,6 +2096,8 @@ fn decode_event_task_associations(
                     target_id,
                     source,
                     source_range: to_usize(start)?..to_usize(end)?,
+                    path_range: convert_range(optional_range(path_start, path_end))?,
+                    id_range: convert_range(optional_range(id_start, id_end))?,
                 })
             },
         )

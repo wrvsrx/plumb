@@ -133,6 +133,49 @@ pub(super) enum TaskTargetResolution {
 }
 
 impl Workspace {
+    pub(super) fn update_document_task_fields(
+        &self,
+        entry: &DocumentEntry,
+        path: PathBuf,
+        patch: &super::TaskAuthoringPatch,
+        input: &TaskAuthoringInput,
+    ) -> Result<WorkspaceEdit, WorkspaceOperationError<TaskAuthoringError>> {
+        if input.recur.is_some() {
+            return Err(TaskAuthoringError::InvalidRecurrence.into());
+        }
+        let mut intents = Vec::new();
+        let title = patch.title.as_ref().map(|title| {
+            (!title.trim().is_empty()).then(|| title.clone())
+        });
+        let priority = patch.priority.map(|value| value.map(|value| value.to_string()));
+        for (key, value) in [
+            ("title", &title),
+            ("created", &patch.created),
+            ("due", &patch.due),
+            ("wait", &patch.wait),
+            ("prev", &patch.prev),
+            ("priority", &priority),
+            ("recur", &patch.recur),
+        ] {
+            if let Some(value) = value {
+                intents.push(match value {
+                    Some(value) => RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar(key, value)),
+                    None => RootDeclarationEdit::RemoveProperty(key.into()),
+                });
+            }
+        }
+        if let Some(depends) = &patch.depends {
+            intents.push(match depends.as_slice() {
+                [] => RootDeclarationEdit::RemoveProperty("depends".into()),
+                [reference] => RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar("depends", reference)),
+                references => RootDeclarationEdit::SetProperty(OwnedDeclaration::sequence("depends", references.iter().cloned())),
+            });
+        }
+        let edits = edit_green_root_declarations(entry.parsed.green(), &intents)
+            .map_err(|_| TaskAuthoringError::GeneratedInvalid)?;
+        Ok(single_document_edits(entry, path, edits))
+    }
+
     /// Mark the document itself as a task; adding the identity never wraps its body.
     pub fn mark_document_task(
         &self,

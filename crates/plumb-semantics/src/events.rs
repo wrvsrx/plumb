@@ -114,6 +114,8 @@ impl<'a> EventRecordView<'a> {
                         && left.target == right.target
                         && shifted_range(&left.range, self.offset)
                             == shifted_range(&right.range, other.offset)
+                        && left.path_range.as_ref().map(|range| shifted_range(range, self.offset)) == right.path_range.as_ref().map(|range| shifted_range(range, other.offset))
+                        && left.id_range.as_ref().map(|range| shifted_range(range, self.offset)) == right.id_range.as_ref().map(|range| shifted_range(range, other.offset))
                 })
     }
 
@@ -223,7 +225,7 @@ fn shift_events(events: &mut [EventRecord], delta: isize) {
             }
         }
         for task in &mut event.tasks {
-            shift_range(&mut task.range, delta);
+            task.shift(delta);
         }
     }
 }

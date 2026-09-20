@@ -2239,6 +2239,55 @@ pub fn replace_green_inline(
     )
 }
 
+/// Replace a source-backed reference component with decoded text. The caller
+/// identifies the component semantically; this layer owns parsed escaping and
+/// inline-verbatim envelopes and validates the edited revision.
+pub fn replace_green_reference_component(
+    document: &GreenDocument,
+    range: Range<usize>,
+    replacement: &str,
+) -> Result<TextEdit, EditError> {
+    document.valid_syntax().ok_or(EditError::InvalidRange)?;
+    validate_range(document.source(), &range)?;
+    if range.is_empty() || replacement.is_empty() || replacement.chars().any(char::is_control) {
+        return Err(EditError::InvalidRange);
+    }
+    let shard = document.shard_at(range.start).ok_or(EditError::InvalidRange)?;
+    let offset = shard.offset();
+    let parsed = shard.shard().parsed();
+    let local = range.start - offset..range.end - offset;
+    validate_range(&parsed.source, &local)?;
+    let mut blocks = parsed.syntax.blocks.iter().collect::<Vec<_>>();
+    let mut contents = Vec::new();
+    while let Some(block) = blocks.pop() {
+        if let Block::Parsed(block) = block {
+            blocks.extend(&block.children);
+            contents.push(&block.content);
+        }
+    }
+    let mut inside_content = false;
+    while let Some(content) = contents.pop() {
+        inside_content |= content.range.start <= local.start && local.end <= content.range.end;
+        for inline in &content.items {
+            match inline {
+                Inline::Group { content, .. } => contents.push(content),
+                Inline::Verbatim { range, text_range, mark, .. }
+                    if text_range.start <= local.start && local.end <= text_range.end => {
+                    let mut text = parsed.source[text_range.clone()].to_owned();
+                    text.replace_range(local.start - text_range.start..local.end - text_range.start, replacement);
+                    let owned = OwnedInline::Verbatim { kind: mark.as_ref().map(|mark| mark.marker.clone()).unwrap_or_default(), text };
+                    return rebase_edit(replace_owned_inline(parsed, range.clone(), &owned)?, offset);
+                }
+                _ => {}
+            }
+        }
+    }
+    if !inside_content { return Err(EditError::InvalidRange) }
+    let edit = TextEdit::replace(parsed, local, escape_authored_text(replacement))?;
+    validate_edited_revision(parsed, &edit)?;
+    rebase_edit(edit, offset)
+}
+
 fn has_inline_owner(blocks: &[Block], range: &Range<usize>) -> bool {
     let mut blocks = blocks.iter().collect::<Vec<_>>();
     let mut contents = Vec::new();
@@ -3428,6 +3477,28 @@ fn block_end_with_start(blocks: &[Block], start: usize) -> Option<usize> {
 mod tests {
     use super::*;
     use plumb_syntax::{parse, Block};
+
+    #[test]
+    fn reference_component_rename_preserves_suffix_and_valid_escaping() {
+        for (spelling, old_path) in [
+            ("{项目 `{计划`}.plumb#build}", "项目 `{计划`}.plumb"),
+            ("`\"项目 {计划}.plumb#build\"", "项目 {计划}.plumb"),
+        ] {
+            let source = format!("Body.\r\n\r\n`= depends {spelling}\r\n");
+            let start = source.find(old_path).unwrap();
+            let green = GreenDocument::parse(&source);
+            let replacement = "新 {计划} ` \".plumb";
+            let edit = replace_green_reference_component(
+                &green, start..start + old_path.len(), replacement,
+            ).unwrap();
+            let updated = apply_text_edits(source, vec![edit]).unwrap();
+            let parsed = parse(&updated);
+            assert!(parsed.is_valid(), "{updated}: {:?}", parsed.diagnostics);
+            assert!(updated.starts_with("Body.\r\n\r\n"));
+            assert!(updated.contains("#build"));
+            assert!(updated.ends_with("\r\n"));
+        }
+    }
 
     #[test]
     fn block_attributes_group_keys_containing_spaces() {

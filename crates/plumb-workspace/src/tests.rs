@@ -3,6 +3,34 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::*;
 
 #[test]
+fn document_task_patch_preserves_body_and_checks_document_dependency_cycles() {
+    let source = "`+ task\n`= title Original\n`= focused 2026-09-21T09:00:00+08:00--\n\nBody unchanged.\n\n`- Child\n `+ task\n `@ child\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("doc.plumb", 1, source);
+    let task = workspace.document_task("doc.plumb").unwrap();
+    let edit = workspace.update_task_patch("doc.plumb", task.range.clone(), &TaskAuthoringPatch {
+        title: Some("Updated".into()),
+        due: Some(Some("2026-09-22T10:00:00+08:00".into())),
+        ..Default::default()
+    }, "2026-09-21T10:00:00+08:00").unwrap();
+    let updated = apply_text_edits(source.into(), edit.document_changes[0].edits.clone()).unwrap();
+    assert!(updated.contains("`= title Updated"));
+    assert!(updated.contains("`= due 2026-09-22T10:00:00+08:00"));
+    assert!(updated.contains("`= focused 2026-09-21T09:00:00+08:00--"));
+    assert!(updated.ends_with("Body unchanged.\n\n`- Child\n `+ task\n `@ child\n"));
+    let cyclic = workspace.update_task_patch("doc.plumb", task.range.clone(), &TaskAuthoringPatch {
+        depends: Some(vec!["doc.plumb".into()]),
+        ..Default::default()
+    }, "2026-09-21T10:00:00+08:00");
+    assert!(matches!(cyclic, Err(WorkspaceOperationError::Operation(TaskAuthoringError::DependencyCycle))));
+    let recurring = workspace.update_task_patch("doc.plumb", task.range, &TaskAuthoringPatch {
+        recur: Some(Some("1d".into())),
+        ..Default::default()
+    }, "2026-09-21T10:00:00+08:00");
+    assert!(matches!(recurring, Err(WorkspaceOperationError::Operation(TaskAuthoringError::InvalidRecurrence))));
+}
+
+#[test]
 fn grouped_and_sequence_references_match_persistent_task_and_event_queries() {
     let source = "`+ task\n`= depends\n `+ Project Plan.plumb\n `+ Project Plan.plumb#review\n\n`- 2026-09-21T10:00 Work\n `+ event\n `= tasks {Project Plan.plumb} {Project Plan.plumb#review}\n";
     for disk in [false, true] {
@@ -6358,4 +6386,30 @@ fn document_task_cannot_complete_while_its_first_list_task_dependency_is_open() 
             TaskEditError::TaskBlocked
         ))
     ));
+}
+
+#[test]
+fn document_dependency_completion_includes_paths_and_excludes_self_and_existing() {
+    for disk in [false, true] {
+        let mut workspace = if disk {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else { Workspace::new() };
+        let source = "`+ task\n`= title Source\n";
+        workspace.open_document("source.plumb", 1, source);
+        for (path, source) in [
+            ("Project Plan.plumb", "`+ task\n`= title Plan\n\n`- Review\n `+ task\n `@ review\n"),
+            ("ordinary.plumb", "No task.\n"),
+        ] {
+            if disk { workspace.insert_disk(path, 1, source).unwrap(); }
+            else { workspace.insert(path, 1, source); }
+        }
+        let mut context = TaskDependencyCompletionContext {
+            replace: 0..0, query: String::new(), task_range: 0..source.len(), existing: Vec::new(),
+        };
+        let result = workspace.complete_task_dependency("source.plumb", &context).unwrap().value;
+        assert_eq!(result.iter().map(|candidate| candidate.label.as_str()).collect::<Vec<_>>(), ["Project Plan.plumb", "Project Plan.plumb#"]);
+        context.existing.push(TaskReferenceTarget::Document { path: "Project Plan.plumb".into() });
+        let result = workspace.complete_task_dependency("source.plumb", &context).unwrap().value;
+        assert_eq!(result.iter().map(|candidate| candidate.label.as_str()).collect::<Vec<_>>(), ["Project Plan.plumb#"]);
+    }
 }

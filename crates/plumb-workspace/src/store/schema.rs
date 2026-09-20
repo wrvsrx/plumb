@@ -115,6 +115,10 @@ diesel::table! {
         source_text -> Text,
         source_start -> BigInt,
         source_end -> BigInt,
+        path_start -> Nullable<BigInt>,
+        path_end -> Nullable<BigInt>,
+        id_start -> Nullable<BigInt>,
+        id_end -> Nullable<BigInt>,
     }
 }
 

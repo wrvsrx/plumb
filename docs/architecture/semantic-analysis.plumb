@@ -452,6 +452,8 @@ syntax diagnostics 由 `"plumb-syntax" 拥有；semantic profile diagnostics 由
 
 `# Document task reducer
 
+任务 depends、prev 与 event tasks 的每个 reference record 保存 decoded target、完整 source range、optional path range 与 optional id range。component ranges 必须来自 Stringify 的 decoded-to-source boundary mapping，不得以 decoded 字符串长度推算源码位置。green shard projection 同时平移所有 ranges；磁盘 event association facts 保留这些位置，打开文档与磁盘查询结果一致。
+
 Status：共享 task reducer 与 workspace query/reference integration 已实现；完整 editing 与 adapters 待集成。TaskRecord 使用 Document/ListItem owner。Document task 的 range 是全文 source ownership，marker_range 指向有效 task facet declaration，selection_range 指向 title value（缺省为 facet name）；range 不是高亮或 mutation 的目标。document id 不使用根层 anchor，也不借用任何 list item id。列表 task 的 depth 在文档任务存在时统一增加一层，source topology 保持不变。
 
 Document task 在完整 root declarations 上汇总一次；跨 shard 的 properties 与 focus intervals 必须投影到同一 revision 的 absolute ranges。local shard task analysis 只处理 list items，并接受 document task context。root task 及其诊断由 reducer 合并；不得用伪造 syntax owner 运行 list analysis。修改 title、facet、字段或 source geometry 后，fresh/incremental records 与 diagnostics 必须相同。

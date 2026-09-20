@@ -31,6 +31,15 @@ pub struct TaskDependency {
     pub source: String,
     pub range: Range<usize>,
     pub target: TaskReferenceTarget,
+    pub path_range: Option<Range<usize>>,
+    pub id_range: Option<Range<usize>>,
+}
+
+impl TaskDependency {
+    pub(crate) fn shift(&mut self, delta: isize) {
+        shift_range(&mut self.range, delta);
+        for range in self.path_range.iter_mut().chain(self.id_range.iter_mut()) { shift_range(range, delta); }
+    }
 }
 
 /// One focus interval written as `start--end`, or `start--` when still open.
@@ -146,6 +155,7 @@ pub struct TaskRecord {
     pub canceled: Option<TaskField>,
     pub recur: Option<TaskField>,
     pub prev: Option<TaskField>,
+    pub prev_reference: Option<TaskDependency>,
     pub priority: Option<i32>,
     pub depends: Vec<TaskDependency>,
     pub focused: TaskFocus,
@@ -220,16 +230,8 @@ impl<'a> crate::SemanticRecordView<'a, TaskRecord> {
 
     pub fn reference_ranges(self) -> impl Iterator<Item = Range<usize>> + 'a {
         let offset = self.offset;
-        self.record
-            .prev
-            .iter()
-            .map(|field| &field.range)
-            .chain(
-                self.record
-                    .depends
-                    .iter()
-                    .map(|dependency| &dependency.range),
-            )
+        self.record.prev_reference.iter().chain(self.record.depends.iter())
+            .flat_map(|reference| std::iter::once(&reference.range).chain(reference.path_range.iter()).chain(reference.id_range.iter()))
             .map(move |range| {
                 range.start.checked_add_signed(offset).unwrap()
                     ..range.end.checked_add_signed(offset).unwrap()
@@ -356,8 +358,8 @@ impl RelativeSemanticRecord for TaskRecord {
                 shift_range(&mut field.range, delta);
             }
         }
-        for dependency in &mut self.depends {
-            shift_range(&mut dependency.range, delta);
+        for dependency in self.prev_reference.iter_mut().chain(self.depends.iter_mut()) {
+            dependency.shift(delta);
         }
         shift_focus(&mut self.focused, delta);
     }
@@ -478,12 +480,17 @@ fn document_task_record<'a>(
     let mut focus_occurrences = Vec::new();
     let mut field_diagnostics = Vec::new();
     let mut dependencies = None;
+    let mut prev_reference = None;
     for (document, local_source, offset) in documents {
+        if prev_reference.is_none() {
+            prev_reference = previous_reference(local_source, &document.blocks);
+            if let Some(reference) = &mut prev_reference { reference.shift(offset as isize); }
+        }
         if dependencies.is_none() && task_reference_property(&document.blocks, "depends").is_some()
         {
             let mut values = task_reference_fields(local_source, &document.blocks, "depends");
             for value in &mut values {
-                shift_range(&mut value.range, offset as isize);
+                value.shift(offset as isize);
             }
             dependencies = Some(values);
         }
@@ -584,6 +591,7 @@ fn document_task_record<'a>(
         attribute_range: 0..source.len(),
         id: None,
         depends: dependencies.unwrap_or_default(),
+        prev_reference,
         ..task_properties(source, &attrs, merge_focus_occurrences(focus_occurrences))
     };
     Some((task, attrs, field_diagnostics))
@@ -675,6 +683,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
             .clone()
             .unwrap_or(mark.marker_range.end..mark.marker_range.end),
         depends: task_reference_fields(source, &block.children, "depends"),
+        prev_reference: previous_reference(source, &block.children),
         ..task_properties(
             source,
             &attrs.items,
@@ -1055,13 +1064,7 @@ pub(crate) fn task_reference_fields(
     };
     dependency_tokens(&value.value)
         .into_iter()
-        .map(|(token, decoded)| TaskDependency {
-            source: token.to_owned(),
-            range: value
-                .source_range(decoded)
-                .expect("stringify source mapping covers decoded reference"),
-            target: parse_task_reference_target(token),
-        })
+        .map(|(_, decoded)| reference_from_value(&value, decoded))
         .collect()
 }
 
@@ -1089,13 +1092,7 @@ fn grouped_reference(source: &str, content: &InlineContent) -> Vec<TaskDependenc
     {
         return tokens
             .into_iter()
-            .map(|(token, decoded)| TaskDependency {
-                source: token.to_owned(),
-                range: value
-                    .source_range(decoded)
-                    .expect("legacy reference mapping covers decoded tokens"),
-                target: parse_task_reference_target(token),
-            })
+            .map(|(_, decoded)| reference_from_value(&value, decoded))
             .collect();
     }
     vec![reference]
@@ -1107,13 +1104,31 @@ fn single_reference(source: &str, content: &InlineContent) -> TaskDependency {
     };
     let token = value.value.trim();
     let start = value.value.len() - value.value.trim_start().len();
-    TaskDependency {
-        source: token.to_owned(),
-        range: value
-            .source_range(start..start + token.len())
-            .unwrap_or(value.range),
-        target: parse_task_reference_target(token),
-    }
+    reference_from_value(&value, start..start + token.len())
+}
+
+fn reference_from_value(value: &crate::SourceBacked<String>, decoded: Range<usize>) -> TaskDependency {
+    let token = &value.value[decoded.clone()];
+    let target = parse_task_reference_target(token);
+    let (path_range, id_range) = match &target {
+        TaskReferenceTarget::Document { .. } => (value.source_range(decoded.clone()), None),
+        TaskReferenceTarget::Internal { .. } => (None, value.source_range(decoded.start + 1..decoded.end)),
+        TaskReferenceTarget::External { .. } => {
+            let separator = decoded.start + token.find('#').unwrap();
+            (value.source_range(decoded.start..separator), value.source_range(separator + 1..decoded.end))
+        }
+        TaskReferenceTarget::Invalid => (None, None),
+    };
+    TaskDependency { source: token.to_owned(), range: value.source_range(decoded).expect("Stringify maps every decoded boundary"), target, path_range, id_range }
+}
+
+fn previous_reference(source: &str, children: &[Block]) -> Option<TaskDependency> {
+    let property = task_reference_property(children, "prev")?;
+    let (_, _, scalar) = crate::metadata::direct_property_parts(property)?;
+    Some(match scalar {
+        Some(content) if property.children.is_empty() => single_reference(source, &content),
+        _ => invalid_reference(source, property.range.clone()),
+    })
 }
 
 fn invalid_reference(source: &str, range: Range<usize>) -> TaskDependency {
@@ -1121,6 +1136,8 @@ fn invalid_reference(source: &str, range: Range<usize>) -> TaskDependency {
         source: source[range.clone()].to_owned(),
         range,
         target: TaskReferenceTarget::Invalid,
+        path_range: None,
+        id_range: None,
     }
 }
 
@@ -1531,6 +1548,27 @@ mod tests {
         ));
         assert_eq!(output.tasks.get(1).unwrap().depth, 1);
         assert_eq!(output.tasks.get(1).unwrap().state(), TaskState::Done);
+    }
+
+    #[test]
+    fn escaped_reference_components_keep_exact_source_ranges_across_shards() {
+        for spelling in ["{项目 `{计划`}.plumb#build}", "`\"项目 {计划}.plumb#build\""] {
+            let source = format!("Body.\n\n`+ task\n`= prev {spelling}\n`= depends {spelling}\n");
+            let parsed = parse(&source);
+            assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+            let output = analyze_tasks(parsed.valid_syntax().unwrap());
+            let green = plumb_syntax::GreenDocument::parse(&source);
+            assert_eq!(output, analyze_green_tasks(green.valid_syntax().unwrap()));
+            let task = output.document_task().unwrap().to_owned();
+            for reference in task.depends.iter().chain(task.prev_reference.iter()) {
+                assert_eq!(reference.source, "项目 {计划}.plumb#build");
+                assert_eq!(&source[reference.id_range.clone().unwrap()], "build");
+                let path = &source[reference.path_range.clone().unwrap()];
+                assert!(path.starts_with("项目 ") && path.ends_with(".plumb"), "{path}");
+            }
+            assert!(task.prev_reference.is_some());
+            assert_eq!(task.depends.len(), 1);
+        }
     }
 
     #[test]

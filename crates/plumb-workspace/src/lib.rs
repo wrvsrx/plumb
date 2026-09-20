@@ -919,21 +919,14 @@ impl Workspace {
             return Ok(Some(target));
         }
         for task in &output.tasks().tasks {
-            for (source, range, target) in task_reference_fields(&task) {
+            for reference in task_reference_fields(&task) {
+                let range = &reference.range;
+                let target = &reference.target;
                 if !contains_inclusive(range, offset) {
                     continue;
                 }
                 let resolved = self.resolve_task_reference_target(&path, &target)?;
-                let target_id = match &target {
-                    TaskReferenceTarget::Internal { id }
-                    | TaskReferenceTarget::External { id, .. } => id,
-                    TaskReferenceTarget::Invalid | TaskReferenceTarget::Document { .. } => {
-                        return Ok(Some(resolved))
-                    }
-                };
-                if task_reference_ranges(source, range, target_id)
-                    .and_then(|(path_range, _)| path_range)
-                    .as_ref()
+                if reference.path_range.as_ref()
                     .is_some_and(|range| contains_component(range, offset))
                 {
                     return Ok(Some(self.document_component_target(resolved)?));
@@ -947,16 +940,7 @@ impl Workspace {
                     continue;
                 }
                 let resolved = self.resolve_task_reference_target(&path, &reference.target)?;
-                let target_id = match &reference.target {
-                    TaskReferenceTarget::Internal { id }
-                    | TaskReferenceTarget::External { id, .. } => id,
-                    TaskReferenceTarget::Invalid | TaskReferenceTarget::Document { .. } => {
-                        return Ok(Some(resolved))
-                    }
-                };
-                if task_reference_ranges(&reference.source, &reference.range, target_id)
-                    .and_then(|(path_range, _)| path_range)
-                    .as_ref()
+                if reference.path_range.as_ref()
                     .is_some_and(|range| contains_component(range, offset))
                 {
                     return Ok(Some(self.document_component_target(resolved)?));
@@ -1030,23 +1014,8 @@ impl Workspace {
             return self.link_anchor_reference(&path, &link);
         }
         for task in &output.tasks().tasks {
-            if let Some(prev) = &task.prev {
-                if contains_inclusive(&prev.range, offset) {
-                    let target = parse_task_reference_target(&prev.value);
-                    return self.task_anchor_reference(&path, &prev.value, &prev.range, &target);
-                }
-            }
-            if let Some(dependency) = task
-                .depends
-                .iter()
-                .find(|dependency| contains_inclusive(&dependency.range, offset))
-            {
-                return self.task_anchor_reference(
-                    &path,
-                    &dependency.source,
-                    &dependency.range,
-                    &dependency.target,
-                );
+            if let Some(reference) = task_reference_fields(&task).find(|reference| contains_inclusive(&reference.range, offset)) {
+                return self.task_anchor_reference(&path, reference);
             }
         }
         for event in &output.events().events {
@@ -1055,12 +1024,7 @@ impl Workspace {
                 .iter()
                 .find(|reference| contains_inclusive(&reference.range, offset))
             {
-                return self.task_anchor_reference(
-                    &path,
-                    &reference.source,
-                    &reference.range,
-                    &reference.target,
-                );
+                return self.task_anchor_reference(&path, reference);
             }
         }
         Ok(None)
@@ -1148,9 +1112,9 @@ impl Workspace {
                 }
             }
             for task in &current.output.tasks().tasks {
-                for (source, range, target) in task_reference_fields(&task) {
+                for reference in task_reference_fields(&task) {
                     if let Some(reference) =
-                        self.task_anchor_reference(&entry.path, source, range, &target)?
+                        self.task_anchor_reference(&entry.path, reference)?
                     {
                         if reference.target_path == target_path && reference.target_id == target_id
                         {
@@ -1163,12 +1127,7 @@ impl Workspace {
                 for reference in
                     &self.event_task_references_in_output(&entry.path, &current.output, &event)?
                 {
-                    if let Some(reference) = self.task_anchor_reference(
-                        &entry.path,
-                        &reference.source,
-                        &reference.range,
-                        &reference.target,
-                    )? {
+                    if let Some(reference) = self.task_anchor_reference(&entry.path, reference)? {
                         if reference.target_path == target_path && reference.target_id == target_id
                         {
                             references.push((entry.path.clone(), reference));
@@ -1270,7 +1229,9 @@ impl Workspace {
                 }
             }
             for task in &current.output.tasks().tasks {
-                for (source, range, target) in task_reference_fields(&task) {
+                for reference in task_reference_fields(&task) {
+                let range = &reference.range;
+                let target = &reference.target;
                     if resolved_document_path(
                         self.resolve_task_reference_target(&entry.path, &target)?,
                     )
@@ -1278,7 +1239,7 @@ impl Workspace {
                         == Some(&target_path)
                     {
                         let (document_range, _) =
-                            task_reference_component_ranges(source, range, &target)
+                            task_reference_component_ranges(reference)
                                 .unwrap_or_else(|| (range.clone(), range.clone()));
                         push_document_reference(
                             &mut references,
@@ -1301,11 +1262,7 @@ impl Workspace {
                     .as_ref()
                         == Some(&target_path)
                     {
-                        let (document_range, _) = task_reference_component_ranges(
-                            &reference.source,
-                            &reference.range,
-                            &reference.target,
-                        )
+                        let (document_range, _) = task_reference_component_ranges(reference)
                         .unwrap_or_else(|| (reference.range.clone(), reference.range.clone()));
                         push_document_reference(
                             &mut references,
@@ -1408,9 +1365,11 @@ impl Workspace {
                 );
             }
             for task in &current.output.tasks().tasks {
-                for (source, range, target) in task_reference_fields(&task) {
+                for reference in task_reference_fields(&task) {
+                let range = &reference.range;
+                let target = &reference.target;
                     let (document_range, anchor_range) =
-                        task_reference_component_ranges(source, range, &target)
+                        task_reference_component_ranges(reference)
                             .unwrap_or_else(|| (range.clone(), range.clone()));
                     collect_reverse_reference(
                         &mut references,
@@ -1430,11 +1389,7 @@ impl Workspace {
                 for reference in
                     &self.event_task_references_in_output(&entry.path, &current.output, &event)?
                 {
-                    let (document_range, anchor_range) = task_reference_component_ranges(
-                        &reference.source,
-                        &reference.range,
-                        &reference.target,
-                    )
+                    let (document_range, anchor_range) = task_reference_component_ranges(reference)
                     .unwrap_or_else(|| (reference.range.clone(), reference.range.clone()));
                     collect_reverse_reference(
                         &mut references,
@@ -1475,7 +1430,8 @@ impl Workspace {
             }
         }
         for task in &output.tasks().tasks {
-            for (_, _, target) in task_reference_fields(&task) {
+            for reference in task_reference_fields(&task) {
+                let target = &reference.target;
                 if let Some(path) = resolved_document_path(
                     self.resolve_task_reference_target(&source_path, &target)?,
                 ) {
@@ -1520,27 +1476,11 @@ impl Workspace {
     }
 
     fn task_anchor_reference(
-        &self,
-        from: &Path,
-        source: &str,
-        range: &std::ops::Range<usize>,
-        target: &TaskReferenceTarget,
+        &self, from: &Path, reference: &TaskDependency,
     ) -> Result<Option<AnchorReference>, WorkspaceQueryError> {
-        let Some((target_path, target_id, anchor)) = self.resolve_task_anchor(from, target)? else {
-            return Ok(None);
-        };
-        let Some((path_range, id_range)) = task_reference_ranges(source, range, target_id.as_str())
-        else {
-            return Ok(None);
-        };
-        Ok(Some(AnchorReference {
-            source_range: range.clone(),
-            path_range,
-            id_range,
-            target_path,
-            target_id,
-            anchor,
-        }))
+        let Some((target_path, target_id, anchor)) = self.resolve_task_anchor(from, &reference.target)? else { return Ok(None) };
+        let Some(id_range) = reference.id_range.clone() else { return Ok(None) };
+        Ok(Some(AnchorReference { source_range: reference.range.clone(), path_range: reference.path_range.clone(), id_range, target_path, target_id, anchor }))
     }
 
     fn resolve_task_anchor(
@@ -1851,6 +1791,8 @@ impl Workspace {
                 references.push(TaskDependency {
                     source: association.source,
                     range: association.source_range,
+                    path_range: association.path_range,
+                    id_range: association.id_range,
                     target,
                 });
             }
@@ -1879,6 +1821,8 @@ impl Workspace {
             references.push(TaskDependency {
                 source: link.target.value.clone(),
                 range: link.target.range.clone(),
+                path_range: link.path_range.clone(),
+                id_range: link.fragment_range.clone(),
                 target,
             });
         }
@@ -2338,11 +2282,10 @@ impl Workspace {
             let reference_entry = self
                 .entry_for_operation(&path)?
                 .ok_or(RenameError::StaleOrInvalidDocument)?;
-            grouped.entry(path).or_default().push(validated_token_edit(
-                &reference_entry,
-                reference.id_range,
-                replacement,
-            )?);
+            grouped.entry(path).or_default().push(
+                plumb_edit::replace_green_reference_component(reference_entry.parsed.green(), reference.id_range, replacement)
+                    .map_err(|_| RenameError::InvalidPath)?
+            );
         }
         let mut document_changes = Vec::new();
         for (path, mut edits) in grouped {
@@ -2399,7 +2342,7 @@ impl Workspace {
                 references.extend(
                     task_reference_fields(&task)
                         .into_iter()
-                        .map(|(_, range, target)| (range.clone(), target)),
+                        .map(|reference| (reference.range.clone(), reference.target.clone())),
                 );
             }
             for event in &output.events().events {
@@ -2560,39 +2503,14 @@ impl Workspace {
             }
             let mut references = Vec::new();
             for task in &current.output.tasks().tasks {
-                references.extend(
-                    task_reference_fields(&task)
-                        .into_iter()
-                        .map(|(source, range, target)| (source.to_owned(), range.clone(), target)),
-                );
+                references.extend(task_reference_fields(&task).cloned());
             }
             for event in &current.output.events().events {
-                references.extend(event.tasks.iter().map(|reference| {
-                    (
-                        reference.source.clone(),
-                        reference.range.clone(),
-                        reference.target.clone(),
-                    )
-                }));
+                references.extend(event.tasks.iter().cloned());
             }
-            for (source, range, target) in references {
-                let path_range = match &target {
-                    TaskReferenceTarget::Document { .. } => range.clone(),
-                    TaskReferenceTarget::External { id, .. } => {
-                        let Some((Some(path_range), _)) =
-                            task_reference_ranges(&source, &range, id)
-                        else {
-                            continue;
-                        };
-                        path_range
-                    }
-                    TaskReferenceTarget::Internal { .. } | TaskReferenceTarget::Invalid => continue,
-                };
-                let Some(target_path) = resolved_document_path(
-                    self.resolve_task_reference_target(&entry.path, &target)?,
-                ) else {
-                    continue;
-                };
+            for reference in references {
+                let Some(path_range) = reference.path_range.clone() else { continue };
+                let Some(target_path) = resolved_document_path(self.resolve_task_reference_target(&entry.path, &reference.target)?) else { continue };
                 let source_moves = entry.path == old_path;
                 let target_moves = target_path == old_path;
                 if !source_moves && !target_moves {
@@ -2610,7 +2528,7 @@ impl Workspace {
                 grouped
                     .entry(entry.path.clone())
                     .or_default()
-                    .push(validated_token_edit(entry, path_range, replacement)?);
+                    .push(plumb_edit::replace_green_reference_component(entry.parsed.green(), path_range, &replacement).map_err(|_| RenameError::InvalidPath)?);
             }
         }
         let mut document_changes = Vec::new();
@@ -2842,7 +2760,7 @@ impl Workspace {
             .filter(|entry| entry.current.is_some())
             .ok_or(TaskAuthoringError::StaleOrInvalidDocument)?;
         let id = format!("task-{}", uuid::Uuid::new_v4().simple());
-        self.validate_authored_task_references(&path, Some(&id), input)?;
+        self.validate_authored_task_references(&path, Some(TaskRef { path: path.clone(), id: Some(id.clone()) }), input)?;
         let task = owned_authored_task(input, &id, timestamp);
         let edit = if let Some(parent_range) = &placement.parent {
             let parent_task = entry
@@ -2928,9 +2846,12 @@ impl Workspace {
         validate_task_authoring_input(input, timestamp)?;
         self.validate_authored_task_references(
             &path,
-            task.id.as_ref().map(|id| id.value.as_str()),
+            TaskRef::from_task(&path, &task.to_owned()),
             input,
         )?;
+        if task.owner == plumb_semantics::TaskOwner::Document {
+            return Err(TaskAuthoringError::InvalidPlacement.into());
+        }
         let moved = own_green_block(entry.parsed.green(), task.range.clone())
             .map_err(|_| TaskAuthoringError::TaskNotFound)?;
         let moved = update_owned_task(moved, &task, input, timestamp);
@@ -3002,9 +2923,12 @@ impl Workspace {
         validate_task_authoring_input(&input, timestamp)?;
         self.validate_authored_task_references(
             &path,
-            task.id.as_ref().map(|id| id.value.as_str()),
+            TaskRef::from_task(&path, &task.to_owned()),
             &input,
         )?;
+        if task.owner == plumb_semantics::TaskOwner::Document {
+            return self.update_document_task_fields(entry, path, patch, &input);
+        }
         let owned = own_green_block(entry.parsed.green(), task.range.clone())
             .map_err(|_| TaskAuthoringError::TaskNotFound)?;
         let owned = update_owned_task(owned, &task, &input, timestamp);
@@ -3035,6 +2959,9 @@ impl Workspace {
             .iter()
             .find(|task| task.range == task_range)
             .ok_or(TaskAuthoringError::TaskNotFound)?;
+        if task.owner == plumb_semantics::TaskOwner::Document {
+            return Err(TaskAuthoringError::InvalidPlacement.into());
+        }
         let moved = own_green_block(entry.parsed.green(), task.range.clone())
             .map_err(|_| TaskAuthoringError::TaskNotFound)?;
         self.move_task_owned(entry, path, task.range.clone(), placement, moved)
@@ -3090,7 +3017,7 @@ impl Workspace {
     fn validate_authored_task_references(
         &self,
         path: &Path,
-        id: Option<&str>,
+        own: Option<TaskRef>,
         input: &TaskAuthoringInput,
     ) -> Result<(), WorkspaceOperationError<TaskAuthoringError>> {
         let mut dependencies = Vec::new();
@@ -3109,11 +3036,7 @@ impl Workspace {
                 dependencies.push(target);
             }
         }
-        if let Some(id) = id {
-            let own = TaskRef {
-                path: path.to_path_buf(),
-                id: Some(id.to_string()),
-            };
+        if let Some(own) = own {
             let mut graph = self.task_dependency_graph()?;
             graph.insert(own.clone(), dependencies);
             if dependency_cycle_contains(&graph, &own) {
@@ -3480,10 +3403,7 @@ impl Workspace {
         }) else {
             return Ok(self.query_result(Vec::new()));
         };
-        let owner_ref = owner.id.as_ref().map(|id| TaskRef {
-            path: from.clone(),
-            id: Some(id.value.clone()),
-        });
+        let owner_ref = TaskRef::from_task(&from, &owner);
         let mut existing = HashSet::new();
         for target in &context.existing {
             if let TaskTargetResolution::Task { target, .. } =
@@ -3493,70 +3413,34 @@ impl Workspace {
             }
         }
         let eligible = |path: &Path, task: &TaskRecord| {
-            let Some(id) = &task.id else {
-                return false;
-            };
-            let target = TaskRef {
-                path: path.to_path_buf(),
-                id: Some(id.value.clone()),
-            };
+            let Some(target) = TaskRef::from_task(path, task) else { return false; };
             owner_ref.as_ref() != Some(&target) && !existing.contains(&target)
         };
         let Some((path_query, id_query)) = context.query.rsplit_once('#') else {
-            let mut candidates = self
-                .documents
-                .values()
-                .filter_map(|entry| {
-                    let versioned = entry.current.as_ref().or(entry.last_valid.as_ref())?;
-                    if !versioned
-                        .output
-                        .tasks()
-                        .tasks
-                        .iter()
-                        .any(|task| eligible(&entry.path, &task))
-                    {
-                        return None;
-                    }
-                    let relative = relative_path(&from, &entry.path)?;
-                    let reference = if entry.path == from {
-                        "#".to_string()
-                    } else {
-                        format!("{relative}#")
-                    };
-                    if !fuzzy_match(reference.trim_end_matches('#'), &context.query) {
-                        return None;
-                    }
-                    Some(CompletionCandidate {
-                        label: reference.clone(),
-                        detail: format!("task document ({relative})"),
-                        new_text: reference,
-                        replace: context.replace.clone(),
-                    })
-                })
-                .collect::<Vec<_>>();
+            let mut paths = self.documents.keys().cloned().collect::<HashSet<_>>();
             if let Some(store) = &self.disk_store {
-                let open = self.open_paths();
-                for document in store.documents()? {
-                    if open.binary_search(&document.path).is_ok()
-                        || !self
-                            .tasks_for_path(&document.path)?
-                            .iter()
-                            .any(|task| eligible(&document.path, &task))
-                    {
-                        continue;
+                paths.extend(store.documents()?.into_iter().map(|document| document.path));
+            }
+            let mut candidates = Vec::new();
+            for path in paths {
+                let Some(relative) = relative_path(&from, &path) else { continue; };
+                let tasks = self.tasks_for_path(&path)?;
+                if let Some(task) = tasks.iter().find(|task| task.owner == plumb_semantics::TaskOwner::Document && eligible(&path, task)) {
+                    if fuzzy_match(&relative, &context.query) || fuzzy_match(&task.title, &context.query) {
+                        candidates.push(CompletionCandidate {
+                            label: relative.clone(),
+                            detail: format!("document task: {}", task.title),
+                            new_text: relative.replace('`', "``").replace('{', "`{").replace('}', "`}"),
+                            replace: context.replace.clone(),
+                        });
                     }
-                    let Some(relative) = relative_path(&from, &document.path) else {
-                        continue;
-                    };
-                    let reference = if document.path == from {
-                        "#".to_string()
-                    } else {
-                        format!("{relative}#")
-                    };
+                }
+                if tasks.iter().any(|task| task.id.is_some() && eligible(&path, task)) {
+                    let reference = if path == from { "#".to_string() } else { format!("{relative}#") };
                     if fuzzy_match(reference.trim_end_matches('#'), &context.query) {
                         candidates.push(CompletionCandidate {
                             label: reference.clone(),
-                            detail: format!("task document ({relative})"),
+                            detail: format!("task anchors ({relative})"),
                             new_text: reference,
                             replace: context.replace.clone(),
                         });
@@ -4484,20 +4368,6 @@ fn fuzzy_match(candidate: &str, query: &str) -> bool {
     false
 }
 
-fn task_reference_ranges(
-    source: &str,
-    range: &std::ops::Range<usize>,
-    target_id: &str,
-) -> Option<(Option<std::ops::Range<usize>>, std::ops::Range<usize>)> {
-    let separator = source.find('#')?;
-    if &source[separator + 1..] != target_id {
-        return None;
-    }
-    let path_range = (separator > 0).then(|| range.start..range.start + separator);
-    let id_start = range.start + separator + 1;
-    Some((path_range, id_start..range.end))
-}
-
 fn resolved_document_path(target: ResolvedTarget) -> Option<PathBuf> {
     match target {
         ResolvedTarget::Anchor { path, .. }
@@ -4593,18 +4463,10 @@ fn reference_occurrence_key(
     )
 }
 
-fn task_reference_component_ranges(
-    source: &str,
-    range: &std::ops::Range<usize>,
-    target: &TaskReferenceTarget,
-) -> Option<(std::ops::Range<usize>, std::ops::Range<usize>)> {
-    let target_id = match target {
-        TaskReferenceTarget::Internal { id } | TaskReferenceTarget::External { id, .. } => id,
-        TaskReferenceTarget::Document { .. } => return Some((range.clone(), range.clone())),
-        TaskReferenceTarget::Invalid => return None,
-    };
-    let (path_range, id_range) = task_reference_ranges(source, range, target_id)?;
-    Some((path_range.unwrap_or_else(|| id_range.clone()), id_range))
+fn task_reference_component_ranges(reference: &TaskDependency) -> Option<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+    let document = reference.path_range.as_ref().or(reference.id_range.as_ref())?.clone();
+    let anchor = reference.id_range.clone().unwrap_or_else(|| document.clone());
+    Some((document, anchor))
 }
 
 fn reference_occurrence_order(
@@ -4616,26 +4478,8 @@ fn reference_occurrence_order(
         .then(left.source_range.start.cmp(&right.source_range.start))
 }
 
-fn task_reference_fields(
-    task: &TaskRecord,
-) -> Vec<(&str, &std::ops::Range<usize>, TaskReferenceTarget)> {
-    task.prev
-        .iter()
-        .map(|prev| {
-            (
-                prev.value.as_str(),
-                &prev.range,
-                parse_task_reference_target(&prev.value),
-            )
-        })
-        .chain(task.depends.iter().map(|dependency| {
-            (
-                dependency.source.as_str(),
-                &dependency.range,
-                dependency.target.clone(),
-            )
-        }))
-        .collect()
+fn task_reference_fields(task: &TaskRecord) -> impl Iterator<Item = &TaskDependency> {
+    task.prev_reference.iter().chain(task.depends.iter())
 }
 
 fn escape_parsed_text(value: &str) -> String {
