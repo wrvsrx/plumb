@@ -263,16 +263,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 /* Focus affects tree ordering and grouped visibility, never workflow state. */
 .task-unfocused-group {
-  display: grid; grid-template-columns: var(--task-disclosure-width) calc(var(--task-row-inset) + var(--task-state-width) + var(--task-row-gap)) minmax(0, 1fr);
+  display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 6px;
   align-items: center; width: 100%; min-height: 44px; text-align: left;
-  padding: 6px 16px 6px calc(var(--task-depth, 0) * var(--task-indent));
+  padding: 6px 16px 6px calc(var(--task-depth, 0) * var(--task-indent) + var(--task-disclosure-width) + var(--task-row-inset) + var(--task-state-width) + var(--task-row-gap) - 18px);
   border: 0; border-radius: 0; background: transparent;
   color: var(--muted); font-size: 12px; font-weight: 500;
 }
 .task-unfocused-group > .task-disclosure-mark { text-align: center; font-size: 11px; }
-.task-unfocused-label { grid-column: 3; min-width: 0; overflow-wrap: anywhere; }
-.task-unfocused-files { grid-template-columns: 12px minmax(0, 1fr); gap: 8px; padding-left: 16px; }
-.task-unfocused-files > .task-unfocused-label { grid-column: 2; }
+.task-unfocused-label { min-width: 0; overflow-wrap: anywhere; }
+.task-unfocused-files { padding-left: 18px; margin-top: 12px; }
 .task-unfocused-group:hover { background: #efefec; }
 .task-focused-count {
   width: fit-content; padding: 2px 7px; border-radius: 999px;
@@ -452,4 +451,3 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .load-more-tasks, .agenda-page-control { min-height: 44px; }
   .detail-back { min-height: 40px; }
 }
-

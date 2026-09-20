@@ -125,7 +125,7 @@ shared task page 在分页前按 subtree focused 优先排序；Web 只投影该
 
 可折叠文件路径显示其筛选后 task tree 中的 focused 数量，折叠时仍显示；未关注但包含 focused 后代的 task 显示 contains-focused 摘要，不标记其自身 focused。折叠隐藏的记录参与计数，筛选排除的记录不参与；count 与 grouping 从同一保留树计算。focus 的历史与操作语义保持不变。
 
-未关注分组是辅助折叠行，不是新的 section heading：使用 12px、500 字重和次级文字颜色，透明底色且不加分隔线，仅 hover 轻微高亮，点击高度至少 44px。Unfocused tasks 的箭头和文字分别对齐同层任务的 disclosure 与 title，复用任务的层级缩进及响应式列宽；最外层 Unfocused files 对齐文件路径节点。文案省略 Other，不增加对称的 Focused tasks / Focused files 分类。
+未关注分组是辅助折叠行，不是新的 section heading：使用 12px、500 字重和次级文字颜色，透明底色且不加分隔线，仅 hover 轻微高亮，点击高度至少 44px。Unfocused tasks 的文字对齐同层任务 title，复用任务的层级缩进及响应式列宽；箭头紧贴文字左侧，不跨越空状态列。最外层 Unfocused files 的文字对齐文件路径，箭头同样紧邻文字，并在上方增加 12px 留白以区分前一文件的子项。文案省略 Other，不增加对称的 Focused tasks / Focused files 分类。
 
 `# 7. Tree-sitter boundary
 
