@@ -834,14 +834,34 @@ mod tests {
             1,
             "`- Focused ready\n `+ task\n `= focused 2026-09-20T09:00:00Z--\n\n`- Plain ready\n `+ task\n",
         );
-        let labels = super::task_labels(&workspace, path, workspace.get(path).unwrap(), false)
-            .into_iter()
-            .map(|(_, label)| label.text)
+        let entry = workspace.get(path).unwrap();
+        let tasks = entry
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .tasks()
+            .tasks
+            .iter()
             .collect::<Vec<_>>();
-        assert_eq!(
-            labels,
-            vec!["`- [ ]  * Focused ready", "`- [ ]  Plain ready"]
-        );
+        assert_eq!(tasks.len(), 2);
+        // Focus is a task-local fact: only the task with the open `focused`
+        // interval gains the marker.
+        assert!(tasks[0].is_focused());
+        assert!(!tasks[1].is_focused());
+        // Fold labels are keyed by byte range and have no iteration order, so
+        // the rule is asserted per task in source order rather than by
+        // collecting the label map.
+        let labels = super::task_labels(&workspace, path, entry, false);
+        let expected = ["`- [ ]  * Focused ready", "`- [ ]  Plain ready"];
+        for (task, expected) in tasks.iter().zip(expected) {
+            assert_eq!(
+                labels
+                    .get(&(task.range.start, task.range.end))
+                    .map(|label| label.text.as_str()),
+                Some(expected),
+            );
+        }
     }
 
     #[test]
