@@ -104,7 +104,9 @@ selection conversion由plumb-edit逐green top-level root返回一次ownership、
 
 Task/Event/metadata operations 先在 semantics/workspace 解析 intent，再调用 generic owned mutations。status field
 update 要 retain opaque declarations/body，property remove/add后重新 align 受影响的 direct property run，并格式化
-完整 task subtree。
+完整 task subtree。focus interval history 走同一 generic property path：single value 与 direct `"-" interval children
+的选择、渲染以及两者相互转换都由 edit layer 按 owned value shape 完成，consumer 不手算缩进或分隔符；结束 open
+interval 与写入 closure field 必须是同一 proposal 内不可分割的编辑。
 
 `## 6.1 Inline owner replacement
 

@@ -64,7 +64,8 @@ official profile 至少区分：
  unsupported document identity/facet。
 `- link/embed/citation：missing/invalid target/source/id 与 workspace unresolved/ambiguous target。embed 的非 Link owner 发布 resource.invalid-owner；遗留 src 发布 resource.unexpected-source。未知媒体 type 是 Link fallback，不是 error。
 `- task/event：invalid fields/reference/time/interval/recurrence/closure state、dependency consistency 与 mutually
- exclusive facets。
+ exclusive facets；focus interval 的 invalid format、duplicate property、顺序、重叠、多个或非末尾的 open interval，
+ 以及 closed task 仍含 open interval。
 `- table：invalid row child、empty row、column mismatch、header-after-body、inconsistent row-header prefix。
 `- math：invalid owner 或 unsupported input language。
 

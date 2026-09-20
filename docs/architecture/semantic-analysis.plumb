@@ -358,6 +358,12 @@ Filter group 内的多个 Program 仍按 OR 解释，groups 之间仍按 source 
 
 Task cursor page 绑定 normalized filter、sort keys 与 workspace revision。cursor 是 opaque continuation identity， 不得解释为 row offset；失配或 stale cursor 必须拒绝。分页先在 lightweight typed facts 上完成 filter、tree aggregation 与 deterministic ordering，再只 decode 当前 page 的完整 records。一个 page 可以越过 requested task count 以保留当前 document 的完整 retained tree，但不能重复或跳过相邻 pages 的 document subtree。
 
+CEL task context 增加 document-local typed columns `"focused"（bool）与 `"focused_since"（nullable timestamp，类型与现有时间字段一致）；二者只由 task 自身的 focus interval history 与 closure state 派生，不需要 dependency 或 workspace lookup，因 而按普通 typed columns 绑定与投影，persistent store 也只把它们作为派生缓存列，不成为新的语义权威。
+
+`"next" 是 protocol-neutral 查询，把当前范围内的 task 分为两个独立结果区，两区来自同一 workspace snapshot 与同一查询 时刻。`"进行中" 包含所有 `"focused == true" 的 task（waiting 与 blocked 也算），按 `"focused_since" 升序把最久的排在前， 同一 instant 依次用 workspace-relative path、source position 稳定排序，并展示 title、位置、workflow state 与等待原因、 关注起点；该区不被候选上限截断，可以有界分页，但必须同时给出总数与继续查看入口。`"待开工" 只含 `"state == ready && focused == false" 且相关语义事实有效的 task，按现有 effective priority 降序排列（priority 传播在过滤 focused 之前、按完整依赖关系计算），同一优先级依次用 workspace-relative path、source position 稳定排序，默认最多 3 条并允许请求 1–10 条，上限严格按 task 计数、不因保留 document 或 subtree 而超出，结果全局平铺并携带 document 与 parent task 路径作为上下文；进行中数量不扣减候选名额，除 effective priority 外不引入 due、历史关注时长或 fuzzy relevance 等额外评分。
+
+`"next" 复用当前有效索引与 open-buffer overlay 规则；索引未完成或存在无法评估的 task 时，响应必须显式标记结果不完整， 并区分 `"候选按请求取前 N 条" 与 `"底层索引不完整"。focus data 无效的 task 不能进入候选，查询必须报告被跳过的 task 及其位置以便定位修复。`"next" 不得由 adapter 重新实现过滤或排序，也不得无界 hydrate 全部 TaskRecord；它与 Web tree task page 是不同查询，不能用后者的当前截取结果充当。
+
 Event cursor page 绑定 workspace revision、page direction 与稳定 event order key。order key 依次使用 resolved sort instant（有效时间先于无效或缺失时间）、normalized source path 和 event source start；cursor 是 opaque continuation identity，不得解释为 row offset。初始 around-now query 对当前时间之前和不早于当前时间的 records 分别设置 hard limit，再合并为一个有界 page；earlier/later query 必须在 database 中按同一 key 作 keyset boundary 与 limit，只 decode 命中 records。无效或缺失 resolved time 的 events 位于 timed events 之后并仍可通过 later pagination 到达，不能被固定日期 window 丢弃。
 
 Open-document events 以 document granularity 替换 persistent rows。Rust 可以合并有界 database candidates 与 open overlay，但合并后必须与全部 records 上执行同一 filter/order/boundary/limit observable 等价；不得为分页 materialize 完整 closed generation。Event page response 暴露 earlier/later cursors 与 page 所属 revision；selection identity query 和 mutation reload 必须返回包含目标 identity 的有界 page，stale 或 query 不匹配 cursor 必须拒绝。
@@ -384,6 +390,8 @@ official semantics/workspace 将 valid-tree authoring intent 交给 `"plumb-edit
 consumer 不渲染 owned nodes、不计算 subtree indentation/line-ending replacement，也不把结构删除或移动 降级为 raw token replacement。anchor/document rename 通过 `"plumb-edit" 验证 token ranges，并保持 ordered minimal edits。Document rename 的 target 仅是首个顶层 metadata/document declaration 的 opener marker 范围；title 值、其它 metadata entry、nested property、正文或无 declaration 的文档不得提供 document rename。Link/task 中的 path rename 与 explicit anchor rename 仍由各自的 target 查询独立提供。incomplete-source completion 属于 recovery assist，不伪装成 authoritative mutation。 当 recovered completion 生成完整 block arguments 时，semantic query 可以调用 `"plumb-edit" 的纯 authored-fragment renderer 取得统一 separator/padding spelling；renderer 不读取 tree 或产生 mutation，query 继续拥有 recovered context 与 replacement range。
 
 Formatting 使用同一 syntax-only edit contract：consumer 传入当前 `"ParsedDocument" 和 scope， `"plumb-edit" 返回 byte edits；LSP/CLI/Web 不直接依赖 `"plumb-format" 或重新 parse revision source。
+
+focus/unfocus 是同一 operation contract 下的 protocol-neutral proposal。focus 在 target task 上写入单个 open interval； 已有全部结束的历史时追加 open interval，single value 在需要时转成 list；已 focused 时 focus 幂等，不重置 start、 不产生 edit。unfocus 为 open interval 补当前 end time；没有 open interval 时幂等且不产生 edit。complete/cancel 必须在 同一 proposal 中既写入 closure field 又结束 open interval，两者不可分割，任一被拒绝时 focus history 保持不变。focus 拒绝 closed task；waiting/blocked 的未关闭 task 允许 focus。一次 operation 只取一次当前时间并提供可注入 clock；时钟 回拨导致 end 早于 start、或既有 focus history 无效时明确失败，不写入也不猜测修复。focus history 的修改使用 `"plumb-edit" 的 owned syntax property insert/replace/remove，保留无关 declarations、正文、子任务与既有 timestamp；recurring close 产生新 instance 时旧 instance 保留历史，新 instance 不继承 `"focused"。
 
 `# 10. Diagnostics and failure
 

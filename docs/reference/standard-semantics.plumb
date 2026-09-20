@@ -222,15 +222,54 @@ semantics。
 dependency edge。需要 reference 时显式 id。
 
 defined fields：created/due/wait/done/canceled 是 RFC 3339；recur 是 positive PnD/PnW/PnM/PnY 且需 due；prev
-是 one task reference；priority 是 i32；depends 是 whitespace-separated same/cross-file explicit-id references。
+是 one task reference；priority 是 i32；depends 是 whitespace-separated same/cross-file explicit-id references；
+focused 是 focus interval 或 focus interval list（见下）。
 raw cross-file spelling 是 `"path.plumb#id"，path 可以含 ASCII/UTF-8 spaces，由 `".plumb#" boundary disambiguate。
 
 closure state：done only=done，canceled only=canceled，both=conflicted，neither=open。workflow state precedence 是
 conflicted、done/canceled、future wait/waiting、open dependency/blocked、ready。time/dependency reasons 可同时存在。
 
-complete 添加 done，cancel 添加 canceled；blocked completion rejected，cancel allowed。recurring close 保留旧
-instance并 append next，advance due/wait、unique id、prev。operations 使用 revision guard、plumb-edit owned syntax
-和 current formatter，不手写 separator/indentation。
+focus interval 是 `"start--end" 或 open 的 `"start--"；endpoint 是带 explicit offset 的 RFC 3339 timestamp，比较按
+instant 而不是字符串。`"focused" property 支持 single value 与 interval list：
+
+`plumb"
+ `- 单个开放区间
+  `+ task
+  `@ focus-open
+  `= focused 2026-09-20T09:00:00+08:00--
+ `- 单个已结束区间
+  `+ task
+  `@ focus-closed
+  `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00
+ `- 区间列表
+  `+ task
+  `@ focus-history
+  `= focused
+   `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00
+   `- 2026-09-20T14:00:00+08:00--
+
+single value 与 one-element list 语义等价。list 使用 direct `"-" children，每项恰好一个 interval，不携带其它结构或
+内容。property 不能为空、不能空列表、不能混用 inline interval 与 interval children、不能重复 `"focused"。interval
+按 start 升序且同一 task 内不得重叠，可以首尾相接；end 早于 start 非法，end 等于 start 允许；最多一个 open
+interval 且必须位于最后。不同 task 的 interval 可以重叠。interval child 不产生 task 或 event record。
+
+focus 派生事实：`"focused" 表示存在 valid open interval 且 task closure 未关闭；`"focused_since" 是当前 open interval
+的 start，未 focused 时为空；另有完整 typed interval history 供 detail 展示。存在 `"focused" property 不等于当前
+focused：已结束的历史既不让 task 退出候选，也不触发任何排序提升。ready、waiting、blocked 都可以 focused，task 变成
+waiting/blocked 不自动结束 interval；done、canceled、conflicted 都不算当前 focused。focus 是 task-local 事实，不传播到
+parent、child 或 dependency task；display tree 上按 subtree 聚合 focused 只影响展示排序，不改变任何 task 的语义标记。
+手工编辑造成 closed task 仍有 open interval、或其它 invalid focus data 时发布 semantic diagnostic，不自动改写源文档；
+focus data 无效的 task 不能作为 `"focused == false" 的 next 候选，`"next" 必须报告被跳过的 task 以便定位修复。
+
+focus 首次写入单个 open interval；已有全部结束的历史时追加 open interval，single value 在需要时转成 list；已 focused
+时 focus 幂等，不重置 start 也不写文档。unfocus 为 open interval 补当前 end time；没有 open interval 时幂等且不写
+文档。focus 拒绝 closed task，waiting/blocked 的未关闭 task 允许 focus。
+
+complete 添加 done，cancel 添加 canceled；blocked completion rejected，cancel allowed。complete 与 cancel 必须在同一次
+atomic edit 中结束 open interval，关闭被拒绝时 focus history 保持不变。recurring close 保留旧 instance的 focus
+history并 append next，新 instance 不继承 `"focused"，advance due/wait、unique id、prev。operations 使用 revision
+guard、plumb-edit owned syntax 和 current formatter，不手写 separator/indentation；一次 operation 只取一次当前时间，
+时钟回拨或 focus history 本身无效时明确失败，不写入也不猜测修复。
 
 Task/Event construct completion 只从 list-marker prefix 提供；legacy `"t"/`"task"、`"e"/`"event" prefixes 不
 提供 candidates。Task skeleton 首 child 是 `"+ task"，created 使用 current local RFC 3339。
