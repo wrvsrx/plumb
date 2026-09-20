@@ -321,6 +321,85 @@ pub enum OwnedValue {
     Quoted(String),
 }
 
+/// Value shape of a direct `=` declaration in the owned syntax layer.
+///
+/// A declaration is authored either as a leaf association carrying one scalar
+/// token on its head, or as a `=` owner whose direct `-` children each carry one
+/// authored item. This layer only owns the spelling, separators and
+/// indentation; whether the items are meaningful is not its concern.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnedDeclarationValue {
+    Scalar(String),
+    List(Vec<String>),
+}
+
+/// A direct `=` declaration located on an owned block.
+///
+/// Unlike [`OwnedAttribute`], this representation covers the child-bearing list
+/// form (`= key` with direct `-` children), which has no `AttrItem` range.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedDeclaration {
+    pub key: String,
+    pub value: OwnedDeclarationValue,
+}
+
+impl OwnedDeclaration {
+    pub fn scalar(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            value: OwnedDeclarationValue::Scalar(value.into()),
+        }
+    }
+
+    pub fn list<I, S>(key: impl Into<String>, items: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            key: key.into(),
+            value: OwnedDeclarationValue::List(items.into_iter().map(Into::into).collect()),
+        }
+    }
+
+    /// The authored item strings in source order; a scalar is a one-element
+    /// sequence.
+    pub fn items(&self) -> Vec<&str> {
+        match &self.value {
+            OwnedDeclarationValue::Scalar(value) => vec![value.as_str()],
+            OwnedDeclarationValue::List(items) => items.iter().map(String::as_str).collect(),
+        }
+    }
+
+    /// Render this declaration as an owned `=` block, choosing the leaf or the
+    /// direct-`-`-children spelling from the value shape. Empty keys, empty
+    /// scalars, empty lists, and empty items are rejected rather than rendered.
+    pub fn into_block(self) -> Result<OwnedBlock, EditError> {
+        if self.key.is_empty() {
+            return Err(EditError::GeneratedInvalid);
+        }
+        match self.value {
+            OwnedDeclarationValue::Scalar(value) => {
+                if value.is_empty() {
+                    return Err(EditError::GeneratedInvalid);
+                }
+                Ok(OwnedBlock::padded_association(self.key, value))
+            }
+            OwnedDeclarationValue::List(items) => {
+                if items.is_empty() || items.iter().any(String::is_empty) {
+                    return Err(EditError::GeneratedInvalid);
+                }
+                let mut block = OwnedBlock::marked("=", "");
+                block.set_head_text_arguments([self.key]);
+                if let Some(children) = block.children_mut() {
+                    children.extend(items.into_iter().map(|item| OwnedBlock::marked("-", item)));
+                }
+                Ok(block)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkedOwnerRewrite {
     pub owner_range: Range<usize>,
@@ -677,6 +756,124 @@ impl OwnedBlock {
         self.prepend_head_argument(owned_authored_text(&argument.into()));
     }
 
+    /// Locate a direct `=` declaration by key on this block, covering both the
+    /// leaf scalar form and the child-bearing list form.
+    ///
+    /// Returns `None` when the block is not a parsed owner, when no direct `=`
+    /// child carries the key, or when the matching declaration's value shape is
+    /// not a scalar or a list of single-element `-` children.
+    pub fn declaration(&self, key: &str) -> Option<OwnedDeclaration> {
+        let Self::Parsed { children, .. } = self else {
+            return None;
+        };
+        children
+            .iter()
+            .filter_map(owned_block_declaration)
+            .find(|declaration| declaration.key == key)
+    }
+
+    /// Insert or replace a direct `=` declaration on this parsed owner.
+    ///
+    /// Setting a value identical to the located declaration is a no-op that
+    /// returns `Ok(false)`. Otherwise a leaf declaration is converted to list
+    /// children or back as the requested value shape requires, and an absent
+    /// declaration is inserted after the last direct declaration child.
+    /// Verbatim blocks cannot own declarations and return `Ok(false)`.
+    pub fn set_declaration(
+        &mut self,
+        declaration: OwnedDeclaration,
+    ) -> Result<bool, EditError> {
+        let replacement = declaration.clone().into_block()?;
+        let Self::Parsed { children, .. } = self else {
+            return Ok(false);
+        };
+        if let Some(index) = children
+            .iter()
+            .position(|child| owned_declaration_key(child).as_deref() == Some(declaration.key.as_str()))
+        {
+            let Some(existing) = owned_block_declaration(&children[index]) else {
+                return Err(EditError::GeneratedInvalid);
+            };
+            if existing.value == declaration.value {
+                return Ok(false);
+            }
+            children[index] = replacement;
+            return Ok(true);
+        }
+        let index = children
+            .iter()
+            .rposition(owned_declaration_like)
+            .map_or(0, |index| index + 1);
+        children.insert(index, replacement);
+        Ok(true)
+    }
+
+    /// Remove the first direct `=` declaration carrying `key`, in either the
+    /// leaf or the child-bearing form. Returns whether a declaration was
+    /// removed.
+    pub fn remove_declaration(&mut self, key: &str) -> bool {
+        let Self::Parsed { children, .. } = self else {
+            return false;
+        };
+        let Some(index) = children
+            .iter()
+            .position(|child| owned_declaration_key(child).as_deref() == Some(key))
+        else {
+            return false;
+        };
+        children.remove(index);
+        true
+    }
+
+    /// Append one authored item to the declaration's list value.
+    ///
+    /// A scalar value is promoted to a two-element list, an existing list keeps
+    /// its items in order, and an absent declaration becomes the single-item
+    /// scalar form. Returns whether the owned tree changed.
+    pub fn append_declaration_item(
+        &mut self,
+        key: &str,
+        item: impl Into<String>,
+    ) -> Result<bool, EditError> {
+        let item = item.into();
+        if key.is_empty() || item.is_empty() {
+            return Err(EditError::GeneratedInvalid);
+        }
+        let Self::Parsed { children, .. } = self else {
+            return Ok(false);
+        };
+        let Some(index) = children
+            .iter()
+            .position(|child| owned_declaration_key(child).as_deref() == Some(key))
+        else {
+            let replacement = OwnedDeclaration::scalar(key, item).into_block()?;
+            let position = children
+                .iter()
+                .rposition(owned_declaration_like)
+                .map_or(0, |index| index + 1);
+            children.insert(position, replacement);
+            return Ok(true);
+        };
+        let Some(existing) = owned_block_declaration(&children[index]) else {
+            return Err(EditError::GeneratedInvalid);
+        };
+        let value = match existing.value {
+            OwnedDeclarationValue::Scalar(value) => {
+                OwnedDeclarationValue::List(vec![value, item])
+            }
+            OwnedDeclarationValue::List(mut items) => {
+                items.push(item);
+                OwnedDeclarationValue::List(items)
+            }
+        };
+        children[index] = OwnedDeclaration {
+            key: key.to_string(),
+            value,
+        }
+        .into_block()?;
+        Ok(true)
+    }
+
     pub fn set_marker(&mut self, value: impl Into<String>) {
         if let Self::Parsed { marker, .. } = self {
             *marker = Some(value.into());
@@ -798,6 +995,115 @@ fn owned_inline_declaration(inline: &OwnedInline) -> bool {
         inline,
         OwnedInline::Element { kind, .. } if matches!(kind.as_str(), "@" | "+" | "=")
     )
+}
+
+/// The `=` key of a direct declaration child, whether or not this layer can
+/// represent its value shape.
+fn owned_declaration_key(block: &OwnedBlock) -> Option<String> {
+    let OwnedBlock::Parsed {
+        marker: Some(marker),
+        head,
+        raw: None,
+        ..
+    } = block
+    else {
+        return None;
+    };
+    if marker != "=" {
+        return None;
+    }
+    let element = head.get(*owned_positional_indices(head).first()?)?;
+    let key = plain_owned_element(element)?;
+    (!key.is_empty()).then_some(key)
+}
+
+/// Decode a direct `=` declaration child into the representative value shape.
+fn owned_block_declaration(block: &OwnedBlock) -> Option<OwnedDeclaration> {
+    let OwnedBlock::Parsed {
+        marker: Some(marker),
+        head,
+        children,
+        raw: None,
+    } = block
+    else {
+        return None;
+    };
+    if marker != "=" {
+        return None;
+    }
+    let key = owned_declaration_key(block)?;
+    if children.is_empty() {
+        let elements = owned_positional_indices(head);
+        let value_start = *elements.get(1)?;
+        let value_end = *elements.last()?;
+        let value = plain_owned_argument(
+            &head[value_start..=value_end]
+                .iter()
+                .filter(|inline| {
+                    !matches!(inline, OwnedInline::ArgumentSeparator)
+                        && !owned_inline_declaration(inline)
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
+        )?;
+        if value.is_empty() {
+            return None;
+        }
+        return Some(OwnedDeclaration {
+            key,
+            value: OwnedDeclarationValue::Scalar(value),
+        });
+    }
+    if owned_positional_indices(head).len() != 1 {
+        // Mixed inline value and direct children have no representative shape.
+        return None;
+    }
+    let items = children
+        .iter()
+        .map(owned_declaration_item)
+        .collect::<Option<Vec<_>>>()?;
+    if items.is_empty() {
+        return None;
+    }
+    Some(OwnedDeclaration {
+        key,
+        value: OwnedDeclarationValue::List(items),
+    })
+}
+
+fn owned_declaration_item(block: &OwnedBlock) -> Option<String> {
+    let OwnedBlock::Parsed {
+        marker: Some(marker),
+        head,
+        children,
+        raw: None,
+    } = block
+    else {
+        return None;
+    };
+    if marker != "-" || !children.is_empty() || owned_positional_indices(head).len() != 1 {
+        return None;
+    }
+    let item = plain_owned_argument(head)?;
+    (!item.is_empty()).then_some(item)
+}
+
+/// Whether a direct child can take part in a declaration run, so a new
+/// declaration is inserted after the last one.
+fn owned_declaration_like(block: &OwnedBlock) -> bool {
+    match block {
+        OwnedBlock::Parsed {
+            marker: Some(marker),
+            children,
+            raw: None,
+            ..
+        } => match marker.as_str() {
+            "=" => true,
+            "@" | "+" => children.is_empty(),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 fn plain_owned_element(inline: &OwnedInline) -> Option<String> {
@@ -1402,6 +1708,271 @@ pub fn insert_green_block_attribute(
     let mut edit = EditSession::new(parsed, local)?;
     edit.insert_attribute(&mark.attrs, mark.marker_range.end, position, item)?;
     rebase_edit(edit.finish()?, offset)
+}
+
+/// Locate a direct `=` declaration by key on a parsed owner block, covering both
+/// the leaf scalar form and the child-bearing list form.
+pub fn owned_declaration_at(
+    parsed: &ParsedDocument,
+    owner: Range<usize>,
+    key: &str,
+) -> Result<Option<OwnedDeclaration>, EditError> {
+    let owner =
+        parsed_block_with_range(&parsed.syntax.blocks, &owner).ok_or(EditError::InvalidRange)?;
+    Ok(parsed_declaration_child(parsed, owner, key)
+        .and_then(|(_, block)| owned_block_declaration(&block)))
+}
+
+/// Locate a direct `=` declaration by key in a green revision.
+pub fn green_declaration_at(
+    document: &GreenDocument,
+    owner: Range<usize>,
+    key: &str,
+) -> Result<Option<OwnedDeclaration>, EditError> {
+    let (parsed, local, _) = green_block_target(document, &owner)?;
+    owned_declaration_at(parsed, local, key)
+}
+
+/// Set a direct `=` declaration on a parsed owner block to a scalar or list
+/// value, converting between the leaf and child-bearing spellings as required.
+///
+/// An existing declaration is replaced in place, and an absent declaration is
+/// inserted after the last direct declaration child, so unrelated declarations,
+/// body content, subtasks and timestamps stay byte-identical. Only an owner
+/// without any declaration child falls back to re-rendering the owner subtree.
+/// Setting a value equal to the located declaration returns `Ok(None)` and
+/// produces no edit.
+pub fn set_owned_declaration(
+    parsed: &ParsedDocument,
+    owner: Range<usize>,
+    declaration: OwnedDeclaration,
+) -> Result<Option<TextEdit>, EditError> {
+    let owner_block =
+        parsed_block_with_range(&parsed.syntax.blocks, &owner).ok_or(EditError::InvalidRange)?;
+    let replacement = declaration.clone().into_block()?;
+    let key = declaration.key.clone();
+    if let Some((range, block)) = parsed_declaration_child(parsed, owner_block, &key) {
+        let Some(existing) = owned_block_declaration(&block) else {
+            return Err(EditError::GeneratedInvalid);
+        };
+        if existing.value == declaration.value {
+            return Ok(None);
+        }
+        let edit = replace_owned_block(parsed, range, &replacement)?;
+        validate_edited_revision(parsed, &edit)?;
+        return Ok(Some(edit));
+    }
+    let edit = match declaration_anchor(parsed, owner_block) {
+        Some(anchor) => insert_after_declaration_anchor(parsed, anchor, &replacement)?,
+        None => {
+            let mut owned = OwnedBlock::from_parsed(&parsed.source, owner_block);
+            owned.set_declaration(declaration)?;
+            replace_owned_block(parsed, owner, &owned)?
+        }
+    };
+    validate_edited_revision(parsed, &edit)?;
+    Ok(Some(edit))
+}
+
+/// Remove a direct `=` declaration (leaf or child-bearing) from a parsed owner
+/// block. Returns `Ok(None)` when the key is absent, so removal is idempotent.
+///
+/// The edit consumes the declaration and one preceding blank separator when one
+/// is present, leaving every other byte of the revision untouched.
+pub fn remove_owned_declaration(
+    parsed: &ParsedDocument,
+    owner: Range<usize>,
+    key: &str,
+) -> Result<Option<TextEdit>, EditError> {
+    let owner_block =
+        parsed_block_with_range(&parsed.syntax.blocks, &owner).ok_or(EditError::InvalidRange)?;
+    let Some((range, _)) = parsed_declaration_child(parsed, owner_block, key) else {
+        return Ok(None);
+    };
+    let edit = declaration_removal_edit(parsed, &range)?;
+    validate_edited_revision(parsed, &edit)?;
+    Ok(Some(edit))
+}
+
+/// Append one authored item to a direct declaration's list value on a parsed
+/// owner block.
+///
+/// A list gains the item after its last direct child, a scalar is promoted to a
+/// list, and an absent declaration becomes the single-item scalar form. The
+/// returned edit touches only the declaration, so unrelated content is
+/// preserved byte-for-byte.
+pub fn append_owned_declaration_item(
+    parsed: &ParsedDocument,
+    owner: Range<usize>,
+    key: &str,
+    item: &str,
+) -> Result<Option<TextEdit>, EditError> {
+    if key.is_empty() || item.is_empty() {
+        return Err(EditError::GeneratedInvalid);
+    }
+    let owner_block =
+        parsed_block_with_range(&parsed.syntax.blocks, &owner).ok_or(EditError::InvalidRange)?;
+    let Some((range, block)) = parsed_declaration_child(parsed, owner_block, key) else {
+        return set_owned_declaration(parsed, owner, OwnedDeclaration::scalar(key, item));
+    };
+    let Some(existing) = owned_block_declaration(&block) else {
+        return Err(EditError::GeneratedInvalid);
+    };
+    match existing.value {
+        OwnedDeclarationValue::Scalar(value) => {
+            set_owned_declaration(parsed, owner, OwnedDeclaration::list(key, [value, item.into()]))
+        }
+        OwnedDeclarationValue::List(_) => {
+            let declaration_block =
+                parsed_block_with_range(&parsed.syntax.blocks, &range)
+                    .ok_or(EditError::InvalidRange)?;
+            let last_range = declaration_block
+                .children
+                .last()
+                .map(|child| child.range().clone())
+                .ok_or(EditError::GeneratedInvalid)?;
+            let source = &parsed.source;
+            let newline = line_ending(source);
+            let indent = " ".repeat(line_indent(source, last_range.start));
+            let rendered = format_owned_blocks(&[OwnedBlock::marked("-", item)], newline)?;
+            let mut text = String::new();
+            if !source[..last_range.end].ends_with(newline) {
+                text.push_str(newline);
+            }
+            text.push_str(&indent_fragment(&rendered, &indent, newline));
+            let edit = TextEdit::replace(parsed, last_range.end..last_range.end, text)?;
+            validate_edited_revision(parsed, &edit)?;
+            Ok(Some(edit))
+        }
+    }
+}
+
+/// Set a direct declaration by key in a green revision.
+pub fn set_green_declaration(
+    document: &GreenDocument,
+    owner: Range<usize>,
+    declaration: OwnedDeclaration,
+) -> Result<Option<TextEdit>, EditError> {
+    let (parsed, local, offset) = green_block_target(document, &owner)?;
+    match set_owned_declaration(parsed, local, declaration)? {
+        Some(edit) => Ok(Some(rebase_edit(edit, offset)?)),
+        None => Ok(None),
+    }
+}
+
+/// Remove a direct declaration by key in a green revision.
+pub fn remove_green_declaration(
+    document: &GreenDocument,
+    owner: Range<usize>,
+    key: &str,
+) -> Result<Option<TextEdit>, EditError> {
+    let (parsed, local, offset) = green_block_target(document, &owner)?;
+    match remove_owned_declaration(parsed, local, key)? {
+        Some(edit) => Ok(Some(rebase_edit(edit, offset)?)),
+        None => Ok(None),
+    }
+}
+
+/// Append one authored item to a direct declaration by key in a green revision.
+pub fn append_green_declaration_item(
+    document: &GreenDocument,
+    owner: Range<usize>,
+    key: &str,
+    item: &str,
+) -> Result<Option<TextEdit>, EditError> {
+    let (parsed, local, offset) = green_block_target(document, &owner)?;
+    match append_owned_declaration_item(parsed, local, key, item)? {
+        Some(edit) => Ok(Some(rebase_edit(edit, offset)?)),
+        None => Ok(None),
+    }
+}
+
+/// The first direct `=` child of `owner` carrying `key`, with its block range.
+fn parsed_declaration_child<'a>(
+    parsed: &ParsedDocument,
+    owner: &'a ParsedBlock,
+    key: &str,
+) -> Option<(Range<usize>, OwnedBlock)> {
+    owner.children.iter().find_map(|child| {
+        let owned = OwnedBlock::from_syntax(&parsed.source, child);
+        (owned_declaration_key(&owned).as_deref() == Some(key))
+            .then(|| (child.range().clone(), owned))
+    })
+}
+
+/// The last direct declaration child, after which a new declaration belongs.
+fn declaration_anchor<'a>(parsed: &ParsedDocument, owner: &'a ParsedBlock) -> Option<&'a Block> {
+    owner.children.iter().rfind(|child| {
+        owned_declaration_like(&OwnedBlock::from_syntax(&parsed.source, child))
+    })
+}
+
+/// Insert a rendered declaration directly after an existing declaration anchor,
+/// using the anchor's indentation and the canonical sibling separator.
+fn insert_after_declaration_anchor(
+    parsed: &ParsedDocument,
+    anchor: &Block,
+    declaration: &OwnedBlock,
+) -> Result<TextEdit, EditError> {
+    let source = &parsed.source;
+    let newline = line_ending(source);
+    let rendered = format_owned_blocks(std::slice::from_ref(declaration), newline)?;
+    let anchor_owned = OwnedBlock::from_syntax(source, anchor);
+    let compact = matches!(
+        &anchor_owned,
+        OwnedBlock::Parsed {
+            marker: Some(marker),
+            children,
+            ..
+        } if marker == "=" && children.is_empty()
+    );
+    let indent = " ".repeat(line_indent(source, anchor.range().start));
+    let mut text = String::new();
+    if !source[..anchor.range().end].ends_with(newline) {
+        text.push_str(newline);
+    }
+    if !compact {
+        text.push_str(newline);
+    }
+    text.push_str(&indent_fragment(&rendered, &indent, newline));
+    TextEdit::replace(parsed, anchor.range().end..anchor.range().end, text)
+}
+
+/// A minimal removal edit for one declaration block: the declaration's own
+/// lines plus one preceding blank separator when present.
+fn declaration_removal_edit(
+    parsed: &ParsedDocument,
+    declaration: &Range<usize>,
+) -> Result<TextEdit, EditError> {
+    validate_range(&parsed.source, declaration)?;
+    let source = &parsed.source;
+    let line_start = source[..declaration.start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let mut start = declaration.start;
+    if source[line_start..declaration.start]
+        .chars()
+        .all(|character| character == ' ')
+    {
+        start = line_start;
+    }
+    if start > 0 && source.as_bytes().get(start - 1) == Some(&b'\n') {
+        let previous_start = source[..start - 1].rfind('\n').map_or(0, |index| index + 1);
+        if source[previous_start..start - 1].trim().is_empty() {
+            start = previous_start;
+        }
+    }
+    TextEdit::replace(parsed, start..declaration.end, "")
+}
+
+fn validate_edited_revision(parsed: &ParsedDocument, edit: &TextEdit) -> Result<(), EditError> {
+    let edited = apply_text_edits(parsed.source.clone(), vec![edit.clone()])
+        .map_err(|_| EditError::GeneratedInvalid)?;
+    if plumb_syntax::parse(edited).is_valid() {
+        Ok(())
+    } else {
+        Err(EditError::GeneratedInvalid)
+    }
 }
 
 fn green_block_target<'a>(
@@ -3381,6 +3952,451 @@ mod tests {
         let removed = apply_text_edits(source.to_string(), vec![remove.finish().unwrap()]).unwrap();
         assert!(!removed.contains("`= created now\n"));
         assert!(removed.contains("`+ keep"));
+    }
+
+    const FOCUS_CLOSED: &str = "2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00";
+    const FOCUS_OPEN: &str = "2026-09-20T14:00:00+08:00--";
+
+    fn closed_focus_leaf_source() -> String {
+        format!(
+            "`- Implement parser\n `+ task\n `@ write-parser\n `= focused {FOCUS_CLOSED}\n `= due 2026-09-21T09:00:00+08:00\n"
+        )
+    }
+
+    fn focused_list_source() -> String {
+        format!(
+            "`- Implement parser\n `+ task\n `@ write-parser\n `= focused\n\n  `- {FOCUS_CLOSED}\n  `- {FOCUS_OPEN}\n `= due 2026-09-21T09:00:00+08:00\n"
+        )
+    }
+
+    fn parse_owner(source: &str) -> (ParsedDocument, Range<usize>) {
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}\n{source}", parsed.diagnostics);
+        let owner = parsed.syntax.blocks[0].range().clone();
+        (parsed, owner)
+    }
+
+    #[test]
+    fn locates_leaf_and_child_bearing_declarations_on_an_owned_block() {
+        let leaf = closed_focus_leaf_source();
+        let parsed = parse(&leaf);
+        let owned = OwnedBlock::from_syntax(&leaf, &parsed.syntax.blocks[0]);
+        assert_eq!(
+            owned.declaration("focused"),
+            Some(OwnedDeclaration::scalar("focused", FOCUS_CLOSED))
+        );
+        assert_eq!(owned.declaration("missing"), None);
+
+        let list = focused_list_source();
+        let parsed = parse(&list);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let owned = OwnedBlock::from_syntax(&list, &parsed.syntax.blocks[0]);
+        assert_eq!(
+            owned.declaration("focused"),
+            Some(OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN]))
+        );
+        assert_eq!(owned.declaration("focused").unwrap().items().len(), 2);
+    }
+
+    #[test]
+    fn converts_a_leaf_declaration_into_direct_list_children() {
+        let source = closed_focus_leaf_source();
+        let (parsed, owner) = parse_owner(&source);
+        let edit = set_owned_declaration(
+            &parsed,
+            owner,
+            OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN]),
+        )
+        .unwrap()
+        .expect("conversion edit");
+        let edited = apply_text_edits(source.clone(), vec![edit]).unwrap();
+        assert_eq!(
+            edited,
+            format!(
+                "`- Implement parser\n `+ task\n `@ write-parser\n `= focused\n\n  `- {FOCUS_CLOSED}\n  `- {FOCUS_OPEN}\n `= due 2026-09-21T09:00:00+08:00\n"
+            )
+        );
+        let reparsed = parse(&edited);
+        assert!(reparsed.is_valid(), "{:?}\n{edited}", reparsed.diagnostics);
+        assert_eq!(
+            owned_declaration_at(
+                &reparsed,
+                reparsed.syntax.blocks[0].range().clone(),
+                "focused"
+            )
+            .unwrap(),
+            Some(OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN]))
+        );
+    }
+
+    #[test]
+    fn converts_list_children_back_into_a_leaf_declaration() {
+        let source = focused_list_source();
+        let (parsed, owner) = parse_owner(&source);
+        let edit = set_owned_declaration(
+            &parsed,
+            owner,
+            OwnedDeclaration::scalar("focused", FOCUS_CLOSED),
+        )
+        .unwrap()
+        .expect("conversion edit");
+        let edited = apply_text_edits(source.clone(), vec![edit]).unwrap();
+        assert_eq!(
+            edited,
+            format!(
+                "`- Implement parser\n `+ task\n `@ write-parser\n `= focused {FOCUS_CLOSED}\n `= due 2026-09-21T09:00:00+08:00\n"
+            )
+        );
+        let reparsed = parse(&edited);
+        assert!(reparsed.is_valid(), "{:?}\n{edited}", reparsed.diagnostics);
+        assert_eq!(
+            owned_declaration_at(
+                &reparsed,
+                reparsed.syntax.blocks[0].range().clone(),
+                "focused"
+            )
+            .unwrap(),
+            Some(OwnedDeclaration::scalar("focused", FOCUS_CLOSED))
+        );
+    }
+
+    #[test]
+    fn appends_to_an_existing_list_without_touching_its_items() {
+        let source = focused_list_source();
+        let (parsed, owner) = parse_owner(&source);
+        let edit = append_owned_declaration_item(&parsed, owner, "focused", FOCUS_OPEN)
+            .unwrap()
+            .expect("append edit");
+        let edited = apply_text_edits(source.clone(), vec![edit]).unwrap();
+        assert!(
+            edited.contains(&format!("  `- {FOCUS_CLOSED}\n  `- {FOCUS_OPEN}\n")),
+            "{edited}"
+        );
+        assert!(edited.contains("`= due 2026-09-21T09:00:00+08:00\n"), "{edited}");
+        let reparsed = parse(&edited);
+        assert!(reparsed.is_valid(), "{:?}\n{edited}", reparsed.diagnostics);
+        assert_eq!(
+            owned_declaration_at(
+                &reparsed,
+                reparsed.syntax.blocks[0].range().clone(),
+                "focused"
+            )
+            .unwrap(),
+            Some(OwnedDeclaration::list(
+                "focused",
+                [FOCUS_CLOSED, FOCUS_OPEN, FOCUS_OPEN]
+            ))
+        );
+    }
+
+    #[test]
+    fn appending_to_a_scalar_promotes_it_to_a_list() {
+        let source = closed_focus_leaf_source();
+        let (parsed, owner) = parse_owner(&source);
+        let edit = append_owned_declaration_item(&parsed, owner, "focused", FOCUS_OPEN)
+            .unwrap()
+            .expect("append edit");
+        let edited = apply_text_edits(source.clone(), vec![edit]).unwrap();
+        let reparsed = parse(&edited);
+        assert!(reparsed.is_valid(), "{:?}\n{edited}", reparsed.diagnostics);
+        assert_eq!(
+            owned_declaration_at(
+                &reparsed,
+                reparsed.syntax.blocks[0].range().clone(),
+                "focused"
+            )
+            .unwrap(),
+            Some(OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN]))
+        );
+    }
+
+    #[test]
+    fn removes_a_child_bearing_declaration_and_preserves_everything_else() {
+        let source = format!(
+            "`- Implement parser\n `+ task\n `@ write-parser\n `= created 2026-09-02T09:00:00+08:00\n\n `= focused\n\n  `- {FOCUS_CLOSED}\n  `- {FOCUS_OPEN}\n\n `note Details kept\n\n `- Subtask kept\n  `+ task\n"
+        );
+        let (parsed, owner) = parse_owner(&source);
+        let edit = remove_owned_declaration(&parsed, owner, "focused")
+            .unwrap()
+            .expect("removal edit");
+        let edited = apply_text_edits(source.clone(), vec![edit]).unwrap();
+        assert_eq!(
+            edited,
+            "`- Implement parser\n `+ task\n `@ write-parser\n `= created 2026-09-02T09:00:00+08:00\n\n `note Details kept\n\n `- Subtask kept\n  `+ task\n"
+        );
+        let reparsed = parse(&edited);
+        assert!(reparsed.is_valid(), "{:?}\n{edited}", reparsed.diagnostics);
+        assert_eq!(
+            owned_declaration_at(
+                &reparsed,
+                reparsed.syntax.blocks[0].range().clone(),
+                "focused"
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn declaration_removal_consumes_a_preceding_blank_separator_only() {
+        let source = focused_list_source();
+        let (parsed, owner) = parse_owner(&source);
+        let edit = remove_owned_declaration(&parsed, owner, "focused")
+            .unwrap()
+            .expect("removal edit");
+        let edited = apply_text_edits(source.clone(), vec![edit]).unwrap();
+        assert_eq!(
+            edited,
+            "`- Implement parser\n `+ task\n `@ write-parser\n `= due 2026-09-21T09:00:00+08:00\n"
+        );
+    }
+
+    #[test]
+    fn setting_the_same_declaration_value_is_a_stable_no_op() {
+        let source = closed_focus_leaf_source();
+        let (parsed, owner) = parse_owner(&source);
+        assert_eq!(
+            set_owned_declaration(
+                &parsed,
+                owner.clone(),
+                OwnedDeclaration::scalar("focused", FOCUS_CLOSED)
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(remove_owned_declaration(&parsed, owner, "missing").unwrap(), None);
+        // An absent declaration is written as the single-item scalar form, and
+        // repeating that value is then a stable no-op.
+        let inserted = append_owned_declaration_item(
+            &parsed,
+            parsed.syntax.blocks[0].range().clone(),
+            "missing",
+            FOCUS_OPEN,
+        )
+        .unwrap()
+        .expect("insert edit");
+        let inserted_source = apply_text_edits(source.clone(), vec![inserted]).unwrap();
+        assert!(
+            inserted_source.contains(&format!("`= missing {FOCUS_OPEN}\n")),
+            "{inserted_source}"
+        );
+        let (inserted_parsed, inserted_owner) = parse_owner(&inserted_source);
+        assert_eq!(
+            set_owned_declaration(
+                &inserted_parsed,
+                inserted_owner,
+                OwnedDeclaration::scalar("missing", FOCUS_OPEN)
+            )
+            .unwrap(),
+            None
+        );
+
+        let list = focused_list_source();
+        let (parsed, owner) = parse_owner(&list);
+        assert_eq!(
+            set_owned_declaration(
+                &parsed,
+                owner.clone(),
+                OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN])
+            )
+            .unwrap(),
+            None
+        );
+
+        // Re-rendering an already converted declaration is byte-stable.
+        let edit = set_owned_declaration(
+            &parsed,
+            owner,
+            OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN, "2026-09-21T09:00:00+08:00--"]),
+        )
+        .unwrap()
+        .expect("append edit");
+        let once = apply_text_edits(list.clone(), vec![edit]).unwrap();
+        let (reparsed, reowner) = parse_owner(&once);
+        assert_eq!(
+            set_owned_declaration(
+                &reparsed,
+                reowner,
+                OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN, "2026-09-21T09:00:00+08:00--"])
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn previous_sibling_content_survives_a_declaration_edit_verbatim() {
+        let source = format!(
+            "Prelude kept\n\n`- Implement parser\n `+ task\n `= focused {FOCUS_CLOSED}\n `note Body kept `!{{strong}} and `\"raw kept\"\n\n `- Subtask title\n  `+ task\n\nTail kept\n"
+        );
+        let (parsed, owner) = parse_owner(&source);
+        let edit = set_owned_declaration(
+            &parsed,
+            owner,
+            OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN]),
+        )
+        .unwrap()
+        .expect("conversion edit");
+        let edited = apply_text_edits(source.clone(), vec![edit]).unwrap();
+        for verbatim in [
+            "Prelude kept\n",
+            " `note Body kept `!{strong} and `\"raw kept\"\n",
+            " `- Subtask title\n  `+ task\n",
+            "Tail kept\n",
+        ] {
+            assert!(edited.contains(verbatim), "missing {verbatim:?} in {edited}");
+        }
+        assert!(parse(&edited).is_valid(), "{:?}\n{edited}", parse(&edited).diagnostics);
+    }
+
+    #[test]
+    fn owned_declaration_mutation_matches_green_and_materialized_edits() {
+        let source = closed_focus_leaf_source();
+        let (parsed, owner) = parse_owner(&source);
+        let green = GreenDocument::parse(source.clone());
+        let declaration = OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN]);
+        assert_eq!(
+            set_green_declaration(&green, owner.clone(), declaration.clone()).unwrap(),
+            set_owned_declaration(&parsed, owner.clone(), declaration.clone()).unwrap()
+        );
+        assert_eq!(
+            append_green_declaration_item(&green, owner.clone(), "focused", FOCUS_OPEN).unwrap(),
+            append_owned_declaration_item(&parsed, owner.clone(), "focused", FOCUS_OPEN).unwrap()
+        );
+        assert_eq!(
+            remove_green_declaration(&green, owner.clone(), "focused").unwrap(),
+            remove_owned_declaration(&parsed, owner.clone(), "focused").unwrap()
+        );
+        assert_eq!(
+            green_declaration_at(&green, owner, "focused").unwrap(),
+            Some(OwnedDeclaration::scalar("focused", FOCUS_CLOSED))
+        );
+    }
+
+    #[test]
+    fn empty_declaration_values_are_rejected_instead_of_rendered() {
+        let mut owned = OwnedBlock::marked("-", "Task");
+        assert_eq!(
+            owned.set_declaration(OwnedDeclaration::list("focused", Vec::<String>::new())),
+            Err(EditError::GeneratedInvalid)
+        );
+        assert_eq!(
+            owned.set_declaration(OwnedDeclaration::scalar("focused", "")),
+            Err(EditError::GeneratedInvalid)
+        );
+        assert_eq!(
+            owned.append_declaration_item("focused", ""),
+            Err(EditError::GeneratedInvalid)
+        );
+        assert_eq!(
+            owned.set_declaration(OwnedDeclaration::scalar("", "value")),
+            Err(EditError::GeneratedInvalid)
+        );
+    }
+
+    #[test]
+    fn owned_set_declaration_inserts_after_the_last_declaration() {
+        let source = "`- Task\n `+ task\n `@ id\n `= due 2026-09-21T09:00:00+08:00\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let mut owned = OwnedBlock::from_syntax(source, &parsed.syntax.blocks[0]);
+        assert!(owned
+            .set_declaration(OwnedDeclaration::scalar("focused", FOCUS_CLOSED))
+            .unwrap());
+        assert_eq!(
+            owned.declaration("focused"),
+            Some(OwnedDeclaration::scalar("focused", FOCUS_CLOSED))
+        );
+        assert!(!owned
+            .set_declaration(OwnedDeclaration::scalar("focused", FOCUS_CLOSED))
+            .unwrap());
+        let formatted = owned.format().unwrap();
+        assert_eq!(
+            formatted,
+            "`- Task\n\n `+ task\n\n `@ id\n\n `= due 2026-09-21T09:00:00+08:00\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n"
+        );
+        let reparsed = parse(&formatted);
+        assert!(reparsed.is_valid(), "{:?}\n{formatted}", reparsed.diagnostics);
+
+        assert_eq!(
+            set_owned_declaration(
+                &parsed,
+                parsed.syntax.blocks[0].range().clone(),
+                OwnedDeclaration::scalar("focused", FOCUS_CLOSED)
+            )
+            .unwrap()
+            .map(|edit| apply_text_edits(source.to_string(), vec![edit]).unwrap()),
+            Some(
+                "`- Task\n `+ task\n `@ id\n `= due 2026-09-21T09:00:00+08:00\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn inserting_a_new_declaration_uses_the_anchor_separator_and_indent() {
+        // The last declaration is a childless `=` leaf, so a new `=` declaration
+        // stays on the compact single-newline run.
+        let compact = "`- Task\n `+ task\n `= due 2026-09-21T09:00:00+08:00\n";
+        let parsed = parse(compact);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let edit = set_owned_declaration(
+            &parsed,
+            parsed.syntax.blocks[0].range().clone(),
+            OwnedDeclaration::scalar("focused", FOCUS_CLOSED),
+        )
+        .unwrap()
+        .expect("insert edit");
+        assert_eq!(
+            apply_text_edits(compact.to_string(), vec![edit]).unwrap(),
+            "`- Task\n `+ task\n `= due 2026-09-21T09:00:00+08:00\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n"
+        );
+
+        // A different-marker anchor keeps its blank separator and gains one
+        // before the inserted declaration.
+        let spaced = "`- Task\n `+ task\n `@ id\n\n `note body\n";
+        let parsed = parse(spaced);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let edit = set_owned_declaration(
+            &parsed,
+            parsed.syntax.blocks[0].range().clone(),
+            OwnedDeclaration::list("focused", [FOCUS_CLOSED, FOCUS_OPEN]),
+        )
+        .unwrap()
+        .expect("insert edit");
+        let edited = apply_text_edits(spaced.to_string(), vec![edit]).unwrap();
+        assert_eq!(
+            edited,
+            format!(
+                "`- Task\n `+ task\n `@ id\n\n `= focused\n\n  `- {FOCUS_CLOSED}\n  `- {FOCUS_OPEN}\n\n `note body\n"
+            )
+        );
+        assert!(parse(&edited).is_valid(), "{:?}\n{edited}", parse(&edited).diagnostics);
+    }
+
+    #[test]
+    fn refuses_to_rewrite_a_declaration_whose_children_are_not_list_items() {
+        // `= focused` with a non-`-` child is not a representable scalar/list
+        // shape: setting it fails explicitly instead of discarding the child,
+        // while removal stays well defined.
+        let source = "`- Task\n `+ task\n `= focused\n\n  `note body\n";
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let owner = parsed.syntax.blocks[0].range().clone();
+        assert_eq!(owned_declaration_at(&parsed, owner.clone(), "focused").unwrap(), None);
+        assert_eq!(
+            set_owned_declaration(
+                &parsed,
+                owner.clone(),
+                OwnedDeclaration::scalar("focused", FOCUS_CLOSED)
+            ),
+            Err(EditError::GeneratedInvalid)
+        );
+        let edit = remove_owned_declaration(&parsed, owner, "focused")
+            .unwrap()
+            .expect("removal edit");
+        let edited = apply_text_edits(source.to_string(), vec![edit]).unwrap();
+        assert_eq!(edited, "`- Task\n `+ task\n");
+        assert!(parse(&edited).is_valid(), "{:?}\n{edited}", parse(&edited).diagnostics);
     }
 
     #[test]
