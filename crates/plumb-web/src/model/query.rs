@@ -87,6 +87,9 @@ impl WebWorkspace {
             },
             |id| WebTaskLocator::Id { id: id.clone() },
         );
+        let focused = task.is_focused();
+        let focused_since = task.focused_since().map(str::to_string);
+        let focus_intervals = super::web_focus_intervals(&task);
         Some(WebTask {
             key,
             document_id,
@@ -103,6 +106,9 @@ impl WebWorkspace {
             wait: task.wait.as_ref().map(|field| field.value.clone()),
             done: task.done.as_ref().map(|field| field.value.clone()),
             canceled: task.canceled.as_ref().map(|field| field.value.clone()),
+            focused,
+            focused_since,
+            focus_intervals,
             recur: task.recur.as_ref().map(|field| field.value.clone()),
             prev: task.prev.as_ref().map(|field| field.value.clone()),
             prev_on: item
@@ -550,6 +556,7 @@ pub(super) fn sort_task_tree(
         document: task.path.clone(),
         source_start: task.location.start,
         depth: task.depth,
+        focused: task.focused,
         priority: Some(task.effective_priority),
         due: task
             .due

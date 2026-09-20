@@ -140,6 +140,9 @@ pub struct WebTask {
     pub wait: Option<String>,
     pub done: Option<String>,
     pub canceled: Option<String>,
+    pub focused: bool,
+    pub focused_since: Option<String>,
+    pub focus_intervals: Vec<WebFocusInterval>,
     pub recur: Option<String>,
     pub prev: Option<String>,
     pub prev_on: Option<String>,
@@ -152,6 +155,25 @@ pub struct WebTask {
     pub depth: usize,
     pub parent_key: Option<String>,
     pub location: SourceLocation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebFocusInterval {
+    pub start: String,
+    pub end: Option<String>,
+}
+
+/// Focus history projected for display. The document stays authoritative.
+pub fn web_focus_intervals(task: &TaskRecord) -> Vec<WebFocusInterval> {
+    task.focused
+        .intervals
+        .iter()
+        .map(|interval| WebFocusInterval {
+            start: interval.start.clone(),
+            end: interval.end.clone(),
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -821,6 +843,9 @@ impl WebWorkspace {
             } else {
                 None
             };
+            let focused = task.is_focused();
+            let focused_since = task.focused_since().map(str::to_string);
+            let focus_intervals = web_focus_intervals(&task);
             tasks.push(WebTask {
                 key,
                 document_id,
@@ -837,6 +862,9 @@ impl WebWorkspace {
                 wait: task.wait.as_ref().map(|field| field.value.clone()),
                 done: task.done.as_ref().map(|field| field.value.clone()),
                 canceled: task.canceled.as_ref().map(|field| field.value.clone()),
+                focused,
+                focused_since,
+                focus_intervals,
                 recur: task.recur.as_ref().map(|field| field.value.clone()),
                 prev: task.prev.as_ref().map(|field| field.value.clone()),
                 prev_on,
@@ -3429,5 +3457,51 @@ mod tests {
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    #[test]
+    fn task_snapshot_exposes_focus_facts_and_history() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("focus.plumb"),
+            "`- Focused now\n\n `+ task\n\n `@ focused-task\n\n `= focused 2026-09-20T09:00:00+08:00--\n`- Finished history\n\n `+ task\n\n `@ history-task\n\n `= focused\n  `- 2026-09-19T09:00:00+08:00--2026-09-19T11:00:00+08:00\n",
+        )
+        .unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let snapshot = workspace
+            .query_tasks(&WebQuery {
+                view: WebView::Tasks,
+                ..WebQuery::default()
+            })
+            .unwrap();
+
+        let by_id = |id: &str| {
+            snapshot
+                .tasks
+                .iter()
+                .find(|task| task.id.as_deref() == Some(id))
+                .unwrap_or_else(|| panic!("missing task {id}"))
+        };
+
+        let focused = by_id("focused-task");
+        assert!(focused.focused);
+        assert_eq!(
+            focused.focused_since.as_deref(),
+            Some("2026-09-20T09:00:00+08:00")
+        );
+        assert_eq!(focused.focus_intervals.len(), 1);
+        assert!(focused.focus_intervals[0].end.is_none());
+        // Focus is orthogonal to workflow state.
+        assert_eq!(focused.state, "ready");
+
+        let history = by_id("history-task");
+        assert!(!history.focused);
+        assert_eq!(history.focused_since, None);
+        assert_eq!(history.focus_intervals.len(), 1);
+        assert_eq!(
+            history.focus_intervals[0].end.as_deref(),
+            Some("2026-09-19T11:00:00+08:00")
+        );
     }
 }
