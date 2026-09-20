@@ -4275,7 +4275,7 @@ fn persistent_task_attribute(attribute: &OwnedAttribute) -> bool {
         OwnedAttribute::Class(_) => true,
         OwnedAttribute::Pair { key, .. } => !matches!(
             key.as_str(),
-            "created" | "due" | "wait" | "done" | "canceled" | "recur" | "prev"
+            "created" | "due" | "wait" | "done" | "canceled" | "recur" | "prev" | "focused"
         ),
     }
 }

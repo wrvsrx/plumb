@@ -3833,7 +3833,7 @@ fn task_status_operation_rejects_closed_blocked_and_recurring_tasks() {
 #[test]
 fn recurring_task_status_advances_and_clones_the_task_losslessly() {
     let mut workspace = Workspace::new();
-    let source = "`- Monthly review\n\n `+ task\n\n `- daily\n\n `= due 2026-01-31T09:00:00+08:00\n `= wait 2026-01-30T09:00:00+08:00\n `= recur P1M\n\n `note Keep details\n\n `- Nested\n\n  `+ task\n\n  `@ nested\n\n  `= done 2026-01-20T09:00:00+08:00\n";
+    let source = "`- Monthly review\n\n `+ task\n\n `- daily\n\n `= due 2026-01-31T09:00:00+08:00\n `= wait 2026-01-30T09:00:00+08:00\n `= recur P1M\n `= focused 2026-01-25T09:00:00+08:00--\n\n `note Keep details\n\n `- Nested\n\n  `+ task\n\n  `@ nested\n\n  `= done 2026-01-20T09:00:00+08:00\n";
     workspace.insert("tasks.plumb", 4, source);
 
     let edit = workspace
@@ -3858,6 +3858,14 @@ fn recurring_task_status_advances_and_clones_the_task_losslessly() {
     assert!(edited.contains("`= created 2026-01-31T10:00:00+08:00\n"));
     assert!(edited.contains("2026-02-28T09:00:00+08:00"));
     assert!(edited.contains("#monthly-review-2026-01-31"));
+    // The closed instance keeps its focus history; the next instance does not
+    // inherit it.
+    assert_eq!(
+        edited
+            .matches("`= focused 2026-01-25T09:00:00+08:00--")
+            .count(),
+        1
+    );
     assert_eq!(edited.matches("nested").count(), 1);
     assert_eq!(
         edited
