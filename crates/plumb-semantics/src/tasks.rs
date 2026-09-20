@@ -32,6 +32,70 @@ pub struct TaskDependency {
     pub target: TaskReferenceTarget,
 }
 
+/// One focus interval written as `start--end`, or `start--` when still open.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FocusInterval {
+    pub start: String,
+    pub end: Option<String>,
+    pub range: Range<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FocusProblemCode {
+    Invalid,
+    Duplicate,
+    Unordered,
+    Overlapping,
+    MultipleOpen,
+    Closed,
+}
+
+impl FocusProblemCode {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Invalid => "task.invalid-focus",
+            Self::Duplicate => "task.duplicate-focus",
+            Self::Unordered => "task.unordered-focus",
+            Self::Overlapping => "task.overlapping-focus",
+            Self::MultipleOpen => "task.multiple-open-focus",
+            Self::Closed => "task.focus-on-closed",
+        }
+    }
+
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::Invalid => {
+                "'focused' must be one interval (start--end or start--) or a list of intervals"
+            }
+            Self::Duplicate => "a task may declare at most one 'focused' property",
+            Self::Unordered => "'focused' intervals must be ordered by start time",
+            Self::Overlapping => "'focused' intervals must not overlap",
+            Self::MultipleOpen => {
+                "'focused' may contain at most one open interval, and it must be last"
+            }
+            Self::Closed => "a closed task cannot keep an open 'focused' interval",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FocusProblem {
+    pub code: FocusProblemCode,
+    pub range: Range<usize>,
+    pub related: Vec<Range<usize>>,
+}
+
+/// Parsed `focused` history. `present == false` means the property is absent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct TaskFocus {
+    pub present: bool,
+    pub invalid: bool,
+    pub list_form: bool,
+    pub range: Option<Range<usize>>,
+    pub intervals: Vec<FocusInterval>,
+    pub problems: Vec<FocusProblem>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskState {
     Open,
@@ -75,6 +139,7 @@ pub struct TaskRecord {
     pub prev: Option<TaskField>,
     pub priority: Option<i32>,
     pub depends: Vec<TaskDependency>,
+    pub focused: TaskFocus,
 }
 
 impl TaskRecord {
@@ -85,6 +150,37 @@ impl TaskRecord {
             (false, true) => TaskState::Canceled,
             (true, true) => TaskState::Conflicted,
         }
+    }
+
+    /// Focus history is usable only when the property itself parses.
+    pub fn focus_valid(&self) -> bool {
+        !self.focused.invalid
+    }
+
+    /// Currently focused: a valid open interval on a task whose closure is still open.
+    /// A finished history alone never makes a task focused.
+    pub fn is_focused(&self) -> bool {
+        self.focused.present
+            && self.focus_valid()
+            && self.state() == TaskState::Open
+            && self.has_open_focus_interval()
+    }
+
+    pub fn has_open_focus_interval(&self) -> bool {
+        self.focused
+            .intervals
+            .last()
+            .is_some_and(|interval| interval.end.is_none())
+    }
+
+    pub fn focused_since(&self) -> Option<&str> {
+        if !self.is_focused() {
+            return None;
+        }
+        self.focused
+            .intervals
+            .last()
+            .map(|interval| interval.start.as_str())
     }
 }
 
@@ -214,6 +310,18 @@ impl RelativeSemanticRecord for TaskRecord {
         }
         for dependency in &mut self.depends {
             shift_range(&mut dependency.range, delta);
+        }
+        if let Some(range) = self.focused.range.as_mut() {
+            shift_range(range, delta);
+        }
+        for interval in &mut self.focused.intervals {
+            shift_range(&mut interval.range, delta);
+        }
+        for problem in &mut self.focused.problems {
+            shift_range(&mut problem.range, delta);
+            for range in &mut problem.related {
+                shift_range(range, delta);
+            }
         }
     }
 }
@@ -359,6 +467,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
         prev: string_field(attrs.items.as_slice(), "prev"),
         priority: priority_field(attrs.items.as_slice()),
         depends: dependency_fields(source, attrs.items.as_slice()),
+        focused: focus_field(source, block, attrs.items.as_slice()),
     }
 }
 
@@ -393,12 +502,243 @@ fn task_field(value: &AttrValue) -> TaskField {
     }
 }
 
+/// `focused` is either one leaf interval value or a child-bearing `=` declaration whose
+/// direct `-` children each hold exactly one interval. The child-bearing form is not an
+/// `AttrItem`, so it is read from the owning block's children.
+fn focus_field(source: &str, block: &ParsedBlock, items: &[AttrItem]) -> TaskFocus {
+    let mut occurrences: Vec<TaskFocus> = Vec::new();
+
+    for item in items {
+        if let AttrItem::Pair { key, value, .. } = item {
+            if key == "focused" {
+                let mut focus = TaskFocus {
+                    present: true,
+                    range: Some(value.range.clone()),
+                    ..TaskFocus::default()
+                };
+                parse_focus_scalar(
+                    value.decoded.trim(),
+                    trim_source_range(source, &value.range),
+                    &mut focus,
+                );
+                validate_focus_history(&mut focus);
+                occurrences.push(focus);
+            }
+        }
+    }
+
+    for child in &block.children {
+        let Block::Parsed(child) = child else {
+            continue;
+        };
+        let Some(mark) = child.mark.as_ref() else {
+            continue;
+        };
+        if mark.marker != "=" {
+            continue;
+        }
+        if child.children.is_empty() {
+            // An empty `= focused` is dropped by the attribute view; report it here.
+            if plain_text(&child.content).trim() == "focused" {
+                let mut focus = TaskFocus {
+                    present: true,
+                    range: Some(child.range.clone()),
+                    ..TaskFocus::default()
+                };
+                push_focus_problem(
+                    &mut focus,
+                    FocusProblemCode::Invalid,
+                    child.content.range.clone(),
+                    Vec::new(),
+                );
+                occurrences.push(focus);
+            }
+            continue;
+        }
+        let head = plain_text(&child.content).trim().to_string();
+        if head != "focused" && !head.starts_with("focused ") {
+            continue;
+        }
+        let mut focus = TaskFocus {
+            present: true,
+            list_form: true,
+            range: Some(child.range.clone()),
+            ..TaskFocus::default()
+        };
+        if head != "focused" {
+            push_focus_problem(
+                &mut focus,
+                FocusProblemCode::Invalid,
+                child.content.range.clone(),
+                Vec::new(),
+            );
+        }
+        for entry in &child.children {
+            let Block::Parsed(entry) = entry else {
+                push_focus_problem(
+                    &mut focus,
+                    FocusProblemCode::Invalid,
+                    child.range.clone(),
+                    Vec::new(),
+                );
+                continue;
+            };
+            let range = trim_source_range(source, &entry.content.range);
+            let marker_is_list_item = entry
+                .mark
+                .as_ref()
+                .is_some_and(|mark| mark.marker == "-");
+            if !marker_is_list_item || !entry.children.is_empty() {
+                push_focus_problem(&mut focus, FocusProblemCode::Invalid, range, Vec::new());
+                continue;
+            }
+            parse_focus_scalar(plain_text(&entry.content).trim(), range, &mut focus);
+        }
+        if focus.intervals.is_empty() && !focus.invalid {
+            push_focus_problem(
+                &mut focus,
+                FocusProblemCode::Invalid,
+                child.range.clone(),
+                Vec::new(),
+            );
+        }
+        validate_focus_history(&mut focus);
+        occurrences.push(focus);
+    }
+
+    match occurrences.len() {
+        0 => TaskFocus::default(),
+        1 => occurrences.pop().expect("one focus declaration"),
+        _ => {
+            let related: Vec<Range<usize>> = occurrences
+                .iter()
+                .filter_map(|focus| focus.range.clone())
+                .collect();
+            let range = related
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| related.first().cloned().unwrap_or(0..0));
+            let mut first = occurrences.remove(0);
+            push_focus_problem(&mut first, FocusProblemCode::Duplicate, range, related);
+            first
+        }
+    }
+}
+
+fn trim_source_range(source: &str, range: &Range<usize>) -> Range<usize> {
+    let Some(slice) = source.get(range.clone()) else {
+        return range.clone();
+    };
+    let leading = slice.len() - slice.trim_start().len();
+    let trailing = slice.len() - slice.trim_end().len();
+    range.start + leading..range.end.saturating_sub(trailing)
+}
+
+fn parse_focus_scalar(text: &str, range: Range<usize>, focus: &mut TaskFocus) {
+    let Some((start, end)) = split_focus_interval(text) else {
+        push_focus_problem(focus, FocusProblemCode::Invalid, range, Vec::new());
+        return;
+    };
+    if !valid_task_datetime(start) || end.is_some_and(|value| !valid_task_datetime(value)) {
+        push_focus_problem(focus, FocusProblemCode::Invalid, range, Vec::new());
+        return;
+    }
+    if let (Some(end), Some(start_millis)) = (end, focus_millis(start)) {
+        if focus_millis(end).is_some_and(|end_millis| end_millis < start_millis) {
+            push_focus_problem(focus, FocusProblemCode::Invalid, range, Vec::new());
+            return;
+        }
+    }
+    focus.intervals.push(FocusInterval {
+        start: start.to_string(),
+        end: end.map(str::to_string),
+        range,
+    });
+}
+
+/// Intervals use a literal `--` separator; single `-` only appears inside offsets.
+fn split_focus_interval(text: &str) -> Option<(&str, Option<&str>)> {
+    let (start, end) = text.split_once("--")?;
+    let start = start.trim();
+    if start.is_empty() || end.contains("--") {
+        return None;
+    }
+    let end = end.trim();
+    (!start.is_empty()).then_some((start, (!end.is_empty()).then_some(end)))
+}
+
+fn focus_millis(value: &str) -> Option<i64> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|datetime| datetime.timestamp_millis())
+}
+
+fn validate_focus_history(focus: &mut TaskFocus) {
+    let count = focus.intervals.len();
+    let mut previous_start: Option<i64> = None;
+    let mut previous_end: Option<i64> = None;
+    let mut open_seen = false;
+    let mut problems: Vec<FocusProblem> = Vec::new();
+    for (index, interval) in focus.intervals.iter().enumerate() {
+        let Some(start) = focus_millis(&interval.start) else {
+            continue;
+        };
+        let end = interval.end.as_deref().and_then(focus_millis);
+        if let Some(previous_start) = previous_start {
+            let code = if start < previous_start {
+                Some(FocusProblemCode::Unordered)
+            } else if previous_end.is_some_and(|previous_end| start < previous_end) {
+                Some(FocusProblemCode::Overlapping)
+            } else {
+                None
+            };
+            if let Some(code) = code {
+                problems.push(FocusProblem {
+                    code,
+                    range: interval.range.clone(),
+                    related: Vec::new(),
+                });
+            }
+        }
+        if end.is_none() {
+            if open_seen || index + 1 != count {
+                problems.push(FocusProblem {
+                    code: FocusProblemCode::MultipleOpen,
+                    range: interval.range.clone(),
+                    related: Vec::new(),
+                });
+            }
+            open_seen = true;
+        }
+        previous_start = Some(start);
+        previous_end = end;
+    }
+    if !problems.is_empty() {
+        focus.invalid = true;
+        focus.problems.extend(problems);
+    }
+}
+
+fn push_focus_problem(
+    focus: &mut TaskFocus,
+    code: FocusProblemCode,
+    range: Range<usize>,
+    related: Vec<Range<usize>>,
+) {
+    focus.invalid = true;
+    focus.problems.push(FocusProblem {
+        code,
+        range,
+        related,
+    });
+}
+
 fn transient_task_attribute(item: &AttrItem) -> bool {
     match item {
         AttrItem::Id { .. } => true,
         AttrItem::Pair { key, .. } => matches!(
             key.as_str(),
-            "created" | "due" | "wait" | "done" | "canceled" | "recur" | "prev"
+            "created" | "due" | "wait" | "done" | "canceled" | "recur" | "prev" | "focused"
         ),
         AttrItem::Class { .. } => false,
     }
@@ -536,6 +876,34 @@ fn collect_task_diagnostics(task: &TaskRecord, attrs: &[AttrItem], output: &mut 
             message: "a task cannot be both done and canceled".to_string(),
             range: canceled.range.clone(),
             related: vec![done.range.clone()],
+        });
+    }
+
+    for problem in &task.focused.problems {
+        output.diagnostics.push(Diagnostic {
+            code: problem.code.code(),
+            severity: DiagnosticSeverity::Warning,
+            message: problem.code.message().to_string(),
+            range: problem.range.clone(),
+            related: problem.related.clone(),
+        });
+    }
+    if task.focused.present
+        && task.focus_valid()
+        && task.state() != TaskState::Open
+        && task.has_open_focus_interval()
+    {
+        output.diagnostics.push(Diagnostic {
+            code: FocusProblemCode::Closed.code(),
+            severity: DiagnosticSeverity::Warning,
+            message: FocusProblemCode::Closed.message().to_string(),
+            range: task
+                .focused
+                .intervals
+                .last()
+                .map(|interval| interval.range.clone())
+                .unwrap_or(0..0),
+            related: Vec::new(),
         });
     }
 
@@ -899,4 +1267,123 @@ mod tests {
             "facet.task-event-conflict"
         );
     }
+
+    fn analyze(source: &str) -> (plumb_syntax::ParsedDocument, TaskOutput) {
+        let parsed = parse(source);
+        assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+        let output = analyze_tasks(parsed.valid_syntax().expect("valid syntax"));
+        (parsed, output)
+    }
+
+    fn diagnostic_codes(output: &TaskOutput) -> Vec<&'static str> {
+        output
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn parses_focus_history_in_all_three_shapes() {
+        let source = "`- Leaf open\n `+ task\n `= focused 2026-09-20T09:00:00+08:00--\n\n`- Leaf closed\n `+ task\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n\n`- List\n `+ task\n `= focused\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n  `- 2026-09-20T14:00:00+08:00--\n";
+        let (parsed, output) = analyze(source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.tasks.len(), 3);
+
+        let leaf_open = &output.tasks.get(0).unwrap();
+        assert!(leaf_open.is_focused());
+        assert_eq!(leaf_open.focused_since(), Some("2026-09-20T09:00:00+08:00"));
+        assert_eq!(leaf_open.focused.intervals.len(), 1);
+        assert!(!leaf_open.focused.list_form);
+
+        let leaf_closed = &output.tasks.get(1).unwrap();
+        assert!(leaf_closed.focus_valid());
+        assert!(!leaf_closed.is_focused());
+        assert_eq!(leaf_closed.focused_since(), None);
+        assert_eq!(
+            leaf_closed.focused.intervals[0].end.as_deref(),
+            Some("2026-09-20T11:00:00+08:00")
+        );
+
+        let list = &output.tasks.get(2).unwrap();
+        assert!(list.focused.list_form);
+        assert_eq!(list.focused.intervals.len(), 2);
+        assert!(list.is_focused());
+        assert_eq!(list.focused_since(), Some("2026-09-20T14:00:00+08:00"));
+        assert_eq!(
+            &parsed.source[list.focused.intervals[1].range.clone()],
+            "2026-09-20T14:00:00+08:00--"
+        );
+    }
+
+    #[test]
+    fn accepts_adjacent_zero_length_and_offset_equivalent_intervals() {
+        let source = "`- History\n `+ task\n `= focused\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n  `- 2026-09-20T03:00:00Z--2026-09-20T03:00:00Z\n  `- 2026-09-20T04:00:00Z--\n";
+        let (_, output) = analyze(source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let task = &output.tasks.get(0).unwrap();
+        assert!(task.focus_valid());
+        assert!(task.is_focused());
+        assert_eq!(task.focused_since(), Some("2026-09-20T04:00:00Z"));
+    }
+
+    #[test]
+    fn reports_invalid_focus_histories() {
+        let cases = [
+            (
+                "`- Bad\n `+ task\n `= focused 2026-09-20T09:00:00+08:00\n",
+                "task.invalid-focus",
+            ),
+            (
+                "`- Bad\n `+ task\n `= focused nonsense--\n",
+                "task.invalid-focus",
+            ),
+            (
+                "`- Bad\n `+ task\n `= focused 2026-09-20T09:00:00+08:00--2026-09-20T08:00:00+08:00\n",
+                "task.invalid-focus",
+            ),
+            ("`- Bad\n `+ task\n `= focused\n", "task.invalid-focus"),
+            (
+                "`- Bad\n `+ task\n `= focused\n  `- 2026-09-20T09:00:00+08:00--\n  `- 2026-09-20T10:00:00+08:00--\n",
+                "task.multiple-open-focus",
+            ),
+            (
+                "`- Bad\n `+ task\n `= focused\n  `- 2026-09-20T09:00:00+08:00--\n  `- 2026-09-20T10:00:00+08:00--2026-09-20T11:00:00+08:00\n",
+                "task.multiple-open-focus",
+            ),
+            (
+                "`- Bad\n `+ task\n `= focused\n  `- 2026-09-20T11:00:00+08:00--2026-09-20T12:00:00+08:00\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T10:00:00+08:00\n",
+                "task.unordered-focus",
+            ),
+            (
+                "`- Bad\n `+ task\n `= focused\n  `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00\n  `- 2026-09-20T10:00:00+08:00--2026-09-20T12:00:00+08:00\n",
+                "task.overlapping-focus",
+            ),
+            (
+                "`- Bad\n `+ task\n `= focused 2026-09-20T09:00:00+08:00--\n `= focused 2026-09-20T10:00:00+08:00--\n",
+                "task.duplicate-focus",
+            ),
+        ];
+        for (source, code) in cases {
+            let (_, output) = analyze(source);
+            assert!(
+                diagnostic_codes(&output).contains(&code),
+                "missing {code}: {:?}",
+                output.diagnostics
+            );
+            assert!(output.tasks.get(0).unwrap().focused.invalid);
+        }
+    }
+
+    #[test]
+    fn closed_task_with_open_interval_is_diagnosed_and_not_focused() {
+        let source = "`- Done but open\n `+ task\n `= done 2026-09-20T12:00:00+08:00\n `= focused 2026-09-20T09:00:00+08:00--\n";
+        let (_, output) = analyze(source);
+        assert!(diagnostic_codes(&output).contains(&"task.focus-on-closed"));
+        let task = &output.tasks.get(0).unwrap();
+        assert!(task.focus_valid());
+        assert!(!task.is_focused());
+        assert_eq!(task.focused_since(), None);
+    }
+
 }
