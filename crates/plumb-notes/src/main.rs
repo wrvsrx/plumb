@@ -15,7 +15,7 @@ mod interactive;
 mod tasks;
 
 use interactive::{handle_interactive_action, run_interactive};
-use tasks::{print_tasks, run_task_action};
+use tasks::{print_task_next, print_tasks, run_task_action};
 
 pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     let config = match Config::try_parse_from(args) {
@@ -93,8 +93,9 @@ fn run(config: Config) -> Result<(), String> {
                 }
             }
         }
-        Command::Task(task) => {
-            if let Some(action) = task.action {
+        Command::Task(task) => match task.action {
+            Some(TaskAction::Next(next)) => print_task_next(&root, &loaded, next.limit)?,
+            Some(action) => {
                 if config.query.is_some() {
                     return Err(
                         "task actions do not support --query; pass explicit TARGET values"
@@ -102,16 +103,15 @@ fn run(config: Config) -> Result<(), String> {
                     );
                 }
                 run_task_action(&root, action)?;
-            } else {
-                print_tasks(
-                    &root,
-                    &loaded,
-                    config.query.as_deref(),
-                    !task.flat,
-                    !task.no_heading,
-                )?;
             }
-        }
+            None => print_tasks(
+                &root,
+                &loaded,
+                config.query.as_deref(),
+                !task.flat,
+                !task.no_heading,
+            )?,
+        },
         Command::Event(event) => match event.command {
             Some(EventCommand::ExportVdir(export)) => {
                 if config.query.is_some() {
@@ -241,6 +241,15 @@ enum TaskAction {
     Complete(TaskTargetsConfig),
     /// Mark task targets canceled. Recurring tasks advance to the next instance.
     Cancel(TaskTargetsConfig),
+    /// Print the shortlist: tasks in flight, then tasks ready to start.
+    Next(NextConfig),
+}
+
+#[derive(Debug, Args)]
+struct NextConfig {
+    /// Maximum number of ready-to-start tasks to print.
+    #[arg(long, value_name = "N", default_value_t = 3, value_parser = clap::value_parser!(u8).range(1..=10))]
+    limit: u8,
 }
 
 #[derive(Debug, Args)]
@@ -496,6 +505,28 @@ mod tests {
             config.command,
             Command::Note(NoteConfig { interactive: true })
         ));
+    }
+
+    #[test]
+    fn accepts_task_next_options() {
+        let default = Config::parse_from(["plumb-notes", "task", "next"]);
+        assert!(matches!(
+            default.command,
+            Command::Task(TaskConfig {
+                action: Some(TaskAction::Next(NextConfig { limit: 3 })),
+                ..
+            })
+        ));
+        let limited = Config::parse_from(["plumb-notes", "task", "next", "--limit", "7"]);
+        assert!(matches!(
+            limited.command,
+            Command::Task(TaskConfig {
+                action: Some(TaskAction::Next(NextConfig { limit: 7 })),
+                ..
+            })
+        ));
+        assert!(Config::try_parse_from(["plumb-notes", "task", "next", "--limit", "11"]).is_err());
+        assert!(Config::try_parse_from(["plumb-notes", "task", "next", "--limit", "0"]).is_err());
     }
 
     #[test]

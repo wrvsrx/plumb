@@ -1,12 +1,12 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use chrono::{Local, SecondsFormat};
+use chrono::{DateTime, Local, SecondsFormat};
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 use plumb_semantics::TaskStatus;
 use plumb_workspace::{
-    apply_document_edit, normalize, sort_task_records, SearchRecordKind, TaskSortFacts,
-    TaskSortOrder, TaskWorkflowState,
+    apply_document_edit, display_workspace_path, normalize, sort_task_records, NextQuery,
+    SearchRecordKind, TaskSortFacts, TaskSortOrder, TaskWorkflowState, WorkspaceTask,
 };
 
 use crate::{load_workspace, LoadedWorkspace, TaskAction};
@@ -30,6 +30,115 @@ pub(crate) fn print_tasks(
         println!("{}", render_task_table(&records, heading));
     }
     Ok(())
+}
+
+/// Print the shared shortlist: in-flight tasks (with their focus start), then
+/// ready-to-start candidates, then any task skipped for invalid focus history.
+pub(crate) fn print_task_next(
+    root: &Path,
+    loaded: &LoadedWorkspace,
+    limit: u8,
+) -> Result<(), String> {
+    let query = NextQuery {
+        root: root.to_path_buf(),
+        limit: usize::from(limit),
+        cursor: None,
+        workspace_revision: 0,
+        now: Local::now().fixed_offset(),
+    };
+    let result = loaded
+        .workspace
+        .query_next(&query)
+        .map_err(|error| error.to_string())?;
+    let complete = result.is_complete();
+    let next = result.value;
+
+    println!("In flight ({})", next.focused_total);
+    if next.focused.is_empty() {
+        println!("  (none)");
+    } else {
+        println!(
+            "{}",
+            render_task_table(&next_records(root, &next.focused), false)
+        );
+    }
+    if !next.focused_complete {
+        println!(
+            "  ... {} more in flight",
+            next.focused_total.saturating_sub(next.focused.len())
+        );
+    }
+
+    println!("Ready to start (limit {})", next.candidate_limit);
+    if next.candidates.is_empty() {
+        println!("  (none)");
+    } else {
+        println!(
+            "{}",
+            render_task_table(&next_records(root, &next.candidates), false)
+        );
+    }
+    if !next.candidates_complete {
+        println!("  ... more ready tasks exist than the requested limit");
+    }
+
+    for skipped in &next.skipped_invalid {
+        let mut codes: Vec<&str> = Vec::new();
+        for code in skipped.codes.iter().map(|code| code.code()) {
+            if !codes.contains(&code) {
+                codes.push(code);
+            }
+        }
+        let path = display_workspace_path(root, &skipped.path);
+        let source = skipped
+            .id
+            .as_ref()
+            .map_or_else(|| path.clone(), |id| format!("{path}#{id}"));
+        println!(
+            "  skipped invalid focus history: {source} ({}) - {}",
+            codes.join(", "),
+            skipped.title
+        );
+    }
+    if !complete {
+        println!("warning: workspace index is incomplete; the shortlist may be missing tasks");
+    }
+    Ok(())
+}
+
+fn next_records(root: &Path, tasks: &[WorkspaceTask]) -> Vec<TaskOutputRecord> {
+    tasks
+        .iter()
+        .map(|task| {
+            let status = match task.state {
+                TaskWorkflowState::Done => "o",
+                TaskWorkflowState::Canceled | TaskWorkflowState::Conflicted => "x",
+                TaskWorkflowState::Ready
+                | TaskWorkflowState::Waiting
+                | TaskWorkflowState::Blocked => "-",
+            };
+            let path = display_workspace_path(root, &task.path);
+            let source = task
+                .task
+                .id
+                .as_ref()
+                .map_or_else(|| path.clone(), |id| format!("{path}#{}", id.value));
+            let title = task.task.focused_since().map_or_else(
+                || task.task.title.clone(),
+                |since| {
+                    let stamp = DateTime::parse_from_rfc3339(since)
+                        .map(|parsed| parsed.format("%Y-%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|_| since.to_string());
+                    format!("{}  [focused {stamp}]", task.task.title)
+                },
+            );
+            TaskOutputRecord {
+                status: status.to_string(),
+                title,
+                source,
+            }
+        })
+        .collect()
 }
 
 fn task_records(
@@ -166,6 +275,9 @@ pub(crate) fn run_task_action(root: &Path, action: TaskAction) -> Result<(), Str
     let (status, targets) = match action {
         TaskAction::Complete(config) => (TaskStatus::Done, config.targets),
         TaskAction::Cancel(config) => (TaskStatus::Canceled, config.targets),
+        TaskAction::Next(_) => {
+            return Err("`task next` is a query; it does not accept TARGET values".to_string())
+        }
     };
     let timestamp = Local::now()
         .fixed_offset()

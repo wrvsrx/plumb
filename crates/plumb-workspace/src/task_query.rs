@@ -81,6 +81,8 @@ pub struct NextQuery {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NextSkippedFocus {
     pub path: PathBuf,
+    pub id: Option<String>,
+    pub title: String,
     pub range: std::ops::Range<usize>,
     pub codes: Vec<plumb_semantics::FocusProblemCode>,
 }
@@ -434,6 +436,11 @@ impl Workspace {
                     let record = records.remove(&fact.key);
                     NextSkippedFocus {
                         path: fact.key.path.clone(),
+                        id: fact.id.clone(),
+                        title: record
+                            .as_ref()
+                            .map(|record| record.title.clone())
+                            .unwrap_or_else(|| fact.title.clone()),
                         range: record
                             .as_ref()
                             .and_then(|record| record.focused.range.clone())
