@@ -65,7 +65,8 @@ impl Workspace {
         let output = green
             .valid_syntax()
             .and_then(|valid| analyze_green_document(valid, Arc::clone(&green)));
-        store.replace(&path, revision, green.source(), output.as_ref())?;
+        let diagnostics = crate::diagnostics::CachedDiagnosticInputs::new(&green.diagnostics(), output.as_ref());
+        store.replace_with_diagnostics(&path, revision, green.source(), output.as_ref(), &diagnostics)?;
         Ok(false)
     }
 

@@ -1,6 +1,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 use fs2::FileExt;
@@ -202,4 +203,19 @@ mod tests {
         );
         assert!(namespace.join("semantic.sqlite3").exists());
     }
+}
+
+/// Shared cache location policy for all workspace CLI and LSP consumers.
+pub fn cache_base_dir() -> PathBuf {
+    std::env::var_os("PLUMB_CACHE_DIR").map(PathBuf::from)
+        .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .unwrap_or_else(|| std::env::temp_dir().join("plumb-cache"))
+}
+pub fn workspace_cache_path(base: &Path, version: &str, roots: &[PathBuf]) -> PathBuf {
+    let mut hasher = Sha256::new();
+    for root in roots { hasher.update(crate::normalize(root).as_os_str().to_string_lossy().as_bytes()); hasher.update([0]); }
+    let digest = hasher.finalize();
+    let key = digest[..16].iter().map(|b|format!("{b:02x}")).collect::<String>();
+    base.join("plumb").join("workspaces").join(version).join(format!("{key}.sqlite3"))
 }

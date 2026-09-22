@@ -2,6 +2,38 @@
 
 本页定义 document snapshots、persistent semantic store、open overlay、workspace queries、cache lifecycle 与 batch indexing 的实现 contract。crate/data-flow 总览见 `->{{architecture overview} overview.plumb}。
 
+`# CLI disk snapshot contract
+
+实施状态：以下 CLI 接入与 cached diagnostic inputs 正在实现，验收通过前不作为 guide 中的可用能力。
+
+check、note（含 interactive）、task query/next/complete/cancel/focus/unfocus、event query/export-vdir 必须
+通过同一个 workspace-owned disk loader 使用 versioned workspaces cache。每次命令重新扫描并读取 source，按
+content hash 复用未变 generation；mtime 不是 cache identity。命令固定一次 now，缓存不保存最终 CEL 结果、
+时间状态或显示排序。显式 --no-cache 使用同一 loader 的 memory backend，用于结果一致性对照。
+
+loader 必须在 SQLite immediate transaction 内读取 cached hashes、完成 batch reconcile 并取得 detached readonly
+query snapshot，然后结束事务；命令的多次关系查询只能读取该 immutable snapshot，不受其它 CLI/Web/LSP writer
+影响，也不混入其它进程的 unsaved buffers。命令读取的 source bytes 与 hash、local facts、diagnostics 必须对应同一
+generation。该规则不承诺多文件磁盘原子快照。交互等待和文件编辑不得持有 database write transaction。
+
+source bytes 可为 preview、diagnostic location 和 lazy mutation materialization 保存，但热缓存 query/check 不得
+重建全库 syntax trees。local diagnostic input 与其它 records 同事务保存，包括 syntax-invalid document；无效文档
+移除旧 semantic records。嵌入资源事实和完整 local diagnostics 随 schema/producer version 失效；未来影响分析的
+配置必须进入 cache identity。跨文件诊断与外部资源存在性每轮重算，不缓存最终 check output。
+
+scan/read failure 必须使命令失败，不能沿用旧 generation 宣称成功。缓存 open、migration 或 index failure
+必须以 warning 明确降级至 memory backend；decode failure 明确报告错误及 --no-cache 排错入口，不能转换为空查询。
+--cache-stats 在 stderr 报告 documents、hits、parsed，不改变 stdout。缺失缓存自动建立，schema/producer mismatch
+原子清空 derived generations 后重建；损坏缓存可以由 cache prune 清理，禁止修改源文件以修复 cache。
+
+mutation 只为目标 source snapshot materialize 当前 revision，验证实际 disk bytes 未改变，再通过 plumb-edit 提出
+guarded edits；应用前再次比较 disk bytes，stale/deleted target 不写入。成功后刷新目标 generation；后续命令立即
+按新 source 查询。interactive editor 返回后通过同一 loader 刷新扫描，不在 adapter 中维护第二套失效规则。
+
+subcommand audit：site 与 lsp 已有 persistent batch indexing 与各自 snapshot/overlay lifecycle，继续共用 store、
+scanner、namespace/lease 基础设施；其常驻生命周期不替换为短命令 disk loader。fmt、export、import 是单文件或 stdin
+转换，不为缓存强制扫描 workspace。cache status/prune 只管理 derived state，不触发内容索引。
+
 `# 1. Snapshot, persistence and queries
 
 `"plumb-workspace" 保存 document snapshots、revision、last-valid semantic outputs、dependency indexes 和 guarded edit preconditions。稳定 disk revision 的 semantic projection 使用可重建的 SQLite store 持久化；未打开 document 不要求在进程启动时恢复 source、syntax tree 或完整 Rust semantic object graph。 SQLite cache identity 至少包含 normalized path、source content hash、semantic schema version 与 producer version；identity 不匹配的记录不能参与 query，并在 background indexing 后按 document transaction 替换。 production cache path 使用编译进 user-facing binary 的 package version 建立 namespace，再以 normalized workspace roots 的 deterministic hash 命名数据库；不同 binary versions 不打开、清空或覆盖彼此的 cache。 数据库内部继续保存并校验 semantic schema version 与 producer version，因此 path namespace 不能替代 store-level validity check。旧版本 namespace 是 disposable derived data，可以由独立 maintenance policy 清理， server startup 不主动递归删除其他版本 cache。

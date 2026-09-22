@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use plumb_semantics::analyze_green_document;
 use plumb_syntax::GreenDocument;
 use rayon::prelude::*;
 
 use crate::store::StoredGeneration;
+use crate::diagnostics::CachedDiagnosticInputs;
 use crate::{
     normalize, DocumentRevision, SqliteSemanticStore, StoreError, VersionedDocumentOutput,
     Workspace,
@@ -32,9 +34,18 @@ pub struct BatchIndexFailure {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct BatchIndexTimings {
+    pub read: Duration,
+    pub hash: Duration,
+    pub analysis: Duration,
+    pub publication: Duration,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct BatchIndexResult {
     pub documents: Vec<BatchIndexedDocument>,
     pub failures: Vec<BatchIndexFailure>,
+    pub timings: BatchIndexTimings,
 }
 
 impl BatchIndexResult {
@@ -91,6 +102,7 @@ enum PreparedDocument {
         revision: i64,
         source: String,
         output: Option<Box<plumb_semantics::DocumentOutput>>,
+        diagnostics: CachedDiagnosticInputs,
     },
 }
 
@@ -121,6 +133,7 @@ impl Workspace {
             return Err(BatchIndexError::Cancelled);
         }
 
+        let read_started = Instant::now();
         let stored_hashes = self
             .disk_store
             .as_ref()
@@ -172,6 +185,8 @@ impl Workspace {
             }
         }
 
+        let read_time = read_started.elapsed();
+        let hash_started = Instant::now();
         let mut indexed = Vec::with_capacity(read_documents.len());
         let mut misses = Vec::new();
         let mut stored_paths_changed = false;
@@ -209,6 +224,8 @@ impl Workspace {
             misses = read_documents;
         }
 
+        let hash_time = hash_started.elapsed();
+        let analysis_started = Instant::now();
         let total_miss_bytes = misses
             .iter()
             .map(|document| document.source.len())
@@ -236,6 +253,7 @@ impl Workspace {
                     path: document.path,
                     revision: document.revision,
                     source: green.source().to_string(),
+                    diagnostics: CachedDiagnosticInputs::new(&green.diagnostics(), output.as_deref()),
                     output,
                 });
             }
@@ -270,6 +288,8 @@ impl Workspace {
         let mut prepared = prepared.into_iter().flatten().collect::<Vec<_>>();
         prepared.sort_by(|left, right| left.path().cmp(right.path()));
 
+        let analysis_time = analysis_started.elapsed();
+        let publication_started = Instant::now();
         if let Some(store) = &self.disk_store {
             let generations = prepared
                 .iter()
@@ -279,6 +299,7 @@ impl Workspace {
                         revision,
                         source,
                         output,
+                        diagnostics,
                     } = document
                     else {
                         unreachable!("persistent workspace prepares persistent generations")
@@ -288,6 +309,7 @@ impl Workspace {
                         revision: *revision,
                         source,
                         output: output.as_deref(),
+                        diagnostics,
                     }
                 })
                 .collect::<Vec<_>>();
@@ -332,6 +354,7 @@ impl Workspace {
         Ok(BatchIndexResult {
             documents: indexed,
             failures,
+            timings: BatchIndexTimings {read:read_time,hash:hash_time,analysis:analysis_time,publication:publication_started.elapsed()},
         })
     }
 }

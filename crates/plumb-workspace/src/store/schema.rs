@@ -124,6 +124,7 @@ diesel::table! {
 
 diesel::allow_tables_to_appear_in_same_query!(
     cache_meta,
+    diagnostic_inputs,
     documents,
     event_task_associations,
     anchors,
@@ -133,3 +134,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     task_dependencies,
     events,
 );
+
+diesel::table! {
+    diagnostic_inputs (path) {
+        path -> Binary,
+        record -> Binary,
+    }
+}
