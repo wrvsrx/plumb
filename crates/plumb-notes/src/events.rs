@@ -16,19 +16,7 @@ pub(super) fn export_vdir(loaded: &LoadedWorkspace, output: &Path) -> Result<(),
 }
 
 fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, String> {
-    let mut events = loaded
-        .workspace
-        .documents()
-        .filter_map(|entry| entry.current.as_ref().map(|current| (entry, current)))
-        .flat_map(|(entry, current)| {
-            current
-                .output
-                .events()
-                .events
-                .iter()
-                .map(move |event| (entry, event))
-        })
-        .collect::<Vec<_>>();
+    let mut events = loaded.events().map_err(|e| e.to_string())?;
     events.sort_by(|(left_entry, left), (right_entry, right)| {
         left.at
             .as_ref()
@@ -41,34 +29,34 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
                     .or(right.start.as_ref())
                     .map(|field| field.value.as_str()),
             )
-            .then(left_entry.path.cmp(&right_entry.path))
+            .then(left_entry.cmp(right_entry))
             .then(left.range.start.cmp(&right.range.start))
     });
 
     let mut desired = BTreeMap::new();
     let mut effective_uids = HashMap::new();
-    for (entry, event) in events {
+    for (path, event) in events {
         let uid = event
             .uid
             .as_ref()
             .map(|field| field.value.clone())
-            .unwrap_or_else(|| derived_uid(loaded, &entry.path, &event));
+            .unwrap_or_else(|| derived_uid(loaded, &path, &event));
         if uid.is_empty() {
             return Err(format!(
                 "event '{}' in {} has an invalid empty uid",
                 event.title,
-                entry.path.display()
+                path.display()
             ));
         }
         if let Some((previous_path, previous_title)) =
-            effective_uids.insert(uid.clone(), (entry.path.clone(), event.title.clone()))
+            effective_uids.insert(uid.clone(), (path.clone(), event.title.clone()))
         {
             return Err(format!(
                 "events '{}' in {} and '{}' in {} have duplicate calendar uid '{}'",
                 previous_title,
                 previous_path.display(),
                 event.title,
-                entry.path.display(),
+                path.display(),
                 uid
             ));
         }
@@ -76,7 +64,7 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
             format!(
                 "event '{}' in {} has no valid time",
                 event.title,
-                entry.path.display()
+                path.display()
             )
         })?;
         let end = event.end_datetime();
@@ -84,20 +72,20 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
             return Err(format!(
                 "event '{}' in {} is still running",
                 event.title,
-                entry.path.display()
+                path.display()
             ));
         }
         if end.is_some_and(|end| end <= start) {
             return Err(format!(
                 "event '{}' in {} has an invalid interval",
                 event.title,
-                entry.path.display()
+                path.display()
             ));
         }
         let start = start.with_timezone(&Utc);
         let tasks = loaded
             .workspace
-            .event_task_references(&entry.path, &event)
+            .event_task_references(&path, &event)
             .map_err(|error| error.to_string())?
             .value
             .into_iter()
@@ -322,10 +310,7 @@ mod tests {
         let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:30 Review, parser; semantics with a deliberately long summary that must be folded safely\n\n `+ event\n\n `= tasks #write\n\n `note First line\n";
         let mut workspace = Workspace::new();
         insert_fixture(&mut workspace, root.join("events.plumb"), 1, source);
-        let mut loaded = LoadedWorkspace {
-            root: root.clone(),
-            workspace,
-        };
+        let mut loaded = LoadedWorkspace::from_memory(root.clone(), workspace);
         let expected_filename = desired_events(&loaded).unwrap().into_keys().next().unwrap();
         export_vdir(&loaded, &output).unwrap();
         let item = std::fs::read_dir(&output)
@@ -397,10 +382,7 @@ mod tests {
             1,
             "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00 Reminder\n\n `+ event\n",
         );
-        let loaded = LoadedWorkspace {
-            root: root.clone(),
-            workspace,
-        };
+        let loaded = LoadedWorkspace::from_memory(root.clone(), workspace);
         let point_output = root.join("point-calendar");
         export_vdir(&loaded, &point_output).unwrap();
         let point = std::fs::read_dir(&point_output)
@@ -419,10 +401,7 @@ mod tests {
             1,
             "`= date 2026-07-30\n`= timezone +08:00\n\n`- Work\n\n `+ event\n",
         );
-        let loaded = LoadedWorkspace {
-            root: root.clone(),
-            workspace,
-        };
+        let loaded = LoadedWorkspace::from_memory(root.clone(), workspace);
         assert!(export_vdir(&loaded, &root.join("running-calendar"))
             .unwrap_err()
             .contains("has no valid time"));
@@ -527,10 +506,7 @@ mod tests {
             1,
             "`- 2026-07-31T14:00:00Z Second\n\n `+ event\n\n `= uid shared@example\n",
         );
-        let loaded = LoadedWorkspace {
-            root: root.clone(),
-            workspace,
-        };
+        let loaded = LoadedWorkspace::from_memory(root.clone(), workspace);
         assert!(desired_events(&loaded)
             .unwrap_err()
             .contains("duplicate calendar uid 'shared@example'"));
@@ -552,10 +528,7 @@ mod tests {
             1,
             "`- 2026-07-30T14:00:00Z Derived\n\n `+ event\n",
         );
-        let preliminary = LoadedWorkspace {
-            root: root.clone(),
-            workspace,
-        };
+        let preliminary = LoadedWorkspace::from_memory(root.clone(), workspace);
         let derived_entry = preliminary
             .workspace
             .documents()
@@ -579,10 +552,7 @@ mod tests {
             1,
             format!("`- 2026-07-31T14:00:00Z Explicit\n\n `+ event\n\n `= uid {uid}\n"),
         );
-        let loaded = LoadedWorkspace {
-            root: root.clone(),
-            workspace,
-        };
+        let loaded = LoadedWorkspace::from_memory(root.clone(), workspace);
         assert!(desired_events(&loaded)
             .unwrap_err()
             .contains("duplicate calendar uid"));
@@ -593,9 +563,39 @@ mod tests {
         std::fs::create_dir_all(root.join("notes")).unwrap();
         let mut workspace = Workspace::new();
         insert_fixture(&mut workspace, root.join(relative), 1, source);
-        LoadedWorkspace {
-            root: root.to_path_buf(),
-            workspace,
-        }
+        LoadedWorkspace::from_memory(root.to_path_buf(), workspace)
+    }
+}
+
+#[cfg(test)]
+mod cache_parity_tests {
+    use super::*;
+    use plumb_workspace::DiskWorkspace;
+    #[test]
+    fn calendar_export_matches_cold_warm_and_memory_including_inferred_task_links() {
+        let root =
+            std::env::temp_dir().join(format!("plumb-event-cache-parity-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let db = root.join(".cache/index.sqlite3");
+        std::fs::write(
+            root.join("tasks.plumb"),
+            "`+ task\n`= title Project\n\n`- Task\n `+ task\n `@ t\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("events.plumb"),"`- 2026-09-22T00:00:00Z--01:00 Event\n `+ event\n\n See `->{tasks.plumb#t} and `->{tasks.plumb}.\n\n`- 2026-09-23T00:00:00Z Point\n `+ event\n `= tasks tasks.plumb#t\n").unwrap();
+        let memory = DiskWorkspace::load(&root, None).unwrap();
+        let cold = DiskWorkspace::load(&root, Some(&db)).unwrap();
+        let warm = DiskWorkspace::load(&root, Some(&db)).unwrap();
+        assert_eq!(warm.cache_hits, 2);
+        assert_eq!(
+            desired_events(&memory).unwrap(),
+            desired_events(&cold).unwrap()
+        );
+        assert_eq!(
+            desired_events(&memory).unwrap(),
+            desired_events(&warm).unwrap()
+        );
+        assert_eq!(warm.workspace.documents().count(), 0);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

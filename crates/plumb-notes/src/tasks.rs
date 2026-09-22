@@ -1,15 +1,15 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Local, SecondsFormat};
+use chrono::{DateTime, SecondsFormat};
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 use plumb_semantics::TaskStatus;
 use plumb_workspace::{
-    apply_document_edit, display_workspace_path, normalize, sort_task_records, NextQuery,
-    SearchRecordKind, TaskSortFacts, TaskSortOrder, TaskWorkflowState, WorkspaceTask,
+    display_workspace_path, normalize, sort_task_records, NextQuery, SearchRecordKind,
+    TaskSortFacts, TaskSortOrder, TaskWorkflowState, WorkspaceTask,
 };
 
-use crate::{load_workspace, LoadedWorkspace, TaskAction};
+use crate::{LoadedWorkspace, TaskAction};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TaskOutputRecord {
@@ -44,7 +44,7 @@ pub(crate) fn print_task_next(
         limit: usize::from(limit),
         cursor: None,
         workspace_revision: 0,
-        now: Local::now().fixed_offset(),
+        now: loaded.now,
     };
     let result = loaded
         .workspace
@@ -154,7 +154,7 @@ fn task_records(
             Some(SearchRecordKind::Task),
             "",
             usize::MAX,
-            Local::now().fixed_offset(),
+            loaded.now,
             None,
         )
         .map_err(|error| error.to_string())?
@@ -169,7 +169,7 @@ fn task_records(
                     Some(SearchRecordKind::Task),
                     "",
                     usize::MAX,
-                    Local::now().fixed_offset(),
+                    loaded.now,
                     Some(query),
                 )
                 .map_err(|error| error.to_string())?
@@ -271,29 +271,30 @@ fn render_task_table_with_width(
     table.to_string()
 }
 
-pub(crate) fn run_task_action(root: &Path, action: TaskAction) -> Result<(), String> {
-    let timestamp = Local::now()
-        .fixed_offset()
-        .to_rfc3339_opts(SecondsFormat::Secs, false);
+pub(crate) fn run_task_action(
+    loaded: &mut LoadedWorkspace,
+    action: TaskAction,
+) -> Result<(), String> {
+    let timestamp = loaded.now.to_rfc3339_opts(SecondsFormat::Secs, false);
     match action {
         TaskAction::Complete(config) => {
             for target in config.targets {
-                set_task_status_target(root, &target, TaskStatus::Done, &timestamp)?;
+                set_task_status_target(loaded, &target, TaskStatus::Done, &timestamp)?;
             }
         }
         TaskAction::Cancel(config) => {
             for target in config.targets {
-                set_task_status_target(root, &target, TaskStatus::Canceled, &timestamp)?;
+                set_task_status_target(loaded, &target, TaskStatus::Canceled, &timestamp)?;
             }
         }
         TaskAction::Focus(config) => {
             for target in config.targets {
-                set_task_focus_target(root, &target, true, &timestamp)?;
+                set_task_focus_target(loaded, &target, true, &timestamp)?;
             }
         }
         TaskAction::Unfocus(config) => {
             for target in config.targets {
-                set_task_focus_target(root, &target, false, &timestamp)?;
+                set_task_focus_target(loaded, &target, false, &timestamp)?;
             }
         }
         TaskAction::Next(_) => {
@@ -304,13 +305,13 @@ pub(crate) fn run_task_action(root: &Path, action: TaskAction) -> Result<(), Str
 }
 
 fn set_task_focus_target(
-    root: &Path,
+    loaded: &mut LoadedWorkspace,
     target: &str,
     focused: bool,
     timestamp: &str,
 ) -> Result<(), String> {
-    let (path, id) = parse_task_target(root, target)?;
-    let loaded = load_workspace(root)?;
+    let (path, id) = parse_task_target(&loaded.root, target)?;
+    loaded.materialize_target(&path)?;
     let edit = match (id.as_deref(), focused) {
         (Some(id), true) => loaded.workspace.focus_task_by_id(&path, id, timestamp),
         (Some(id), false) => loaded.workspace.unfocus_task_by_id(&path, id, timestamp),
@@ -318,40 +319,27 @@ fn set_task_focus_target(
         (None, false) => loaded.workspace.unfocus_document_task(&path, timestamp),
     }
     .map_err(|error| error.to_string())?;
-    let entry = loaded
-        .workspace
-        .get(&path)
-        .ok_or_else(|| format!("task document is not indexed: {}", path.display()))?;
-    let source = entry.parsed.source().to_string();
-    let revision = entry.revision;
-    let updated = apply_document_edit(source, &path, revision, edit)
-        .map_err(|error| format!("cannot apply task edit: {error:?}"))?;
-    std::fs::write(&path, updated)
-        .map_err(|error| format!("cannot write {}: {error}", path.display()))
+    loaded.apply_target_edit(&path, edit)
 }
 
 fn set_task_status_target(
-    root: &Path,
+    loaded: &mut LoadedWorkspace,
     target: &str,
     status: TaskStatus,
     timestamp: &str,
 ) -> Result<(), String> {
-    let (path, id) = parse_task_target(root, target)?;
-    let loaded = load_workspace(root)?;
+    let (path, id) = parse_task_target(&loaded.root, target)?;
+    loaded.materialize_target(&path)?;
     let edit = match id.as_deref() {
-        Some(id) => loaded.workspace.set_task_status_by_id(&path, id, status, timestamp),
-        None => loaded.workspace.set_document_task_status(&path, status, timestamp),
-    }.map_err(|error| error.to_string())?;
-    let entry = loaded
-        .workspace
-        .get(&path)
-        .ok_or_else(|| format!("task document is not indexed: {}", path.display()))?;
-    let source = entry.parsed.source().to_string();
-    let revision = entry.revision;
-    let updated = apply_document_edit(source, &path, revision, edit)
-        .map_err(|error| format!("cannot apply task edit: {error:?}"))?;
-    std::fs::write(&path, updated)
-        .map_err(|error| format!("cannot write {}: {error}", path.display()))
+        Some(id) => loaded
+            .workspace
+            .set_task_status_by_id(&path, id, status, timestamp),
+        None => loaded
+            .workspace
+            .set_document_task_status(&path, status, timestamp),
+    }
+    .map_err(|error| error.to_string())?;
+    loaded.apply_target_edit(&path, edit)
 }
 
 fn parse_task_target(root: &Path, target: &str) -> Result<(PathBuf, Option<String>), String> {
@@ -381,7 +369,7 @@ mod tests {
     use super::*;
 
     fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
-        super::load_workspace(root)
+        crate::load_workspace(root)
     }
 
     #[test]
@@ -552,7 +540,7 @@ mod tests {
         let path = root.join("tasks.plumb");
         std::fs::write(&path, "`- Write parser\n\n `+ task\n\n `@ write\n").unwrap();
         set_task_status_target(
-            &root,
+            &mut load_workspace(&root).unwrap(),
             "tasks.plumb#write",
             TaskStatus::Done,
             "2026-07-20T12:00:00+08:00",
@@ -586,14 +574,36 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("project.plumb");
         std::fs::write(&path, "`+ task\n\n`- Child\n `+ task\n").unwrap();
-        set_task_focus_target(&root, "project.plumb", true, "2026-09-21T09:00:00+08:00").unwrap();
-        set_task_status_target(&root, "project.plumb", TaskStatus::Done, "2026-09-21T10:00:00+08:00").unwrap();
+        set_task_focus_target(
+            &mut load_workspace(&root).unwrap(),
+            "project.plumb",
+            true,
+            "2026-09-21T09:00:00+08:00",
+        )
+        .unwrap();
+        set_task_status_target(
+            &mut load_workspace(&root).unwrap(),
+            "project.plumb",
+            TaskStatus::Done,
+            "2026-09-21T10:00:00+08:00",
+        )
+        .unwrap();
         let source = std::fs::read_to_string(&path).unwrap();
         let parsed = plumb_syntax::parse(source);
         let output = plumb_semantics::analyze_tasks(parsed.valid_syntax().unwrap());
-        assert_eq!(output.document_task().unwrap().state(), plumb_semantics::TaskState::Done);
-        assert!(!output.document_task().unwrap().to_owned().has_open_focus_interval());
-        assert_eq!(output.tasks.get(1).unwrap().state(), plumb_semantics::TaskState::Open);
+        assert_eq!(
+            output.document_task().unwrap().state(),
+            plumb_semantics::TaskState::Done
+        );
+        assert!(!output
+            .document_task()
+            .unwrap()
+            .to_owned()
+            .has_open_focus_interval());
+        assert_eq!(
+            output.tasks.get(1).unwrap().state(),
+            plumb_semantics::TaskState::Open
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -607,7 +617,7 @@ mod tests {
         std::fs::write(&second, "`- Second\n\n `+ task\n\n `@ second\n").unwrap();
 
         run_task_action(
-            &root,
+            &mut load_workspace(&root).unwrap(),
             TaskAction::Complete(crate::TaskTargetsConfig {
                 targets: vec![
                     "first.plumb#first".to_string(),
@@ -647,5 +657,62 @@ mod tests {
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+}
+
+#[cfg(test)]
+mod cache_parity_tests {
+    use super::*;
+    use crate::{DiskWorkspace, TaskTargetsConfig};
+
+    #[test]
+    fn every_task_mutation_matches_cold_warm_and_uncached_at_one_instant() {
+        let root =
+            std::env::temp_dir().join(format!("plumb-task-cache-parity-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let db = root.join(".cache/index.sqlite3");
+        let path = root.join("tasks.plumb");
+        let source="`+ task\n`= title Project\n\n`- Recurring\n `+ task\n `@ recurring\n `= due 2026-09-22T00:00:00Z\n `= recur P1D\n\n`- Focused\n `+ task\n `@ focused\n `= focused 2026-09-21T00:00:00Z--\n\n`- Dependent\n `+ task\n `@ dependent\n `= depends #focused\n";
+        for action in ["complete", "cancel", "focus", "unfocus"] {
+            let mut results = Vec::new();
+            for mode in 0..3 {
+                std::fs::write(&path, source).unwrap();
+                let cache = if mode == 0 { None } else { Some(db.as_path()) };
+                if mode == 2 {
+                    DiskWorkspace::load(&root, cache).unwrap();
+                }
+                let mut loaded = DiskWorkspace::load(&root, cache).unwrap();
+                if mode == 2 {
+                    assert_eq!(loaded.cache_hits, 1);
+                }
+                loaded.now = DateTime::parse_from_rfc3339("2026-09-22T01:00:00Z").unwrap();
+                let target = if action == "unfocus" {
+                    "tasks.plumb#focused"
+                } else {
+                    "tasks.plumb#recurring"
+                };
+                let targets = TaskTargetsConfig {
+                    targets: vec![target.to_owned(), "tasks.plumb".to_owned()],
+                };
+                let action = match action {
+                    "complete" => TaskAction::Complete(targets),
+                    "cancel" => TaskAction::Cancel(targets),
+                    "focus" => TaskAction::Focus(targets),
+                    _ => TaskAction::Unfocus(targets),
+                };
+                run_task_action(&mut loaded, action).unwrap();
+                results.push(std::fs::read_to_string(&path).unwrap());
+                let next = DiskWorkspace::load(&root, cache).unwrap();
+                if mode > 0 {
+                    assert_eq!(
+                        next.cache_hits, 1,
+                        "successful edits must publish their generation"
+                    );
+                }
+            }
+            assert_eq!(results[0], results[1], "{action}");
+            assert_eq!(results[0], results[2], "{action}");
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

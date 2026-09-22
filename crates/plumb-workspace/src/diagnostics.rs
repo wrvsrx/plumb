@@ -456,3 +456,37 @@ impl Workspace {
         })
     }
 }
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    #[test]
+    fn persistent_check_rejects_missing_or_corrupt_inputs_and_prefers_open_revision() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store.clone());
+        let path = Path::new("/cache-check.plumb");
+        workspace.insert_disk(path, 0, "broken {\n").unwrap();
+        let context = workspace.diagnostic_context().unwrap();
+        assert!(!workspace
+            .check_diagnostics_with_context(path, &context)
+            .unwrap()
+            .value
+            .is_empty());
+        workspace.open_document(path, 1, "Valid overlay\n");
+        assert!(workspace
+            .check_diagnostics_with_context(path, &context)
+            .unwrap()
+            .value
+            .is_empty());
+        workspace.remove(path);
+        for sql in [
+            "UPDATE diagnostic_inputs SET record = X'ff'",
+            "DELETE FROM diagnostic_inputs",
+        ] {
+            store.execute_batch_for_test(sql).unwrap();
+            assert!(workspace
+                .check_diagnostics_with_context(path, &context)
+                .is_err());
+        }
+    }
+}

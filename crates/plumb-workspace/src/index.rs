@@ -1,13 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use plumb_semantics::analyze_green_document;
 use plumb_syntax::GreenDocument;
 use rayon::prelude::*;
 
-use crate::store::StoredGeneration;
 use crate::diagnostics::CachedDiagnosticInputs;
+use crate::store::StoredGeneration;
 use crate::{
     normalize, DocumentRevision, SqliteSemanticStore, StoreError, VersionedDocumentOutput,
     Workspace,
@@ -46,6 +47,7 @@ pub struct BatchIndexResult {
     pub documents: Vec<BatchIndexedDocument>,
     pub failures: Vec<BatchIndexFailure>,
     pub timings: BatchIndexTimings,
+    pub parsed_documents: usize,
 }
 
 impl BatchIndexResult {
@@ -239,10 +241,12 @@ impl Workspace {
             && largest_miss_bytes <= 256 * 1024
             && largest_miss_bytes.saturating_mul(2) <= total_miss_bytes;
         let persistent = self.disk_store.is_some();
+        let parsed_documents = AtomicUsize::new(0);
         let prepare = |document: ReadDocument| {
             if cancelled() {
                 return None;
             }
+            parsed_documents.fetch_add(1, Ordering::Relaxed);
             if persistent {
                 let green = Arc::new(GreenDocument::parse(document.source));
                 let output = green
@@ -253,7 +257,10 @@ impl Workspace {
                     path: document.path,
                     revision: document.revision,
                     source: green.source().to_string(),
-                    diagnostics: CachedDiagnosticInputs::new(&green.diagnostics(), output.as_deref()),
+                    diagnostics: CachedDiagnosticInputs::new(
+                        &green.diagnostics(),
+                        output.as_deref(),
+                    ),
                     output,
                 });
             }
@@ -354,7 +361,13 @@ impl Workspace {
         Ok(BatchIndexResult {
             documents: indexed,
             failures,
-            timings: BatchIndexTimings {read:read_time,hash:hash_time,analysis:analysis_time,publication:publication_started.elapsed()},
+            parsed_documents: parsed_documents.load(Ordering::Relaxed),
+            timings: BatchIndexTimings {
+                read: read_time,
+                hash: hash_time,
+                analysis: analysis_time,
+                publication: publication_started.elapsed(),
+            },
         })
     }
 }

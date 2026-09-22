@@ -2,12 +2,11 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use chrono::Local;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use plumb_syntax::DiagnosticSeverity;
 use plumb_workspace::{
-    display_workspace_path as display_path, normalize, resolve_workspace_root,
-    scan_workspace_files, BatchIndexOptions, SearchRecordKind, Workspace,
+    cache_base_dir, display_workspace_path as display_path, normalize, resolve_workspace_root,
+    workspace_cache_path, DiskWorkspace, SearchRecordKind,
 };
 
 mod events;
@@ -44,8 +43,8 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     };
     let result = (|| {
         let root = resolve_workspace_root(config.root.as_deref())?;
-        let loaded = load_workspace(&root)?;
-        render_workspace_diagnostics(&root, &loaded, config.level)
+        let loaded = load_command_workspace(&root, config.no_cache, config.cache_stats)?;
+        render_workspace_diagnostics(&root, &loaded, config.level, config.cache_stats)
     })();
     match result {
         Ok((output, has_failures)) => {
@@ -65,7 +64,7 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
 
 fn run(config: Config) -> Result<(), String> {
     let root = resolve_workspace_root(config.root.as_deref())?;
-    let loaded = load_workspace(&root)?;
+    let mut loaded = load_command_workspace(&root, config.no_cache, config.cache_stats)?;
     match config.command {
         Command::Note(note) => {
             let selected_paths = loaded
@@ -75,7 +74,7 @@ fn run(config: Config) -> Result<(), String> {
                     Some(SearchRecordKind::Note),
                     "",
                     usize::MAX,
-                    Local::now().fixed_offset(),
+                    loaded.now,
                     config.query.as_deref(),
                 )
                 .map_err(|error| error.to_string())?
@@ -85,8 +84,9 @@ fn run(config: Config) -> Result<(), String> {
                 .map(|record| record.path)
                 .collect::<Vec<_>>();
             if note.interactive {
-                let action = run_interactive(&root, &selected_paths, &loaded.workspace)?;
+                let action = run_interactive(&root, &selected_paths, &loaded)?;
                 handle_interactive_action(&root, action)?;
+                let _ = load_command_workspace(&root, config.no_cache, false)?;
             } else {
                 for path in selected_paths {
                     println!("{}", display_path(&root, &path));
@@ -102,7 +102,7 @@ fn run(config: Config) -> Result<(), String> {
                             .to_string(),
                     );
                 }
-                run_task_action(&root, action)?;
+                run_task_action(&mut loaded, action)?;
             }
             None => print_tasks(
                 &root,
@@ -127,7 +127,7 @@ fn run(config: Config) -> Result<(), String> {
                         Some(SearchRecordKind::Event),
                         "",
                         usize::MAX,
-                        Local::now().fixed_offset(),
+                        loaded.now,
                         config.query.as_deref(),
                     )
                     .map_err(|error| error.to_string())?
@@ -158,6 +158,14 @@ struct Config {
     #[arg(long, global = true, value_name = "DIR")]
     root: Option<PathBuf>,
 
+    /// Bypass persistent cache and analyze the disk workspace in memory.
+    #[arg(long, global = true)]
+    no_cache: bool,
+
+    /// Report indexed documents, cache hits and parsed documents on stderr.
+    #[arg(long, global = true)]
+    cache_stats: bool,
+
     /// Keep records whose CEL predicate evaluates to true.
     #[arg(long, global = true, value_name = "EXPR")]
     query: Option<String>,
@@ -172,6 +180,14 @@ struct CheckConfig {
     /// Workspace root. Defaults to the nearest ancestor containing .plumb/.
     #[arg(long, value_name = "DIR")]
     root: Option<PathBuf>,
+
+    /// Bypass persistent cache and analyze the disk workspace in memory.
+    #[arg(long, global = true)]
+    no_cache: bool,
+
+    /// Report indexed documents, cache hits and parsed documents on stderr.
+    #[arg(long, global = true)]
+    cache_stats: bool,
 
     /// Lowest diagnostic severity to display.
     #[arg(long, value_enum, default_value_t = CheckLevel::Warning)]
@@ -263,62 +279,69 @@ struct TaskTargetsConfig {
     targets: Vec<String>,
 }
 
-struct LoadedWorkspace {
-    root: PathBuf,
-    workspace: Workspace,
-}
+type LoadedWorkspace = DiskWorkspace;
 
-fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
-    let root = normalize(root);
-    let paths = scan_workspace_files(&root).into_result()?;
-    let mut workspace = Workspace::new();
-    let batch = workspace
-        .index_disk_files(
-            &paths,
-            BatchIndexOptions {
-                prune_missing: true,
-                retain_sources: false,
-            },
-            |_| 0,
-            || false,
-        )
-        .map_err(|error| error.to_string())?;
-    if !batch.is_complete() {
-        return Err(batch
-            .failures
-            .iter()
-            .map(|failure| {
-                format!(
-                    "cannot read {}: {}",
-                    failure.path.display(),
-                    failure.message
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n"));
+fn load_command_workspace(
+    root: &Path,
+    no_cache: bool,
+    stats: bool,
+) -> Result<LoadedWorkspace, String> {
+    let path = workspace_cache_path(
+        &cache_base_dir(),
+        env!("CARGO_PKG_VERSION"),
+        &[normalize(root)],
+    );
+    let loaded = DiskWorkspace::load(root, (!no_cache).then_some(path.as_path()))
+        .map_err(|e| e.to_string())?;
+    if let Some(warning) = &loaded.cache_warning {
+        eprintln!("plumb: warning: {warning}");
     }
-    Ok(LoadedWorkspace { root, workspace })
+    if stats {
+        eprintln!(
+            "plumb cache: documents={} hits={} parsed={}",
+            loaded.indexed,
+            loaded.cache_hits,
+            loaded.parsed_documents
+        );
+        eprintln!(
+            "plumb cache timings: scan={:?} read={:?} hash={:?} analysis={:?} publication={:?} snapshot={:?}",
+            loaded.scan_time,
+            loaded.timings.read,
+            loaded.timings.hash,
+            loaded.timings.analysis,
+            loaded.timings.publication,
+            loaded.snapshot_time
+        );
+    }
+    Ok(loaded)
+}
+#[cfg(test)]
+fn load_workspace(root: &Path) -> Result<LoadedWorkspace, String> {
+    DiskWorkspace::load(root, None).map_err(|e| e.to_string())
 }
 
 fn render_workspace_diagnostics(
     root: &Path,
     loaded: &LoadedWorkspace,
     level: CheckLevel,
+    stats: bool,
 ) -> Result<(String, bool), String> {
     use std::fmt::Write as _;
 
     let root = normalize(root);
-    let mut entries = loaded.workspace.documents().collect::<Vec<_>>();
-    entries.sort_by(|left, right| left.path.cmp(&right.path));
     let mut output = String::new();
     let mut has_failures = false;
-    let context = loaded.workspace.diagnostic_context().map_err(|error| error.to_string())?;
-    for entry in entries {
-        let path = &entry.path;
-        let source = entry.parsed.source();
+    let context_started = std::time::Instant::now();
+    let context = loaded
+        .workspace
+        .diagnostic_context()
+        .map_err(|error| error.to_string())?;
+    let context_time = context_started.elapsed();
+    let diagnostics_started = std::time::Instant::now();
+    for (path, source) in &loaded.sources {
         let mut diagnostics = loaded
             .workspace
-            .diagnostics_with_context(path, &context)
+            .check_diagnostics_with_context(path, &context)
             .map_err(|error| error.to_string())?
             .value;
         diagnostics.sort_by(|left, right| {
@@ -326,14 +349,14 @@ fn render_workspace_diagnostics(
                 left.range.start,
                 left.range.end,
                 severity_rank(&left.severity),
-                left.code,
+                left.code.as_str(),
                 left.message.as_str(),
             )
                 .cmp(&(
                     right.range.start,
                     right.range.end,
                     severity_rank(&right.severity),
-                    right.code,
+                    right.code.as_str(),
                     right.message.as_str(),
                 ))
         });
@@ -361,6 +384,12 @@ fn render_workspace_diagnostics(
                 .expect("writing to String cannot fail");
             }
         }
+    }
+    if stats {
+        eprintln!(
+            "plumb check timings: context={context_time:?} diagnostics={:?}",
+            diagnostics_started.elapsed()
+        );
     }
     Ok((output, has_failures))
 }
@@ -455,7 +484,7 @@ mod tests {
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
         let (output, has_failures) =
-            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning).unwrap();
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning, false).unwrap();
         assert!(!has_failures);
         let lines = output.lines().collect::<Vec<_>>();
         assert!(lines[0].starts_with("a.plumb:2:"), "{output}");
@@ -480,11 +509,11 @@ mod tests {
         .unwrap();
         let loaded = load_workspace(&root).unwrap();
         let (output, has_failures) =
-            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning).unwrap();
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Warning, false).unwrap();
         assert!(!has_failures, "{output}");
         assert!(output.is_empty(), "{output}");
         let (output, has_failures) =
-            render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint).unwrap();
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint, false).unwrap();
         assert!(!has_failures, "{output}");
         assert!(output.contains("hint[task.blocked]"), "{output}");
         std::fs::remove_dir_all(root).unwrap();
@@ -505,10 +534,21 @@ mod tests {
             std::fs::write(root.join(file), source).unwrap();
         }
         let loaded = load_workspace(&root).unwrap();
-        let (output, failures) = render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint).unwrap();
+        let (output, failures) =
+            render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint, false).unwrap();
         assert!(!failures);
-        assert_eq!(output.matches("warning[task.dependency-cycle]").count(), 2, "{output}");
-        assert_eq!(output.matches("warning[task.done-with-open-dependency]").count(), 1, "{output}");
+        assert_eq!(
+            output.matches("warning[task.dependency-cycle]").count(),
+            2,
+            "{output}"
+        );
+        assert_eq!(
+            output
+                .matches("warning[task.done-with-open-dependency]")
+                .count(),
+            1,
+            "{output}"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -629,7 +669,7 @@ mod tests {
                 Some(SearchRecordKind::Note),
                 "",
                 usize::MAX,
-                Local::now().fixed_offset(),
+                loaded.now,
                 Some("'index.plumb' in transitively_referenced_by"),
             )
             .unwrap()
@@ -662,7 +702,7 @@ mod tests {
                 Some(SearchRecordKind::Note),
                 "",
                 usize::MAX,
-                Local::now().fixed_offset(),
+                loaded.now,
                 Some("'topic.plumb' in directly_referenced_by && 'index.plumb' in transitively_referenced_by"),
             )
             .unwrap()
@@ -690,7 +730,7 @@ mod tests {
                 Some(SearchRecordKind::Note),
                 "",
                 usize::MAX,
-                Local::now().fixed_offset(),
+                loaded.now,
                 Some("path.startsWith('docs/') && title.matches('Semantics Guide')"),
             )
             .unwrap()
@@ -712,7 +752,7 @@ mod tests {
                 Some(SearchRecordKind::Note),
                 "",
                 usize::MAX,
-                Local::now().fixed_offset(),
+                loaded.now,
                 Some("path"),
             )
             .unwrap_err();

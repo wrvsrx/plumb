@@ -31,11 +31,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
 }
 
 pub(crate) fn cache_base_dir() -> PathBuf {
-    std::env::var_os("PLUMB_CACHE_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
-        .unwrap_or_else(|| std::env::temp_dir().join("plumb-cache"))
+    plumb_workspace::cache_base_dir()
 }
 
 fn cache_root() -> PathBuf {

@@ -34,8 +34,10 @@ pub struct DiskWorkspace {
     pub now: DateTime<FixedOffset>,
     pub indexed: usize,
     pub cache_hits: usize,
+    pub parsed_documents: usize,
     pub timings: BatchIndexTimings,
     pub scan_time: std::time::Duration,
+    pub snapshot_time: std::time::Duration,
     pub cache_warning: Option<String>,
     cache_path: Option<PathBuf>,
 }
@@ -52,8 +54,10 @@ impl DiskWorkspace {
             now: Local::now().fixed_offset(),
             indexed: 0,
             cache_hits: 0,
+            parsed_documents: 0,
             timings: Default::default(),
             scan_time: Default::default(),
+            snapshot_time: Default::default(),
             cache_warning: None,
             cache_path: None,
         }
@@ -94,15 +98,16 @@ impl DiskWorkspace {
             Ok(batch)
         };
         let mut warning = None;
+        let mut snapshot_time = std::time::Duration::ZERO;
         let persistent = cache_path.map(|path| -> Result<_, DiskLoadError> {
             let store = SqliteSemanticStore::open(path)?;
             store.isolated_update(|| {
                 let mut w = Workspace::with_sqlite_store(store.clone());
                 let batch = prepare(&mut w)?;
-                Ok((
-                    Workspace::with_sqlite_store(store.readonly_snapshot()?),
-                    batch,
-                ))
+                let started = std::time::Instant::now();
+                let snapshot = store.readonly_snapshot()?;
+                snapshot_time = started.elapsed();
+                Ok((Workspace::with_sqlite_store(snapshot), batch))
             })
         });
         let (workspace, batch) = match persistent {
@@ -120,6 +125,7 @@ impl DiskWorkspace {
             }
         };
         let cache_hits = batch.cache_hits();
+        let parsed_documents = batch.parsed_documents;
         let timings = batch.timings;
         let indexed = batch.documents.len();
         let sources = batch
@@ -134,8 +140,10 @@ impl DiskWorkspace {
             now,
             indexed,
             cache_hits,
+            parsed_documents,
             timings,
             scan_time,
+            snapshot_time,
             cache_warning: warning.clone(),
             cache_path: if warning.is_some() {
                 None
@@ -302,6 +310,7 @@ mod tests {
             let warm = DiskWorkspace::load(&root, Some(&db)).unwrap();
             let memory = DiskWorkspace::load(&root, None).unwrap();
             assert_eq!(warm.cache_hits, warm.indexed);
+            assert_eq!(warm.parsed_documents, 0);
             assert_eq!(
                 warm.workspace.documents().count(),
                 0,
@@ -561,5 +570,64 @@ mod consistency_tests {
             assert_eq!(warm.candidates.len(), cold.candidates.len());
             assert_eq!(warm.candidates.len(), expected);
         }
+    }
+}
+
+#[cfg(test)]
+mod hash_tests {
+    use super::*;
+    #[test]
+    fn equal_mtime_and_size_do_not_hide_changed_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notes");
+        std::fs::create_dir(&root).unwrap();
+        let db = temp.path().join("cache/index.sqlite3");
+        let path = root.join("a.plumb");
+        std::fs::write(&path, "Before\n").unwrap();
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let cold = DiskWorkspace::load(&root, Some(&db)).unwrap();
+        assert_eq!(cold.parsed_documents, 1);
+        let warm = DiskWorkspace::load(&root, Some(&db)).unwrap();
+        assert_eq!(warm.parsed_documents, 0);
+        std::fs::write(&path, "Change\n").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(mtime))
+            .unwrap();
+        let changed = DiskWorkspace::load(&root, Some(&db)).unwrap();
+        assert_eq!(changed.parsed_documents, 1);
+        assert_eq!(changed.cache_hits, 0);
+        assert_eq!(changed.source(&path), Some("Change\n"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod permission_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    #[test]
+    fn unreadable_source_cannot_reuse_a_previously_successful_generation() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("notes");
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("a.plumb");
+        let db = temp.path().join("cache/index.sqlite3");
+        std::fs::write(&path, "Valid source\n").unwrap();
+        DiskWorkspace::load(&root, Some(&db)).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0)).unwrap();
+        // Privileged test runners can bypass file permission bits.
+        if std::fs::read_to_string(&path).is_err() {
+            assert!(matches!(
+                DiskWorkspace::load(&root, Some(&db)),
+                Err(DiskLoadError::Source(_))
+            ));
+            assert!(matches!(
+                DiskWorkspace::load(&root, None),
+                Err(DiskLoadError::Source(_))
+            ));
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
 }

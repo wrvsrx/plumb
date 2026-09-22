@@ -33,9 +33,9 @@ fn parse(source: impl Into<String>) -> ParsedDocument {
 mod bibliography;
 mod cache;
 mod completion;
-mod documents;
 mod diagnostics;
 mod disk;
+mod documents;
 mod index;
 mod navigation;
 mod scan;
@@ -54,14 +54,15 @@ pub use bibliography::{
     BibliographyResolution,
 };
 pub use cache::{
-    cache_base_dir, workspace_cache_path, inspect_cache_namespace, prune_cache_namespace, CacheNamespaceState, CacheNamespaceUsage,
-    CachePruneOutcome,
-};
-pub use index::{
-    BatchIndexTimings, BatchIndexError, BatchIndexFailure, BatchIndexOptions, BatchIndexResult, BatchIndexedDocument,
+    cache_base_dir, inspect_cache_namespace, prune_cache_namespace, workspace_cache_path,
+    CacheNamespaceState, CacheNamespaceUsage, CachePruneOutcome,
 };
 pub use diagnostics::WorkspaceDiagnostic;
-pub use disk::{DiskWorkspace, DiskLoadError};
+pub use disk::{DiskLoadError, DiskWorkspace};
+pub use index::{
+    BatchIndexError, BatchIndexFailure, BatchIndexOptions, BatchIndexResult, BatchIndexTimings,
+    BatchIndexedDocument,
+};
 pub use store::{SqliteSemanticStore, StoreError};
 
 #[cfg(test)]

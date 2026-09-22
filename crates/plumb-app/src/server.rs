@@ -53,7 +53,6 @@ use plumb_workspace::{
     Workspace, WorkspaceDiagnosticContext, WorkspaceEdit, WorkspaceOperationError,
     WorkspaceQueryError, WorkspaceSearchError,
 };
-use sha2::{Digest, Sha256};
 
 #[cfg(test)]
 use crate::folding::ranges as folding_ranges;
@@ -3070,20 +3069,7 @@ fn semantic_cache_path(roots: &[PathBuf]) -> PathBuf {
 }
 
 fn semantic_cache_path_in(base: &Path, version: &str, roots: &[PathBuf]) -> PathBuf {
-    let mut hasher = Sha256::new();
-    for root in roots {
-        hasher.update(root.as_os_str().to_string_lossy().as_bytes());
-        hasher.update([0]);
-    }
-    let digest = hasher.finalize();
-    let key = digest[..16]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    base.join("plumb")
-        .join("workspaces")
-        .join(version)
-        .join(format!("{key}.sqlite3"))
+    plumb_workspace::workspace_cache_path(base, version, roots)
 }
 
 fn workspace_symbol_query(query: &str) -> (Option<SearchKind>, String) {

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use skim::prelude::*;
 
 use crate::display_path;
-use plumb_workspace::{normalize, Workspace};
+use plumb_workspace::{normalize, DiskWorkspace};
 
 pub(crate) enum InteractiveAction {
     Open(Vec<String>),
@@ -54,7 +54,7 @@ impl SkimItem for FilterItem {
 pub(crate) fn run_interactive(
     root: &Path,
     paths: &[PathBuf],
-    workspace: &Workspace,
+    workspace: &DiskWorkspace,
 ) -> Result<InteractiveAction, String> {
     let options = SkimOptionsBuilder::default()
         .height(Some("100%"))
@@ -64,15 +64,9 @@ pub(crate) fn run_interactive(
         .build()
         .map_err(|error| error.to_string())?;
     let (sender, receiver): (SkimItemSender, SkimItemReceiver) = unbounded();
-    for path in paths {
-        let Some(entry) = workspace.get(path) else {
-            continue;
-        };
+    for item in preview_items(root, paths, workspace) {
         sender
-            .send(Arc::new(FilterItem::new(
-                display_path(root, path),
-                entry.parsed.source().to_string(),
-            )))
+            .send(Arc::new(item))
             .map_err(|error| format!("cannot send item to skim: {error}"))?;
     }
     drop(sender);
@@ -90,6 +84,17 @@ pub(crate) fn run_interactive(
             .map(|item| item.output().into_owned())
             .collect(),
     ))
+}
+
+fn preview_items(root: &Path, paths: &[PathBuf], workspace: &DiskWorkspace) -> Vec<FilterItem> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            workspace
+                .source(path)
+                .map(|source| FilterItem::new(display_path(root, path), source.to_owned()))
+        })
+        .collect()
 }
 
 pub(crate) fn handle_interactive_action(
@@ -258,5 +263,31 @@ mod tests {
         assert!(preview.contains("\x1b[36m`rust\"\x1b[0m"));
         assert!(preview.contains("\x1b[90m fn main() {}\x1b[0m"));
         assert!(preview.contains("\x1b[1;34m`# Heading\x1b[0m"));
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    #[test]
+    fn warm_interactive_preview_uses_read_snapshot_without_parsing() {
+        let root =
+            std::env::temp_dir().join(format!("plumb-preview-cache-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("a.plumb");
+        let db = root.join(".cache/index.sqlite3");
+        std::fs::write(&path, "`# Original\n").unwrap();
+        let cold = DiskWorkspace::load(&root, Some(&db)).unwrap();
+        let warm = DiskWorkspace::load(&root, Some(&db)).unwrap();
+        std::fs::write(&path, "Changed externally\n").unwrap();
+        let paths = vec![path];
+        let a = preview_items(&root, &paths, &cold);
+        let b = preview_items(&root, &paths, &warm);
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].preview, b[0].preview);
+        assert!(b[0].preview.contains("Original"));
+        assert_eq!(warm.workspace.documents().count(), 0);
+        assert_eq!(warm.cache_hits, 1);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

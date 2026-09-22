@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use chrono::DateTime;
-use diesel::connection::{DefaultLoadingMode, AnsiTransactionManager, TransactionManager};
 use diesel::connection::SimpleConnection;
+use diesel::connection::{AnsiTransactionManager, DefaultLoadingMode, TransactionManager};
 use diesel::dsl::{count_star, exists, not, sql};
 use diesel::prelude::*;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
@@ -41,8 +41,8 @@ diesel::define_sql_function! {
 mod schema;
 
 use schema::{
-    anchors, cache_meta, diagnostic_inputs, documents, event_task_associations, events, links, semantic_references,
-    task_dependencies, tasks,
+    anchors, cache_meta, diagnostic_inputs, documents, event_task_associations, events, links,
+    semantic_references, task_dependencies, tasks,
 };
 
 type TaskDependencyRow = (
@@ -350,10 +350,17 @@ impl SqliteSemanticStore {
 
     /// Only used on a fresh, command-owned connection. The callback can use normal
     /// store APIs; nested generation transactions become savepoints.
-    pub(crate) fn isolated_update<T, E: From<StoreError>>(&self, action: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+    pub(crate) fn isolated_update<T, E: From<StoreError>>(
+        &self,
+        action: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
         {
-            let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
-            AnsiTransactionManager::begin_transaction_sql(&mut *connection, "BEGIN IMMEDIATE").map_err(StoreError::from)?;
+            let mut connection = self
+                .connection
+                .lock()
+                .map_err(|_| StoreError::LockPoisoned)?;
+            AnsiTransactionManager::begin_transaction_sql(&mut *connection, "BEGIN IMMEDIATE")
+                .map_err(StoreError::from)?;
         }
         struct Rollback<'a>(&'a SqliteSemanticStore, bool);
         impl Drop for Rollback<'_> {
@@ -368,8 +375,12 @@ impl SqliteSemanticStore {
         let mut guard = Rollback(self, true);
         let result = action()?;
         {
-            let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
-            AnsiTransactionManager::commit_transaction(&mut *connection).map_err(StoreError::from)?;
+            let mut connection = self
+                .connection
+                .lock()
+                .map_err(|_| StoreError::LockPoisoned)?;
+            AnsiTransactionManager::commit_transaction(&mut *connection)
+                .map_err(StoreError::from)?;
         }
         guard.1 = false;
         Ok(result)
@@ -407,51 +418,54 @@ impl SqliteSemanticStore {
         lease: Option<CacheNamespaceLease>,
     ) -> StoreResult<Self> {
         register_functions(&mut connection)?;
-        connection.batch_execute("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+        connection.batch_execute(
+            "PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;",
+        )?;
         connection
             .run_pending_migrations(MIGRATIONS)
             .map_err(|error| StoreError::Migration(error.to_string()))?;
         connection.transaction::<_, StoreError, _>(|connection| {
-        let version = cache_meta::table
-            .filter(cache_meta::key.eq("schema_version"))
-            .select(cache_meta::value)
-            .first::<i64>(connection)
-            .optional()?;
-        match version {
-            Some(SCHEMA_VERSION) => {}
-            Some(_) => {
-                clear_records(connection)?;
-                diesel::update(cache_meta::table.filter(cache_meta::key.eq("schema_version")))
-                    .set(cache_meta::value.eq(SCHEMA_VERSION))
-                    .execute(connection)?;
+            let version = cache_meta::table
+                .filter(cache_meta::key.eq("schema_version"))
+                .select(cache_meta::value)
+                .first::<i64>(connection)
+                .optional()?;
+            match version {
+                Some(SCHEMA_VERSION) => {}
+                Some(_) => {
+                    clear_records(connection)?;
+                    diesel::update(cache_meta::table.filter(cache_meta::key.eq("schema_version")))
+                        .set(cache_meta::value.eq(SCHEMA_VERSION))
+                        .execute(connection)?;
+                }
+                None => {
+                    clear_records(connection)?;
+                    diesel::insert_into(cache_meta::table)
+                        .values((
+                            cache_meta::key.eq("schema_version"),
+                            cache_meta::value.eq(SCHEMA_VERSION),
+                        ))
+                        .execute(connection)?;
+                }
             }
-            None => {
+            let producer = producer_version_key();
+            let stored_producer = cache_meta::table
+                .filter(cache_meta::key.eq("producer_version"))
+                .select(cache_meta::value)
+                .first::<i64>(connection)
+                .optional()?;
+            if stored_producer != Some(producer) {
+                clear_records(connection)?;
                 diesel::insert_into(cache_meta::table)
                     .values((
-                        cache_meta::key.eq("schema_version"),
-                        cache_meta::value.eq(SCHEMA_VERSION),
+                        cache_meta::key.eq("producer_version"),
+                        cache_meta::value.eq(producer),
                     ))
+                    .on_conflict(cache_meta::key)
+                    .do_update()
+                    .set(cache_meta::value.eq(producer))
                     .execute(connection)?;
             }
-        }
-        let producer = producer_version_key();
-        let stored_producer = cache_meta::table
-            .filter(cache_meta::key.eq("producer_version"))
-            .select(cache_meta::value)
-            .first::<i64>(connection)
-            .optional()?;
-        if stored_producer != Some(producer) {
-            clear_records(connection)?;
-            diesel::insert_into(cache_meta::table)
-                .values((
-                    cache_meta::key.eq("producer_version"),
-                    cache_meta::value.eq(producer),
-                ))
-                .on_conflict(cache_meta::key)
-                .do_update()
-                .set(cache_meta::value.eq(producer))
-                .execute(connection)?;
-        }
             Ok(())
         })?;
         Ok(Self {
@@ -484,12 +498,23 @@ impl SqliteSemanticStore {
         source: &str,
         output: Option<&DocumentOutput>,
     ) -> StoreResult<()> {
-        let syntax = if output.is_none() { plumb_syntax::GreenDocument::parse(source.to_owned()).diagnostics() } else { Vec::new() };
+        let syntax = if output.is_none() {
+            plumb_syntax::GreenDocument::parse(source.to_owned()).diagnostics()
+        } else {
+            Vec::new()
+        };
         let diagnostics = CachedDiagnosticInputs::new(&syntax, output);
         self.replace_with_diagnostics(path, revision, source, output, &diagnostics)
     }
 
-    pub(crate) fn replace_with_diagnostics(&self, path: &Path, revision: i64, source: &str, output: Option<&DocumentOutput>, diagnostics: &CachedDiagnosticInputs) -> StoreResult<()> {
+    pub(crate) fn replace_with_diagnostics(
+        &self,
+        path: &Path,
+        revision: i64,
+        source: &str,
+        output: Option<&DocumentOutput>,
+        diagnostics: &CachedDiagnosticInputs,
+    ) -> StoreResult<()> {
         let path = normalize(path);
         let mut connection = self
             .connection
@@ -747,25 +772,58 @@ impl SqliteSemanticStore {
         decode_records(rows, excluded)
     }
 
-    pub(crate) fn diagnostic_inputs(&self, path: &Path) -> StoreResult<Option<CachedDiagnosticInputs>> {
-        let mut connection = self.connection.lock().map_err(|_|StoreError::LockPoisoned)?;
-        let row = diagnostic_inputs::table.filter(diagnostic_inputs::path.eq(path_bytes(&normalize(path))))
-            .select(diagnostic_inputs::record).first::<Vec<u8>>(&mut *connection).optional()?;
-        if row.is_none() && documents::table.filter(documents::path.eq(path_bytes(&normalize(path))))
-            .count().get_result::<i64>(&mut *connection)? != 0 { return Err(StoreError::InvalidStoredValue); }
-        row.map(|bytes|Ok(bincode::deserialize(&bytes)?)).transpose()
+    pub(crate) fn diagnostic_inputs(
+        &self,
+        path: &Path,
+    ) -> StoreResult<Option<CachedDiagnosticInputs>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let row = diagnostic_inputs::table
+            .filter(diagnostic_inputs::path.eq(path_bytes(&normalize(path))))
+            .select(diagnostic_inputs::record)
+            .first::<Vec<u8>>(&mut *connection)
+            .optional()?;
+        if row.is_none()
+            && documents::table
+                .filter(documents::path.eq(path_bytes(&normalize(path))))
+                .count()
+                .get_result::<i64>(&mut *connection)?
+                != 0
+        {
+            return Err(StoreError::InvalidStoredValue);
+        }
+        row.map(|bytes| Ok(bincode::deserialize(&bytes)?))
+            .transpose()
     }
     pub fn links_for_path(&self, path: &Path) -> StoreResult<Vec<LinkRecord>> {
-        let mut connection = self.connection.lock().map_err(|_|StoreError::LockPoisoned)?;
-        let rows = links::table.filter(links::path.eq(path_bytes(&normalize(path))))
-            .select(links::record).order(links::start).load::<Vec<u8>>(&mut *connection)?;
-        rows.into_iter().map(|bytes|Ok(bincode::deserialize(&bytes)?)).collect()
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = links::table
+            .filter(links::path.eq(path_bytes(&normalize(path))))
+            .select(links::record)
+            .order(links::start)
+            .load::<Vec<u8>>(&mut *connection)?;
+        rows.into_iter()
+            .map(|bytes| Ok(bincode::deserialize(&bytes)?))
+            .collect()
     }
     pub fn events_for_path(&self, path: &Path) -> StoreResult<Vec<EventRecord>> {
-        let mut connection = self.connection.lock().map_err(|_|StoreError::LockPoisoned)?;
-        let rows = events::table.filter(events::path.eq(path_bytes(&normalize(path))))
-            .select(events::record).order(events::start).load::<Vec<u8>>(&mut *connection)?;
-        rows.into_iter().map(|bytes|Ok(bincode::deserialize(&bytes)?)).collect()
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = events::table
+            .filter(events::path.eq(path_bytes(&normalize(path))))
+            .select(events::record)
+            .order(events::start)
+            .load::<Vec<u8>>(&mut *connection)?;
+        rows.into_iter()
+            .map(|bytes| Ok(bincode::deserialize(&bytes)?))
+            .collect()
     }
 
     pub fn tasks_for_path(&self, path: &Path) -> StoreResult<Vec<TaskRecord>> {
@@ -1642,9 +1700,12 @@ fn replace_generation(
             documents::title_end.eq(to_i64(title_range.end)?),
         ))
         .execute(connection)?;
-    diesel::insert_into(diagnostic_inputs::table).values((
-        diagnostic_inputs::path.eq(path_bytes(path)), diagnostic_inputs::record.eq(encode(diagnostics)?),
-    )).execute(connection)?;
+    diesel::insert_into(diagnostic_inputs::table)
+        .values((
+            diagnostic_inputs::path.eq(path_bytes(path)),
+            diagnostic_inputs::record.eq(encode(diagnostics)?),
+        ))
+        .execute(connection)?;
     if let Some(output) = output {
         insert_output(connection, path, output)?;
     }
@@ -1907,7 +1968,8 @@ fn delete_document_rows(connection: &mut SqliteConnection, path: &Path) -> Store
     )
     .execute(connection)?;
     diesel::delete(events::table.filter(events::path.eq(&path))).execute(connection)?;
-    diesel::delete(diagnostic_inputs::table.filter(diagnostic_inputs::path.eq(&path))).execute(connection)?;
+    diesel::delete(diagnostic_inputs::table.filter(diagnostic_inputs::path.eq(&path)))
+        .execute(connection)?;
     diesel::delete(documents::table.filter(documents::path.eq(&path))).execute(connection)?;
     Ok(())
 }
@@ -2879,26 +2941,26 @@ mod tests {
 }
 
 fn register_functions(connection: &mut SqliteConnection) -> StoreResult<()> {
-        plumb_fuzzy_score_utils::register_impl(
-            connection,
-            |title: String,
-             id: Option<String>,
-             path: Vec<u8>,
-             root: Vec<u8>,
-             query: String|
-             -> Option<i64> {
-                let path = path_from_bytes(path).ok()?;
-                let root = path_from_bytes(root).ok()?;
-                let relative_path = path
-                    .strip_prefix(&root)
-                    .unwrap_or(&path)
-                    .display()
-                    .to_string();
-                crate::search::search_score(
-                    &query,
-                    &[&title, id.as_deref().unwrap_or_default(), &relative_path],
-                )
-            },
-        )?;
+    plumb_fuzzy_score_utils::register_impl(
+        connection,
+        |title: String,
+         id: Option<String>,
+         path: Vec<u8>,
+         root: Vec<u8>,
+         query: String|
+         -> Option<i64> {
+            let path = path_from_bytes(path).ok()?;
+            let root = path_from_bytes(root).ok()?;
+            let relative_path = path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            crate::search::search_score(
+                &query,
+                &[&title, id.as_deref().unwrap_or_default(), &relative_path],
+            )
+        },
+    )?;
     Ok(())
 }

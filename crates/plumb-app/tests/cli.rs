@@ -6,10 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
 fn exposes_the_unified_command_surface() {
-    let help = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .arg("--help")
-        .output()
-        .unwrap();
+    let help = plumb_command().arg("--help").output().unwrap();
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
     for command in [
@@ -17,14 +14,11 @@ fn exposes_the_unified_command_surface() {
     ] {
         assert!(help.contains(command));
     }
-    let removed_migration = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .arg("migrate")
-        .output()
-        .unwrap();
+    let removed_migration = plumb_command().arg("migrate").output().unwrap();
     assert!(!removed_migration.status.success());
     assert!(String::from_utf8_lossy(&removed_migration.stderr).contains("unknown command"));
 
-    let serve_help = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let serve_help = plumb_command()
         .args(["site", "serve", "--help"])
         .output()
         .unwrap();
@@ -34,7 +28,7 @@ fn exposes_the_unified_command_surface() {
     assert!(!serve_help.contains("--no-open"));
 
     for origin in ["file:///tmp/site", "https://example.test/path"] {
-        let invalid_origin = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        let invalid_origin = plumb_command()
             .args(["site", "serve", "--public-origin", origin])
             .output()
             .unwrap();
@@ -43,7 +37,7 @@ fn exposes_the_unified_command_surface() {
             .contains("origin must contain only an http(s) scheme and authority"));
     }
 
-    let obsolete_option = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let obsolete_option = plumb_command()
         .args(["site", "serve", "--no-open"])
         .output()
         .unwrap();
@@ -91,7 +85,7 @@ fn reports_and_prunes_only_inactive_managed_cache_namespaces() {
         plumb_workspace::SqliteSemanticStore::open(current.join("current.sqlite3")).unwrap();
     drop(current_store);
 
-    let status = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let status = plumb_command()
         .args(["cache", "status"])
         .env("PLUMB_CACHE_DIR", &base)
         .output()
@@ -112,7 +106,7 @@ fn reports_and_prunes_only_inactive_managed_cache_namespaces() {
         "{status}"
     );
 
-    let prune = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let prune = plumb_command()
         .args(["cache", "prune"])
         .env("PLUMB_CACHE_DIR", &base)
         .output()
@@ -127,7 +121,7 @@ fn reports_and_prunes_only_inactive_managed_cache_namespaces() {
     assert!(current.join("current.sqlite3").exists());
     assert!(cache.join("site/legacy.sqlite3").exists());
 
-    let prune_all = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let prune_all = plumb_command()
         .args(["cache", "prune", "--all"])
         .env("PLUMB_CACHE_DIR", &base)
         .output()
@@ -137,7 +131,7 @@ fn reports_and_prunes_only_inactive_managed_cache_namespaces() {
     assert!(active.join("active.sqlite3").exists());
 
     drop(active_store);
-    let final_prune = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let final_prune = plumb_command()
         .args(["cache", "prune"])
         .env("PLUMB_CACHE_DIR", &base)
         .output()
@@ -157,7 +151,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
         "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:00 Parser review\n `+ event\n `@ review\n `= tasks #write\n",
     )
     .unwrap();
-    let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let exported = plumb_command()
         .args(["event", "--root"])
         .arg(&root)
         .arg("export-vdir")
@@ -251,7 +245,7 @@ fn generated_readme_matches_its_plumb_source() {
             "tree-sitter-plumb/README.md",
         ),
     ] {
-        let exported = Command::new(env!("CARGO_BIN_EXE_plumb"))
+        let exported = plumb_command()
             .arg("export")
             .arg(root.join(source))
             .output()
@@ -298,7 +292,7 @@ fn generated_readme_matches_its_plumb_source() {
 fn completed_project_tasks_are_semantically_closed() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = root.join("docs/project");
-    let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let output = plumb_command()
         .args([
             "task",
             "--root",
@@ -324,7 +318,7 @@ fn completed_project_tasks_are_semantically_closed() {
 fn example_diagnostics_are_isolated_and_exact() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let examples = root.join("examples");
-    let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let output = plumb_command()
         .args([
             "check",
             "--root",
@@ -376,7 +370,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(root.join("nested")).unwrap();
     std::fs::write(root.join("valid.plumb"), "Paragraph.\n").unwrap();
-    let valid = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let valid = plumb_command()
         .args(["check", "--root"])
         .arg(&root)
         .output()
@@ -393,7 +387,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
         "See `->{missing missing.plumb#id}.\n",
     )
     .unwrap();
-    let broken = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let broken = plumb_command()
         .args(["check", "--root"])
         .arg(&root)
         .output()
@@ -412,7 +406,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
         "`- Draft\n `+ task\n `@ draft\n`- Review\n `+ task\n `@ review\n `= depends #draft\n",
     )
     .unwrap();
-    let default = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let default = plumb_command()
         .args(["check", "--root"])
         .arg(&root)
         .output()
@@ -420,7 +414,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
     assert!(default.status.success());
     assert!(!String::from_utf8_lossy(&default.stdout).contains("task.blocked"));
 
-    let hints = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let hints = plumb_command()
         .args(["check", "--root"])
         .arg(&root)
         .args(["--level", "hint"])
@@ -430,7 +424,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
     assert!(String::from_utf8_lossy(&hints.stdout).contains("hint[task.blocked]"));
 
     std::fs::write(root.join("syntax-error.plumb"), "See `broken{\n").unwrap();
-    let errors = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let errors = plumb_command()
         .args(["check", "--root"])
         .arg(&root)
         .args(["--level", "error"])
@@ -442,7 +436,7 @@ fn checks_a_workspace_with_configurable_severity_and_error_exit_status() {
     assert!(!output.contains("warning["), "{output}");
     assert!(!output.contains("hint["), "{output}");
 
-    let invalid_level = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let invalid_level = plumb_command()
         .args(["check", "--level", "diagnostic"])
         .output()
         .unwrap();
@@ -461,7 +455,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
     std::fs::write(root.join("visible.plumb"), "Visible\n").unwrap();
     std::fs::write(root.join("private/note.plumb"), "Private\n").unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let output = plumb_command()
         .arg("note")
         .current_dir(root.join("nested"))
         .output()
@@ -473,7 +467,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
     );
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "visible.plumb\n");
 
-    let explicit = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let explicit = plumb_command()
         .args(["note", "--root", "."])
         .current_dir(&root)
         .output()
@@ -548,7 +542,7 @@ fn serves_the_workspace_site_with_notes_and_tasks() {
     .unwrap();
 
     let mut child = TestChild::new(
-        Command::new(env!("CARGO_BIN_EXE_plumb"))
+        plumb_command()
             .args(["site", "serve", "--root"])
             .arg(&root)
             .env("PLUMB_CACHE_DIR", root.join(".cache"))
@@ -720,7 +714,7 @@ fn site_renders_and_refreshes_csl_json_citations() {
     )
     .unwrap();
     let mut child = TestChild::new(
-        Command::new(env!("CARGO_BIN_EXE_plumb"))
+        plumb_command()
             .args(["site", "serve", "--root"])
             .arg(&root)
             .env("PLUMB_CACHE_DIR", root.join(".cache"))
@@ -772,10 +766,7 @@ fn site_renders_and_refreshes_csl_json_citations() {
 
 #[test]
 fn site_build_is_not_a_supported_subcommand() {
-    let output = Command::new(env!("CARGO_BIN_EXE_plumb"))
-        .args(["site", "build"])
-        .output()
-        .unwrap();
+    let output = plumb_command().args(["site", "build"]).output().unwrap();
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand 'build'"));
 }
@@ -826,7 +817,7 @@ fn http_post_json(address: &str, path: &str, body: &str) -> (u16, String, String
 }
 
 fn run_with_stdin(args: &[&str], input: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
+    let mut child = plumb_command()
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -880,4 +871,198 @@ impl Drop for TestChild {
             let _ = self.0.wait();
         }
     }
+}
+
+fn plumb_command() -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_plumb"));
+    command.env(
+        "PLUMB_CACHE_DIR",
+        std::env::temp_dir().join(format!("plumb-cli-tests-cache-{}", std::process::id())),
+    );
+    command
+}
+
+#[test]
+fn workspace_commands_match_cold_warm_and_disabled_cache() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("tasks.plumb"),"`= title Project\n\n`- Draft\n `+ task\n `@ draft\n `= priority 10\n\n`- Review\n `+ task\n `@ review\n `= depends #draft\n\n`- Later\n `+ task\n `@ later\n `= wait 2099-01-01T00:00:00Z\n").unwrap();
+    std::fs::write(
+        root.join("events.plumb"),
+        "`- 2026-09-22T00:00:00Z Meeting\n `+ event\n `= tasks tasks.plumb#draft\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("note.plumb"),
+        "`= title Overview\n\nSee `->{tasks.plumb}.\n",
+    )
+    .unwrap();
+    for (index, args) in [
+        vec!["note"],
+        vec!["note", "--query", "title == 'Project'"],
+        vec!["task", "--flat"],
+        vec!["task", "--query", "state == 'ready'"],
+        vec!["task", "next", "--limit", "2"],
+        vec!["event"],
+        vec!["event", "--query", "title == 'Meeting'"],
+        vec!["check", "--level", "hint"],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let cache = root.join(format!("cache-{index}"));
+        let run = |disabled: bool| {
+            let mut command = plumb_command();
+            command
+                .args(&args)
+                .arg("--root")
+                .arg(&root)
+                .arg("--cache-stats")
+                .env("PLUMB_CACHE_DIR", &cache);
+            if disabled {
+                command.arg("--no-cache");
+            }
+            command.output().unwrap()
+        };
+        let memory = run(true);
+        assert!(
+            memory.status.success(),
+            "{:?}: {}",
+            args,
+            String::from_utf8_lossy(&memory.stderr)
+        );
+        assert!(!cache.exists());
+        let cold = run(false);
+        let warm = run(false);
+        assert_eq!(memory.stdout, cold.stdout, "{args:?}");
+        assert_eq!(memory.stdout, warm.stdout, "{args:?}");
+        assert_eq!(memory.status.code(), cold.status.code());
+        assert_eq!(memory.status.code(), warm.status.code());
+        assert!(
+            String::from_utf8_lossy(&cold.stderr).contains("documents=3 hits=0 parsed=3"),
+            "{}",
+            String::from_utf8_lossy(&cold.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&warm.stderr).contains("documents=3 hits=3 parsed=0"),
+            "{}",
+            String::from_utf8_lossy(&warm.stderr)
+        );
+    }
+    let cache = root.join("cache-vdir");
+    let mut outputs = Vec::new();
+    for mode in 0..3 {
+        let output = root.join(format!("calendar-{mode}"));
+        let mut command = plumb_command();
+        command
+            .args(["event", "export-vdir", "--root"])
+            .arg(&root)
+            .arg("--output")
+            .arg(&output)
+            .env("PLUMB_CACHE_DIR", &cache);
+        if mode == 0 {
+            command.arg("--no-cache");
+        }
+        let result = command.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let mut files = std::fs::read_dir(output)
+            .unwrap()
+            .map(|e| {
+                let e = e.unwrap();
+                (e.file_name(), std::fs::read(e.path()).unwrap())
+            })
+            .collect::<Vec<_>>();
+        files.sort();
+        outputs.push(files);
+    }
+    assert_eq!(outputs[0], outputs[1]);
+    assert_eq!(outputs[0], outputs[2]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cached_check_keeps_errors_locations_and_exit_status_and_reports_corruption() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let cache = root.join("cache");
+    let source = "中文 {broken\n";
+    std::fs::write(root.join("bad.plumb"), source).unwrap();
+    let run = |no_cache: bool| {
+        let mut command = plumb_command();
+        command
+            .args(["check", "--root"])
+            .arg(&root)
+            .env("PLUMB_CACHE_DIR", &cache);
+        if no_cache {
+            command.arg("--no-cache");
+        }
+        command.output().unwrap()
+    };
+    let memory = run(true);
+    let cold = run(false);
+    let warm = run(false);
+    assert_eq!(memory.status.code(), Some(1));
+    assert_eq!(cold.status.code(), Some(1));
+    assert_eq!(warm.status.code(), Some(1));
+    assert_eq!(memory.stdout, cold.stdout);
+    assert_eq!(memory.stdout, warm.stdout);
+    let db =
+        plumb_workspace::workspace_cache_path(&cache, env!("CARGO_PKG_VERSION"), &[root.clone()]);
+    std::fs::write(db, b"damaged cache").unwrap();
+    let fallback = run(false);
+    assert_eq!(fallback.stdout, memory.stdout);
+    assert_eq!(fallback.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&fallback.stderr).contains("using uncached workspace"));
+    assert_eq!(
+        std::fs::read_to_string(root.join("bad.plumb")).unwrap(),
+        source
+    );
+    std::fs::write(root.join("bad.plumb"), [0xff]).unwrap();
+    let unreadable = run(false);
+    assert_eq!(unreadable.status.code(), Some(1));
+    assert!(unreadable.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&unreadable.stderr).contains("cannot read"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn concurrent_cli_commands_share_cache_without_mixing_outputs() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let cache = root.join("cache");
+    std::fs::write(root.join("a.plumb"), "`- Task\n `+ task\n `@ t\n").unwrap();
+    let command = || {
+        let mut c = plumb_command();
+        c.args(["task", "--flat", "--root"])
+            .arg(&root)
+            .env("PLUMB_CACHE_DIR", &cache);
+        c
+    };
+    let expected = command().output().unwrap();
+    assert!(expected.status.success());
+    let children = (0..3)
+        .map(|_| {
+            command()
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    for child in children {
+        let result = child.wait_with_output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(result.stdout, expected.stdout);
+    }
+    let warm = command().arg("--cache-stats").output().unwrap();
+    assert!(String::from_utf8_lossy(&warm.stderr).contains("hits=1 parsed=0"));
+    std::fs::remove_dir_all(root).unwrap();
 }
