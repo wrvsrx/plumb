@@ -1,0 +1,38 @@
+`= title CLI persistent cache performance 2026-09
+
+`# Scope and correctness
+
+2026-09-22 完成 cli-database-cache。实现 commit 为 56b2a8c；c905d4c 将 check 全局 dependency/cycle context 改为每轮构建一次；ce50aaf 引入持久化诊断输入与隔离快照。测量时 CLI 集成尚未提交，随后以 56b2a8c 记录相同运行时代码。
+
+check、note（含交互）、task query/next/complete/cancel/focus/unfocus、event query/export-vdir 共用 disk loader。LSP 和 site 保留已有持久化与常驻生命周期；cache status/prune 管理派生数据；单文件 fmt/export/import 不增加 workspace 扫描。权威规则见 `->{{workspace contract} ../../architecture/workspace.plumb}。
+
+全 workspace all-target tests 通过；最终新增计数器与边界测试另经 focused tests 和全 workspace all-target cargo check 验证。覆盖冷/热/无缓存输出、诊断与退出码一致性、固定时间任务查询和四种写操作、事件 vdir、交互 preview、新增/删除/重命名、引用目标变化、语法错误恢复、schema/producer 失效、损坏缓存、权限拒绝、并发 writer 与中断事务。热缓存断言生产解析分支实际调用数为零。
+
+`# Measurement
+
+测量窗口约 91.8 秒，UTC midpoint 为 2026-09-22T13:43:41.411085+00:00。
+
+host pba，Intel Core i9-9980XE 3 GHz，Linux 6.18.51，rustc 1.97.1（8bab26f4f，2026-07-14）。新 binary 以 cargo build --release -p plumb 构建，版本 0.43.1-dev；baseline 为已安装 0.43.0。
+
+fixture 是真实迁移后的 notebook，共 269 个可索引文件；迁移任务文件 6,005,634 bytes、296,279 lines、19,299 tasks。遵守 notebook ignore 规则，不读取私有目录，不将个人内容提交至 repository。变化组使用排除私有目录的临时副本，增加一个小文件后修改该文件，共 270 个可索引文件；未修改真实 notebook。
+
+每组 3 个独立进程 samples，顺序运行，不清空 OS page cache。冷缓存每次使用新 namespace；热缓存先完整 warmup 一次；副本也先 warmup 一次。命令为 plumb check --level hint，指定 root；新 binary 加 --cache-stats，无缓存组另加 --no-cache。wall time 覆盖完整进程生命周期；peak RSS 来自 wait4 ru_maxrss，非 steady resident。阶段计时写 stderr，校验 stdout SHA-256 与退出码。
+
+`table
+ `- 模式 {wall samples 秒} {wall 中位数 秒} {peak RSS 中位数 MiB} {hits / documents} parsed
+  `+ header
+ `- {旧版 0.43.0} {23.705 / 21.421 / 21.309} 21.421 964.8 {不适用} {全量}
+ `- {新版无缓存} {2.000 / 2.069 / 1.983} 2.000 995.0 {0 / 269} 269
+ `- {新版冷缓存} {3.239 / 3.164 / 3.193} 3.193 976.1 {0 / 269} 269
+ `- {新版热缓存} {0.529 / 0.558 / 0.567} 0.558 237.2 {269 / 269} 0
+ `- {一个小文件变化} {0.575 / 0.581 / 0.607} 0.581 240.2 {269 / 270} 1
+
+所有 baseline、无缓存、冷缓存、热缓存 stdout 完全一致，退出码均为 0；SHA-256 为 02a59f481c57da9d11e7b821911eef51d060eb17a5c8b1cb93f51e2e202f8f96。原始本机结果保存在 /tmp/plumb-cli-cache-measure-yvnnszse/results.json；此路径是临时测量产物，不是可移植 fixture。
+
+`# Costs and limits
+
+一个冷缓存 sample 的阶段耗时：scan 33.7 ms、read 13.9 ms、hash 55.5 ms、parse/local analysis 1424.5 ms、publication 755.0 ms、snapshot 41.2 ms、全局 context 150.1 ms、diagnostics 142.8 ms。
+
+一个热缓存 sample 的阶段耗时：scan 16.9 ms、read 9.8 ms、hash 54.8 ms、analysis 约 0 ms、publication 0.034 ms、snapshot 136.8 ms、全局 context 150.2 ms、diagnostics 148.6 ms。阶段内部计时不包含全部启动、输出和析构成本，不应直接相加冒充端到端时间。
+
+该机器上热缓存相对旧版中位数约快 38 倍，peak RSS 约少 75%。冷缓存需要写库，比新版无缓存慢，peak RSS 仍接近 1 GiB；本次没有解决大文件首次解析的峰值内存。一个小文件变化不代表修改 6 MB 迁移文件的成本：缓存失效粒度仍是文档。热路径剩余主要成本是 SQLite detached snapshot 与全局关系/诊断检查；后续优化应先保持查询隔离和结果一致性，再测量减少全库快照复制、重复 records 解码或诊断查询次数的收益。

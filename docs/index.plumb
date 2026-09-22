@@ -56,6 +56,7 @@ Guides 只描述当前 release，不保存 TODO、prototype 进度或 historical
 `- `->{{Neovim folding reconciliation experiment} history/neovim/lsp-folding-patch.plumb}
 `- `->{{Neovim folding edit-delay experiment} history/neovim/lsp-folding-defer-editing.plumb}
 `- `->{{Workspace performance results 2026-08} history/performance/workspace-performance-2026-08.plumb}
+`- `->{{CLI cache performance results 2026-09} history/performance/cli-cache-2026-09.plumb}
 
 History 中的 “current” 只指记录日期。每份历史记录必须说明 snapshot boundary，并链接现行 reference、 architecture 或 guide；不能作为新实现的 requirement source。
 

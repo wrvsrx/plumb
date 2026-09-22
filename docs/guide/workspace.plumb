@@ -34,6 +34,9 @@ scanner 不进入 directory symlink；扩展名为 `"..plumb" 的 file symlink �
 
 `# Note and task queries
 
+这些 workspace 命令默认使用内容校验的持久化缓存；`"--no-cache" 和 `"--cache-stats" 的使用见
+`->{工具链缓存说明 toolchain.plumb}。缓存不会改变 CEL、排序、任务状态或文件修改语义。
+
 `"plumb note" 与 `"plumb task" 提供 document/task CEL query、interactive picker 和 task operations：
 
 `text"

@@ -2,6 +2,8 @@
 
 本页定义仍需复用的 performance workloads、测量口径和验收原则，不保存按日期累积的结果。 2026-08 的 backend experiments、rejected designs 与 acceptance measurements 归档在 `->{{workspace performance results} ../history/performance/workspace-performance-2026-08.plumb}；2026-09 的 incremental transport 与 strict parse measurements 归档在 `->{{incremental parsing results} ../history/performance/incremental-parsing-2026-09.plumb}。
 
+2026-09 的 CLI 缓存验收记录见 `->{{CLI cache performance results} ../history/performance/cli-cache-2026-09.plumb}。
+
 `# Workload classes
 
 `- Large document：约 5.7 MB、134k lines、33,512 events，覆盖 parse、semantic generation、folding、 event query、record replacement 与 editor transport boundary。

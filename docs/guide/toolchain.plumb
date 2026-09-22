@@ -27,6 +27,23 @@ diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line
 
 `# Cache
 
+check、note（含 interactive）、task 查询、next 和任务操作，以及 event 查询与 export-vdir 默认复用持久化语义
+缓存。每次运行仍扫描并读取文件，只有内容变化的文档重新解析；没有保存到磁盘的编辑器内容不进入 CLI 查询。
+跨文件诊断、附件存在性和当前时间相关的任务状态每次重新检查。
+
+这些命令接受 `"--no-cache"，从磁盘完整分析，用于排错和结果对照；`"--cache-stats" 在 stderr 显示本轮索引的
+documents、hits、实际 parsed 数量及阶段耗时，不改变正常 stdout。任务操作只为目标文件建立编辑所需语法树，
+拒绝覆盖索引后发生的源文件变化，成功后刷新缓存。示例：
+
+`text"
+  plumb check --root notes --cache-stats
+  plumb check --root notes --no-cache
+  plumb task --root notes --query 'state == "ready"' --cache-stats
+
+加载工作区时，缓存无法打开或索引失败会报告 warning 并改用无缓存分析；源文件扫描或读取失败仍返回失败，不输出旧结果。
+读取缓存记录时发现损坏也会报告错误，可使用 `"--no-cache" 排错并通过下述 prune 清理。fmt、export 和 import
+直接处理单文件或 stdin，不为缓存扫描整个 workspace。任务源文件保存后若缓存刷新失败，会明确报错，说明源文件已保存。
+
 `"plumb cache status" 显示 semantic cache root，并按 workspace/site 与 binary version 报告 active state、 database/file 数量和 bytes。没有 lease 的旧 layout 数据显示为 unmanaged。
 
 `"plumb cache prune" 删除非当前 binary version 中未被进程使用的可重建 cache；当前版本默认保留。显式 `"plumb cache prune --all" 也会考虑当前版本。LSP、Web 或其它进程仍持有的 active namespace，以及无法用 lease 证明未被使用的 unmanaged 数据，始终只报告而不删除。server startup 不自动清理其它版本。

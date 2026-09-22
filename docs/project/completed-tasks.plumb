@@ -1448,3 +1448,28 @@
  依据 standard-semantics 的 Document facets and tasks target contract 和 editing 的 Document task editing target，贯通共享语义、引用和存储、owned editing、LSP/Neovim 与 Web。验证 incremental/fresh 和 memory/persistent/overlay parity、混合 owner dependency cycles、rename、失败原子性、export 及桌面/窄屏树交互；完成后更新指南与 bundled skill，移除规范待实现标记。
 
  已贯通 Document/ListItem owner、根层 owned editing、路径引用与精确 component rename、SQL/overlay 查询、CLI/LSP/Neovim code actions、Web 文档行替换与筛选 ancestor 保留。全 workspace all-targets 验收通过，后续改动经 workspace lib/tests 回归；桌面与窄屏截图、Web 创建/移除、导出不重复正文均已检查。
+
+`# CLI workspace cache
+
+`- 为 CLI 命令统一接入数据库缓存并保证结果一致性
+
+ `@ cli-database-cache
+
+ `+ task
+
+ `= created 2026-09-21T00:00:00+08:00
+ `= done    2026-09-22T21:51:20+08:00
+
+ 目标：复用 plumb-workspace 的持久化语义缓存，减少重复启动 CLI 时的全量解析和文档分析。范围不限于 check；至少覆盖 note 查询、task 查询与 next、event 导出，以及这些命令的交互和写操作入口。审计全部 CLI 子命令（包括 export、fmt、import、site、lsp 与 cache），记录已有缓存、需要接入的路径和不适用的原因；适用路径必须实际接入，不以只优化 check 作为完成条件。单文件或 stdin 转换不得为了缓存而强制扫描整个 workspace。
+
+ 实现前先更新 workspace architecture 与 diagnostics 等权威规范，明确缓存输入、版本、生命周期、读取快照和失败策略；完成后再更新指南。复用统一 workspace loader、batch indexer、cache namespace 与数据库事实查询，不在各 CLI adapter 中复制解析、SQL 语义或失效规则。
+
+ `- 共享索引与命令接入：按实际读取内容计算 hash，仅对 cache misses 做 parse 和 document-local semantic analysis。缓存命中不得重新解析全部文档；扫描与内容校验仍执行，不以 mtime 单独判定内容未变。固定一次命令的查询时间与参数，重新推导时间相关 task 状态、排序、next 和 event 输出，不缓存会随时间或选项变化的最终输出。
+ `- check 诊断：缓存完整 syntax diagnostics 和 document-local semantic diagnostics，包括无效文档；补齐链接、embed、任务依赖和 event 关联检查所需事实及 source ranges。每次重算跨文档诊断，检查外部附件是否存在；全局 dependency graph 与 cycle context 每轮只构造一次，所有文档共享。诊断查询同时支持内存和数据库输入，输出不能仅遍历内存 documents。
+ `- 缓存一致性：源内容、hash、事实和诊断属于同一 generation；事务原子替换，删除或重命名文件时清除旧事实。schema、producer/分析器版本及影响分析的配置变化必须失效对应结果。一次关系查询使用一致数据库快照，明确 CLI 与 Web/LSP 并发更新时的隔离规则；CLI 检查磁盘内容，不混入其它会话未保存的 overlay。数据库快照不承诺跨文件磁盘快照，但任何单文件结果必须对应同一份实际读取内容。
+ `- 写操作：task complete/cancel/focus/unfocus 及其它修改入口可复用查询缓存，但执行前加载并验证当前源 revision，通过 plumb-edit 生成 guarded edits；不得使用旧缓存 byte ranges 直接改文件。写后刷新或失效对应 generation，后续查询立即可见；并发修改、删除及身份变化必须正确拒绝或重试。
+ `- 故障策略：扫描不完整、权限或读取失败不得沿用旧结果宣称检查通过。缓存不存在、损坏或版本不兼容时安全重建或明确降级至无缓存路径；失败必须可见，不能把错误当空查询结果。提供无缓存运行入口，用于排错和一致性对照，并复用现有 cache inspect/prune 生命周期。
+ `- 验收：各适用命令在同一输入和固定时间下，冷缓存、热缓存、禁用缓存的输出、排序、诊断位置、退出码和写操作结果一致。覆盖新增/删除/重命名、被引用目标修改、anchor 歧义、依赖环变化、附件删除、语法错误出现与修复、版本失效、损坏缓存、读取失败、并发读写及中断事务。测试热缓存确实跳过未变文档解析，而非仅断言输出相等。
+ `- 性能：在代表性大小 workspace 上记录冷启动、全热缓存和少量文件修改的耗时、解析数量、命中率与内存；区分扫描/读取/hash、解析/本地分析、数据库和全局关系检查成本，避免未经测量承诺加速倍数。
+
+ 验收：共享 disk snapshot loader 已接入全部适用 CLI 路径；全工作区测试与冷/热/无缓存一致性、并发隔离、失效和失败传播测试通过。测量与限制见 `->{{CLI cache performance} ../history/performance/cli-cache-2026-09.plumb}。

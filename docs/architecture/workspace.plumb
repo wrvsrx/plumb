@@ -4,8 +4,6 @@
 
 `# CLI disk snapshot contract
 
-实施状态：以下 CLI 接入与 cached diagnostic inputs 正在实现，验收通过前不作为 guide 中的可用能力。
-
 check、note（含 interactive）、task query/next/complete/cancel/focus/unfocus、event query/export-vdir 必须
 通过同一个 workspace-owned disk loader 使用 versioned workspaces cache。每次命令重新扫描并读取 source，按
 content hash 复用未变 generation；mtime 不是 cache identity。命令固定一次 now，缓存不保存最终 CEL 结果、
@@ -22,8 +20,8 @@ source bytes 可为 preview、diagnostic location 和 lazy mutation materializat
 配置必须进入 cache identity。跨文件诊断与外部资源存在性每轮重算，不缓存最终 check output。
 
 scan/read failure 必须使命令失败，不能沿用旧 generation 宣称成功。缓存 open、migration 或 index failure
-必须以 warning 明确降级至 memory backend；decode failure 明确报告错误及 --no-cache 排错入口，不能转换为空查询。
---cache-stats 在 stderr 报告 documents、hits、parsed，不改变 stdout。缺失缓存自动建立，schema/producer mismatch
+必须以 warning 明确降级至 memory backend；decode failure 明确报告错误，不能转换为空查询；--no-cache 提供排错入口。
+--cache-stats 在 stderr 报告 documents、hits、实际 parsed 数量与各阶段耗时，不改变 stdout。缺失缓存自动建立，schema/producer mismatch
 原子清空 derived generations 后重建；损坏缓存可以由 cache prune 清理，禁止修改源文件以修复 cache。
 
 mutation 只为目标 source snapshot materialize 当前 revision，验证实际 disk bytes 未改变，再通过 plumb-edit 提出

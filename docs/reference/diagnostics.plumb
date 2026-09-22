@@ -19,7 +19,7 @@ recovered view。
 workspace snapshot 的所有 document diagnostics 之间复用；不能按文档重复构造全库上下文。复用不得改变
 diagnostic code、severity、message、range、related ranges 或顺序，也不能省略已关闭任务的检查。
 
-实施状态：persistent diagnostic inputs 正在实现。disk generation 保存全部 syntax 与 document-local semantic
+disk generation 保存全部 syntax 与 document-local semantic
 diagnostics；syntax-invalid source 只保存 syntax diagnostics，不沿用 previous semantic diagnostics。数据库与内存
 诊断输入必须产生相同结果，包含没有内存 DocumentEntry 的文档。跨文件 links、embeds、task prev/dependencies、
 event associations 和 cycles 仍针对当前 query snapshot 检查；外部文件存在性每轮读取。缓存命中不能跳过这些检查。
