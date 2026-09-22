@@ -15,6 +15,10 @@ revision semantic diagnostics。last-valid semantic outputs 可以继续服务 c
 current diagnostics。export 与 authoritative edits 只接受 ValidDocument；completion/folding 可以显式查询
 recovered view。
 
+一次 workspace diagnostic round 必须只构造一次全局 task dependency graph 与 cycle context，并在同一
+workspace snapshot 的所有 document diagnostics 之间复用；不能按文档重复构造全库上下文。复用不得改变
+diagnostic code、severity、message、range、related ranges 或顺序，也不能省略已关闭任务的检查。
+
 `# 3. Syntax categories
 
 `- structural：top-level indentation、tab indentation、partial dedent 与 illegal parsed control。

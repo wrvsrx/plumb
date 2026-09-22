@@ -312,12 +312,13 @@ fn render_workspace_diagnostics(
     entries.sort_by(|left, right| left.path.cmp(&right.path));
     let mut output = String::new();
     let mut has_failures = false;
+    let context = loaded.workspace.diagnostic_context().map_err(|error| error.to_string())?;
     for entry in entries {
         let path = &entry.path;
         let source = entry.parsed.source();
         let mut diagnostics = loaded
             .workspace
-            .diagnostics(path)
+            .diagnostics_with_context(path, &context)
             .map_err(|error| error.to_string())?
             .value;
         diagnostics.sort_by(|left, right| {
@@ -486,6 +487,28 @@ mod tests {
             render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint).unwrap();
         assert!(!has_failures, "{output}");
         assert!(output.contains("hint[task.blocked]"), "{output}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_round_reports_cross_file_cycles_and_closed_task_dependencies() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        for (file, id, dependency, closed) in [
+            ("a.plumb", "a", "b.plumb#b", true),
+            ("b.plumb", "b", "a.plumb#a", false),
+        ] {
+            let mut source = format!("`- Task\n `+ task\n `@ {id}\n `= depends {dependency}\n");
+            if closed {
+                source.push_str(" `= done 2026-09-22T00:00:00Z\n");
+            }
+            std::fs::write(root.join(file), source).unwrap();
+        }
+        let loaded = load_workspace(&root).unwrap();
+        let (output, failures) = render_workspace_diagnostics(&root, &loaded, CheckLevel::Hint).unwrap();
+        assert!(!failures);
+        assert_eq!(output.matches("warning[task.dependency-cycle]").count(), 2, "{output}");
+        assert_eq!(output.matches("warning[task.done-with-open-dependency]").count(), 1, "{output}");
         std::fs::remove_dir_all(root).unwrap();
     }
 
