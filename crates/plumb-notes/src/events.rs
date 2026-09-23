@@ -91,12 +91,18 @@ fn desired_events(loaded: &LoadedWorkspace) -> Result<BTreeMap<String, String>, 
             .into_iter()
             .map(|task| task.source)
             .collect::<Vec<_>>();
+        let (shares, issues) = loaded.workspace.event_accounting(&path, &event, 0.0)?;
+        if !issues.is_empty() {
+            return Err(format!("cannot export accounting categories for '{}' in {}: {}", event.title, path.display(), issues.iter().map(|i| i.message.as_str()).collect::<Vec<_>>().join("; ")));
+        }
+        let categories = shares.into_iter().filter_map(|s| s.category).collect::<std::collections::BTreeSet<_>>();
         let ical = render_event(
             &event,
             &uid,
             start,
             end.map(|end| end.with_timezone(&Utc)),
             &tasks,
+            &categories,
         );
         let filename = format!("{uid}.ics");
         if desired.insert(filename, ical).is_some() {
@@ -195,6 +201,7 @@ fn render_event(
     start: DateTime<Utc>,
     end: Option<DateTime<Utc>>,
     tasks: &[String],
+    categories: &std::collections::BTreeSet<String>,
 ) -> String {
     let mut lines = vec![
         "BEGIN:VCALENDAR".to_string(),
@@ -213,6 +220,9 @@ fn render_event(
     lines.push(format!("DESCRIPTION:{}", escape_text(&event.details)));
     for task in tasks {
         lines.push(format!("X-PLUMB-TASK:{}", escape_text(task)));
+    }
+    if !categories.is_empty() {
+        lines.push(format!("CATEGORIES:{}", categories.iter().map(|c| escape_text(c)).collect::<Vec<_>>().join(",")));
     }
     lines.extend(["END:VEVENT".to_string(), "END:VCALENDAR".to_string()]);
     let mut output = String::new();
@@ -307,7 +317,7 @@ mod tests {
         ));
         let output = root.join("calendar");
         std::fs::create_dir_all(&root).unwrap();
-        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:30 Review, parser; semantics with a deliberately long summary that must be folded safely\n\n `+ event\n\n `= tasks #write\n\n `note First line\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:30 Review, parser; semantics with a deliberately long summary that must be folded safely\n\n `+ event\n\n `= tasks #write\n\n `note First line\n`- Write parser\n `+ task\n `@ write\n `= category work\n";
         let mut workspace = Workspace::new();
         insert_fixture(&mut workspace, root.join("events.plumb"), 1, source);
         let mut loaded = LoadedWorkspace::from_memory(root.clone(), workspace);
@@ -339,6 +349,7 @@ mod tests {
         assert!(ical.contains("SUMMARY:Review\\, parser\\;"), "{ical:?}");
         assert!(ical.contains("\r\n "), "{ical:?}");
         assert!(ical.contains("X-PLUMB-TASK:#write\r\n"), "{ical:?}");
+        assert!(ical.contains("CATEGORIES:work\r\n"), "{ical:?}");
         std::fs::write(output.join("stale.ics"), "stale").unwrap();
         export_vdir(&loaded, &output).unwrap();
         assert_eq!(std::fs::read_to_string(item.path()).unwrap(), ical);

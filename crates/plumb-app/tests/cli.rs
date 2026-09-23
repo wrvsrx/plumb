@@ -148,7 +148,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("agenda.plumb"),
-        "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:00 Parser review\n `+ event\n `@ review\n `= tasks #write\n",
+        "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:00 Parser review\n `+ event\n `@ review\n `= tasks #write\n`- Implement parser\n `+ task\n `@ write\n `= category work\n",
     )
     .unwrap();
     let exported = plumb_command()
@@ -1065,4 +1065,27 @@ fn concurrent_cli_commands_share_cache_without_mixing_outputs() {
     let warm = command().arg("--cache-stats").output().unwrap();
     assert!(String::from_utf8_lossy(&warm.stderr).contains("hits=1 parsed=0"));
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn agenda_cli_projects_shared_allocations_and_coverage_exit_status() {
+    let dir = unique_temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.as_path().join("day.plumb"), "`= date 2026-09-22\n`= timezone +00:00\n`- 10:00--11:00 Work\n `+ event\n `= category work\n").unwrap();
+    let run = |command: &str, end: &str| plumb_command().args(["event", command, "--root"]).arg(dir.as_path())
+        .args(["--from", "2026-09-22T10:00:00Z", "--to", end, "--json"]).output().unwrap();
+    let summary = run("summary", "2026-09-22T11:00:00Z");
+    assert!(summary.status.success(), "{}", String::from_utf8_lossy(&summary.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&summary.stdout).unwrap();
+    assert_eq!(json["categories"][0]["category"], "work");
+    assert_eq!(json["categories"][0]["seconds"], 3600.0);
+    assert!(run("check-timeline", "2026-09-22T11:00:00Z").status.success());
+    let gap = run("check-timeline", "2026-09-22T12:00:00Z");
+    assert_eq!(gap.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&gap.stdout).unwrap();
+    assert_eq!(json["gaps"].as_array().unwrap().len(), 1);
+    assert_eq!(run("check-timeline", "2026-09-22T09:00:00Z").status.code(), Some(2));
+    std::fs::write(dir.as_path().join("bad.plumb"), "`- tomorrow Bad\n `+ event\n").unwrap();
+    assert_eq!(run("check-timeline", "2026-09-22T11:00:00Z").status.code(), Some(2));
+    std::fs::remove_dir_all(dir).unwrap();
 }

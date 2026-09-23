@@ -10,6 +10,7 @@ use plumb_workspace::{
 };
 
 mod events;
+mod agenda;
 mod interactive;
 mod tasks;
 
@@ -24,11 +25,12 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
             return ExitCode::from(error.exit_code() as u8);
         }
     };
+    let agenda_query = matches!(&config.command, Command::Event(EventConfig { command: Some(EventCommand::Summary(_) | EventCommand::CheckTimeline(_)) }));
     match run(config) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => ExitCode::from(code),
         Err(error) => {
             eprintln!("plumb: {error}");
-            ExitCode::FAILURE
+            ExitCode::from(if agenda_query { 2 } else { 1 })
         }
     }
 }
@@ -62,7 +64,7 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     }
 }
 
-fn run(config: Config) -> Result<(), String> {
+fn run(config: Config) -> Result<u8, String> {
     let root = resolve_workspace_root(config.root.as_deref())?;
     let mut loaded = load_command_workspace(&root, config.no_cache, config.cache_stats)?;
     match config.command {
@@ -113,6 +115,8 @@ fn run(config: Config) -> Result<(), String> {
             )?,
         },
         Command::Event(event) => match event.command {
+            Some(EventCommand::Summary(options)) => return agenda::run(&loaded, config.query.as_deref(), &options, true),
+            Some(EventCommand::CheckTimeline(options)) => return agenda::run(&loaded, config.query.as_deref(), &options, false),
             Some(EventCommand::ExportVdir(export)) => {
                 if config.query.is_some() {
                     return Err("event export-vdir does not support --query".to_string());
@@ -148,7 +152,7 @@ fn run(config: Config) -> Result<(), String> {
             }
         },
     }
-    Ok(())
+    Ok(0)
 }
 
 #[derive(Debug, Parser)]
@@ -207,7 +211,7 @@ enum Command {
     Note(NoteConfig),
     /// Print tasks found in scanned plumb files.
     Task(TaskConfig),
-    /// Export events for calendar clients.
+    /// Query, account, and export events.
     Event(EventConfig),
 }
 
@@ -219,9 +223,31 @@ struct EventConfig {
 
 #[derive(Debug, Subcommand)]
 enum EventCommand {
+    /// Summarize clipped event time by category, item, or task.
+    Summary(AgendaConfig),
+    /// Require complete, non-overlapping coverage of a time window.
+    CheckTimeline(AgendaConfig),
     /// Generate a managed read-only vdir calendar.
     ExportVdir(EventExportConfig),
 }
+
+#[derive(Debug, Args)]
+struct AgendaConfig {
+    /// Inclusive RFC 3339 instant, with an explicit UTC offset.
+    #[arg(long)]
+    from: chrono::DateTime<chrono::FixedOffset>,
+    /// Exclusive RFC 3339 instant, later than --from.
+    #[arg(long)]
+    to: chrono::DateTime<chrono::FixedOffset>,
+    /// Emit the full structured report, including allocations and source locations.
+    #[arg(long)]
+    json: bool,
+    #[arg(long, value_enum, default_value_t = AgendaGroup::Category)]
+    group_by: AgendaGroup,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum AgendaGroup { Category, Item, Task }
 
 #[derive(Debug, Args)]
 struct EventExportConfig {
