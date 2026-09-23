@@ -174,6 +174,7 @@ impl Workspace {
         };
         let mut seen = BTreeSet::new();
         let mut shares = Vec::new();
+        let mut item_categories = Vec::new();
         for (target, spelling, range) in refs {
             let identity = match &target {
                 TaskReferenceTarget::Internal { id } => Some(AgendaItem {
@@ -253,23 +254,25 @@ impl Workspace {
             if category.invalid && event.category.declarations.is_empty() {
                 issues.push(issue(
                     "agenda.invalid-category",
-                    "item category must be one nonempty plain scalar",
+                    "item category must be a nonempty scalar or list of plain categories",
                     category_source.clone().unwrap_or_else(|| source.clone()),
                 ));
             }
+            item_categories.push(if valid && !category.invalid {
+                category.values
+            } else {
+                Vec::new()
+            });
             shares.push(AgendaShare {
                 item: identity,
                 is_task,
-                category: if valid && !category.invalid {
-                    category.value
-                } else {
-                    None
-                },
+                category: None,
                 category_source,
                 seconds: 0.0,
             });
         }
         if shares.is_empty() {
+            item_categories.push(Vec::new());
             shares.push(AgendaShare {
                 item: None,
                 is_task: false,
@@ -282,22 +285,35 @@ impl Workspace {
         if event.category.invalid {
             issues.push(issue(
                 "agenda.invalid-category",
-                "event category must be one nonempty plain scalar",
+                "event category must be a nonempty scalar or list of plain categories",
                 source.clone(),
             ));
         }
-        for share in &mut shares {
-            share.seconds = divided;
-            if !event.category.declarations.is_empty() {
-                share.category = if event.category.invalid {
-                    None
-                } else {
-                    event.category.value.clone()
-                };
+        let mut allocated = Vec::new();
+        for (mut share, inherited) in shares.into_iter().zip(item_categories) {
+            let categories = if !event.category.declarations.is_empty() {
                 share.category_source =
                     Some(location(&path, event.category.declarations[0].clone()));
+                if event.category.invalid {
+                    Vec::new()
+                } else {
+                    event.category.values.clone()
+                }
+            } else {
+                inherited
+            };
+            share.seconds = divided / categories.len().max(1) as f64;
+            if categories.is_empty() {
+                allocated.push(share);
+            } else {
+                for category in categories {
+                    let mut part = share.clone();
+                    part.category = Some(category);
+                    allocated.push(part);
+                }
             }
         }
+        let shares = allocated;
         Ok((shares, issues))
     }
 
@@ -487,6 +503,86 @@ impl Workspace {
             .into_iter()
             .map(|(item, seconds)| ItemTotal { item, seconds })
             .collect();
+        report.complete &= report.issues.is_empty();
+        Ok(report)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CategoryCheckReport {
+    pub complete: bool,
+    pub checked: usize,
+    pub missing: Vec<AgendaLocation>,
+    pub issues: Vec<AgendaIssue>,
+}
+impl Workspace {
+    /// Check selected event categories without imposing a time window.
+    pub fn check_event_categories(
+        &self,
+        root: &Path,
+        now: DateTime<FixedOffset>,
+        filter: Option<&str>,
+        explicit: bool,
+    ) -> Result<CategoryCheckReport, String> {
+        let selected = self
+            .search_records_filtered(
+                root,
+                Some(SearchRecordKind::Event),
+                "",
+                usize::MAX,
+                now,
+                filter,
+            )
+            .map_err(|e| e.to_string())?;
+        let mut report = CategoryCheckReport {
+            complete: selected.completeness == QueryCompleteness::Complete
+                && selected.value.complete,
+            checked: 0,
+            missing: Vec::new(),
+            issues: Vec::new(),
+        };
+        let mut by_path = BTreeMap::<PathBuf, BTreeSet<usize>>::new();
+        for record in selected.value.items {
+            by_path
+                .entry(record.path)
+                .or_default()
+                .insert(record.range.start);
+        }
+        for (path, starts) in by_path {
+            let events = if self.documents.contains_key(&path) {
+                self.current_output(&path)
+                    .map(|o| o.events().events.iter().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            } else if let Some(store) = &self.disk_store {
+                store.events_for_path(&path).map_err(|e| e.to_string())?
+            } else {
+                Vec::new()
+            };
+            for event in events
+                .into_iter()
+                .filter(|e| starts.contains(&e.selection_range.start))
+            {
+                report.checked += 1;
+                let source = location(&path, event.selection_range.clone());
+                let missing = if explicit {
+                    if event.category.invalid {
+                        report.issues.push(issue(
+                            "agenda.invalid-category",
+                            "invalid event category",
+                            source.clone(),
+                        ));
+                    }
+                    event.category.values.is_empty() || event.category.invalid
+                } else {
+                    let (shares, issues) = self.event_accounting(&path, &event, 0.0)?;
+                    report.issues.extend(issues);
+                    shares.iter().any(|s| s.category.is_none())
+                };
+                if missing {
+                    report.missing.push(source);
+                }
+            }
+        }
         report.complete &= report.issues.is_empty();
         Ok(report)
     }

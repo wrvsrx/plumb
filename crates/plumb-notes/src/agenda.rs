@@ -115,3 +115,55 @@ pub(super) fn run(
         0
     })
 }
+
+pub(super) fn check_category(
+    loaded: &LoadedWorkspace,
+    filter: Option<&str>,
+    options: &super::CategoryCheckConfig,
+) -> Result<u8, String> {
+    let report = loaded.workspace.check_event_categories(
+        &loaded.root,
+        loaded.now,
+        filter,
+        options.explicit,
+    )?;
+    if options.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+        );
+    } else {
+        println!(
+            "checked: {}; missing: {}",
+            report.checked,
+            report.missing.len()
+        );
+        for source in &report.missing {
+            println!(
+                "missing-category\t{}:{}..{}",
+                source.path.display(),
+                source.range.start,
+                source.range.end
+            );
+        }
+        for issue in &report.issues {
+            println!(
+                "{}\t{}:{}\t{}",
+                issue.code,
+                issue.source.path.display(),
+                issue.source.range.start,
+                issue.message
+            );
+        }
+        if !report.complete {
+            println!("incomplete");
+        }
+    }
+    Ok(if !report.complete {
+        2
+    } else if !report.missing.is_empty() {
+        1
+    } else {
+        0
+    })
+}

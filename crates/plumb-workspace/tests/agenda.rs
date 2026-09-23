@@ -180,3 +180,120 @@ fn document_tasks_supply_categories_and_filter_is_recorded() {
     assert_eq!(r.filter.as_deref(), Some("path == 'other.plumb'"));
     assert_eq!(r.gaps.len(), 1);
 }
+
+#[test]
+fn category_lists_split_each_item_share_without_inflating_totals() {
+    let mut w = Workspace::new();
+    w.insert(
+        "/notes/items.plumb",
+        0,
+        ITEMS.replace(
+            " `= category learn",
+            " `= category\n  `- learn\n  `- phd misc\n  `- learn",
+        ),
+    );
+    w.insert("/notes/day.plumb", 0, EVENT);
+    let r = report(&w, true);
+    assert!(r.complete);
+    assert_eq!(r.categories.iter().map(|c| c.seconds).sum::<f64>(), 3600.0);
+    assert_eq!(
+        r.categories
+            .iter()
+            .map(|c| (c.category.as_deref(), c.seconds))
+            .collect::<Vec<_>>(),
+        [
+            (Some("learn"), 600.0),
+            (Some("phd misc"), 600.0),
+            (Some("work"), 2400.0)
+        ]
+    );
+    assert!(r.items.iter().all(|i| i.seconds == 1200.0));
+    w.insert(
+        "/notes/day.plumb",
+        1,
+        EVENT.replace(
+            " `+ event",
+            " `+ event\n `= category\n  `- personal\n  `- work",
+        ),
+    );
+    let r = report(&w, true);
+    assert_eq!(
+        r.categories.iter().map(|c| c.seconds).collect::<Vec<_>>(),
+        [1800.0, 1800.0]
+    );
+}
+
+#[test]
+fn category_check_covers_all_dates_points_and_explicit_mode_ignores_references() {
+    let mut w = Workspace::new();
+    w.insert("/notes/items.plumb", 0, ITEMS);
+    w.insert("/notes/day.plumb", 0, EVENT);
+    let check = |w: &Workspace, explicit| {
+        w.check_event_categories(Path::new("/notes"), dt(START), None, explicit)
+            .unwrap()
+    };
+    assert!(check(&w, false).missing.is_empty());
+    assert_eq!(check(&w, true).missing.len(), 1);
+    w.insert(
+        "/notes/old.plumb",
+        0,
+        "`- 2020-01-01T10:00:00Z Point\n `+ event\n",
+    );
+    assert_eq!(check(&w, false).checked, 2);
+    assert_eq!(check(&w, false).missing.len(), 1);
+    w.insert(
+        "/notes/day.plumb",
+        1,
+        EVENT
+            .replace("items.plumb#a", "missing.plumb")
+            .replace(" `+ event", " `+ event\n `= category phd misc"),
+    );
+    assert!(check(&w, true).complete);
+    assert!(!check(&w, false).complete);
+    w.insert(
+        "/notes/old.plumb",
+        1,
+        "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= category\n",
+    );
+    assert!(!check(&w, true).complete);
+}
+
+#[test]
+fn category_check_and_multivalue_accounting_match_persistent_queries() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap();
+    let mut disk = Workspace::with_sqlite_store(store);
+    let mut memory = Workspace::new();
+    let items = ITEMS.replace("category learn", "category\n  `- phd misc\n  `- learn");
+    for (path, text) in [
+        ("/notes/items.plumb", items.as_str()),
+        ("/notes/day.plumb", EVENT),
+    ] {
+        disk.insert_disk(path, 0, text).unwrap();
+        memory.insert(path, 0, text);
+    }
+    assert_eq!(
+        serde_json::to_value(report(&disk, true)).unwrap(),
+        serde_json::to_value(report(&memory, true)).unwrap()
+    );
+    for explicit in [true, false] {
+        let check = |w: &Workspace| {
+            w.check_event_categories(Path::new("/notes"), dt(START), None, explicit)
+                .unwrap()
+        };
+        assert_eq!(
+            serde_json::to_value(check(&disk)).unwrap(),
+            serde_json::to_value(check(&memory)).unwrap()
+        );
+    }
+    let check = disk
+        .check_event_categories(
+            Path::new("/notes"),
+            dt(START),
+            Some("path == 'other.plumb'"),
+            true,
+        )
+        .unwrap();
+    assert_eq!(check.checked, 0);
+    assert!(check.complete);
+}

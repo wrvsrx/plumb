@@ -8,23 +8,41 @@ fn category_is_owner_local_and_preserves_invalid_declarations() {
     let output = analyze_document(parsed.valid_syntax().unwrap());
     let tasks = &output.tasks().tasks;
     assert_eq!(
-        tasks.get(0).unwrap().category.value.as_deref(),
+        tasks
+            .get(0)
+            .unwrap()
+            .category
+            .values
+            .first()
+            .map(String::as_str),
         Some("project")
     );
     assert_eq!(
-        tasks.get(1).unwrap().category.value.as_deref(),
+        tasks
+            .get(1)
+            .unwrap()
+            .category
+            .values
+            .first()
+            .map(String::as_str),
         Some("phd misc")
     );
     let anchors = output.anchors();
     assert_eq!(
-        anchors.get(0).unwrap().category.value.as_deref(),
+        anchors
+            .get(0)
+            .unwrap()
+            .category
+            .values
+            .first()
+            .map(String::as_str),
         Some("relax")
     );
     assert!(anchors.get(0).unwrap().list_item);
     assert!(anchors.get(1).unwrap().category.invalid);
     assert!(anchors.get(2).unwrap().category.invalid);
     assert_eq!(anchors.get(2).unwrap().category.declarations.len(), 2);
-    assert!(anchors.get(3).unwrap().category.value.is_none());
+    assert!(anchors.get(3).unwrap().category.values.is_empty());
 }
 
 #[test]
@@ -33,7 +51,10 @@ fn accounting_links_only_include_direct_title_members() {
     let parsed = parse(source);
     let output = analyze_document(parsed.valid_syntax().unwrap());
     let event = output.events().events.get(0).unwrap();
-    assert_eq!(event.category.value.as_deref(), Some("override"));
+    assert_eq!(
+        event.category.values.first().map(String::as_str),
+        Some("override")
+    );
     assert_eq!(
         event
             .accounting_links
@@ -52,7 +73,10 @@ fn category_accepts_plain_grouping_and_literal_spelling_but_not_rich_values() {
         let output = analyze_document(parsed.valid_syntax().unwrap());
         let category = output.tasks().tasks.get(0).unwrap().category;
         assert!(!category.invalid, "{spelling}");
-        assert_eq!(category.value.as_deref(), Some("phd misc"));
+        assert_eq!(
+            category.values.first().map(String::as_str),
+            Some("phd misc")
+        );
     }
     let parsed = parse("`- Work\n `+ task\n `= category `!{work}\n");
     assert!(
@@ -64,4 +88,26 @@ fn category_accepts_plain_grouping_and_literal_spelling_but_not_rich_values() {
             .category
             .invalid
     );
+}
+
+#[test]
+fn category_list_preserves_multiword_values_and_deduplicates() {
+    let parsed =
+        parse("`- Work\n `+ task\n `= category\n  `- phd misc\n  `- others\n  `- phd misc\n");
+    let output = analyze_document(parsed.valid_syntax().unwrap());
+    let category = output.tasks().tasks.get(0).unwrap().category;
+    assert!(!category.invalid);
+    assert_eq!(category.values, ["phd misc", "others"]);
+    for tail in ["", "  `-\n", "  `- work\n\n   nested\n", "  `+ work\n"] {
+        let parsed = parse(&format!("`- Work\n `+ task\n `= category\n{tail}"));
+        assert!(
+            analyze_document(parsed.valid_syntax().unwrap())
+                .tasks()
+                .tasks
+                .get(0)
+                .unwrap()
+                .category
+                .invalid
+        );
+    }
 }

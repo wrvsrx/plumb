@@ -142,3 +142,12 @@ importer 覆盖 `"plumb export" 当前产生的标准 profile，并保证受支�
 Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如 figure、raw HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal 或非 1 起始 ordered list 当前均不受支持。Table 的 rowspan、colspan、alignment、column widths、foot 与复杂 body grouping 也不可表示。 Pandoc attribute name 不能表示为 declaration name，或 Link/Image property 与 target tuple 冲突时也会失败。 importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
 
 项目方向与尚需验证的工作统一记录在 `->{路线图 ../project/roadmap.plumb}；可直接实施的 工作见 `->{当前任务 ../project/tasks.plumb}。本指南不复制实现进度。
+
+`## 检查事件分类
+
+`sh"
+ plumb event check-category --root ~/notes --json
+ plumb event check-category --root ~/notes --explicit --json
+
+检查全部选中的 events（支持全局 query），无需指定日期范围。默认考虑引用事项的分类；explicit 只检查 event 自身声明，适合迁移检查。
+报告 checked 数量、missing 位置与 issues。退出码 0 表示全部有分类，1 表示缺分类，2 表示非法分类或检查不完整。

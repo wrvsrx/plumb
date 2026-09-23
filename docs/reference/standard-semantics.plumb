@@ -324,8 +324,9 @@ deterministically derivation；source uid/when opaque。vdir export 是 managed 
 
 `## 11.1 Agenda accounting
 
-`"category" 是 owner 自身的单值 nonempty plain scalar property；允许内部空格、anonymous grouping 与 unmarked inline verbatim，
-这些 spelling 按 Stringify 得到同一分类。不允许 marked rich inline、重复、空值或带 block children 的结构化值。
+`"category" 的 scalar spelling 按 first : rest 分隔：首个元素是 key，全部剩余内容是一个分类（例如 phd misc）。
+允许 anonymous grouping 与 unmarked inline verbatim；多个分类必须使用head 仅含 category 的 property 下直接 leaf `"-" list items，每项完整内容是一个分类。
+分类按首次出现顺序去重。不允许 marked rich inline、重复 property、空值、非 list children 或嵌套 children。
 list item（包括 task、event）与 document task 可以声明分类。不从标题前缀、tags、父节点或任意链接递归推导。
 普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
 
@@ -336,7 +337,7 @@ event 显式 tasks 声明优先定义核算事项集合，保持现有 task targ
 无法解析、歧义或非法目标必须保留问题并使结果不完整，不能删除该项再重新均分。
 
 分类来自事项自身的 category；缺少分类的份额进入未分类。event 自身显式 category 覆盖整段事件的类别，
-但不改变事项分摊。非法显式分类不回退。没有事项的事件仍计入 event category 或未分类。
+但不改变事项分摊。每个事项所得时长再按其去重分类数量均分；分类总时长不会膨胀。非法显式分类不回退。没有事项的事件仍计入 event category 或未分类。
 查询保留 source event、target、分类来源与均分依据，内部不按显示精度舍入。
 事项分类修改后历史事件动态重算；固定某次历史类别应在 event 上写显式 category。
 分类冲突不报错：例如 60 分钟关联 work、work、learn 三项，分别分得 20 分钟，类别合计为 40 与 20 分钟。
@@ -344,11 +345,17 @@ event 显式 tasks 声明优先定义核算事项集合，保持现有 task targ
 用时只来自有效 event interval，不使用 task focused history。point event 不推测时长。
 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。
 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、
-索引不完整均显式呈现。笔记多值 tags 与单值 category 无隐式转换。
+索引不完整均显式呈现。笔记多值 tags 与 category 无隐式转换。
 
 vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保持原始 category spelling；未知份额不伪造分类。
 该集合不编码权重，不能据此复原均分；精确核算消费者必须使用 summary JSON 中的 shares/categories。
 无法完成分类解析时 export 明确失败，不静默丢弃分类或重新推断标题前缀。
+
+`## 11.2 分类完整性检查
+
+event check-category 查询全部选中 events，不要求时间窗口。默认检查有效继承分类的每个份额；explicit 模式只检查 event 自身声明，不解析引用。
+无分类给出 event 位置；非法 category 或无法完整查询返回不完整。point events 同样检查。退出码 0 表示全部有分类，1 表示存在未分类，2 表示不完整。
+
 
 `# 12. Tables
 

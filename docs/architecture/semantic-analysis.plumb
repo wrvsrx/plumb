@@ -481,3 +481,9 @@ Document task 在完整 root declarations 上汇总一次；跨 shard 的 proper
 Exported semantic delta 的 record address 显式区分 document reducer record 与 shard-local record：document address 的 node_index 为 None，local_record_index 为该 reducer collection 的索引；不能伪造 shard index。文档任务增删或字段变化必须出现在 task delta，即使所有 list records 均被复用。文档与第一条 list task 可以具有相同 source start；start offset 单独不能作为跨 owner 的唯一身份。
 
 任务引用补全在 anchor component 内使用解码后的目标路径进行候选查询，并使用 source-backed id range 替换 anchor；不能用 decoded path 长度推算源码 offset。普通 parsed spelling 与 inline Verbatim 必须保持其路径和 envelope。
+
+`## 分类检查查询
+
+check-event-categories 在 workspace 层复用 event selection 与 category 解析，独立于 timeline window。explicit 模式不解析事项引用；默认检查每个有效核算份额。
+输出 complete、checked、missing source locations 与 issues。CLI event check-category 仅投影结果与 0/1/2 退出码，不另行推导类别。
+Category 持久化保存去重 values 数组；结构变化提升 store schema version，旧缓存重新索引。

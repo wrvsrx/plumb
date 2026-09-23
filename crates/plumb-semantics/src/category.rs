@@ -5,7 +5,7 @@ use std::ops::Range;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Category {
-    pub value: Option<String>,
+    pub values: Vec<String>,
     pub declarations: Vec<Range<usize>>,
     pub invalid: bool,
 }
@@ -26,13 +26,34 @@ impl Category {
                 continue;
             }
             result.declarations.push(property.range.clone());
-            let value = scalar
-                .filter(|c| plain_scalar(&c.items))
-                .map(|c| c.plain_text().trim().to_owned())
-                .filter(|v| !v.is_empty());
-            result.invalid |= value.is_none() || result.declarations.len() > 1;
-            if result.value.is_none() {
-                result.value = value;
+            let mut values = Vec::new();
+            if let Some(c) = scalar {
+                if plain_scalar(&c.items) && !c.plain_text().trim().is_empty() {
+                    values.push(c.plain_text().trim().to_owned());
+                } else {
+                    result.invalid = true;
+                }
+            } else {
+                for child in &property.children {
+                    let Block::Parsed(item) = child else {
+                        result.invalid = true;
+                        continue;
+                    };
+                    let text = item.content.plain_text().trim().to_owned();
+                    if !item.mark.as_ref().is_some_and(|m| m.marker == "-")
+                        || !item.children.is_empty()
+                        || !plain_scalar(&item.content.items)
+                        || text.is_empty()
+                    {
+                        result.invalid = true;
+                    } else if !values.contains(&text) {
+                        values.push(text);
+                    }
+                }
+            }
+            result.invalid |= values.is_empty() || result.declarations.len() > 1;
+            if result.values.is_empty() {
+                result.values = values;
             }
         }
         result
@@ -46,8 +67,8 @@ impl Category {
     pub(crate) fn extend(&mut self, other: Self) {
         self.invalid |=
             other.invalid || (!self.declarations.is_empty() && !other.declarations.is_empty());
-        if self.value.is_none() {
-            self.value = other.value;
+        if self.values.is_empty() {
+            self.values = other.values;
         }
         self.declarations.extend(other.declarations);
     }

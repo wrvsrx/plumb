@@ -1089,3 +1089,24 @@ fn agenda_cli_projects_shared_allocations_and_coverage_exit_status() {
     assert_eq!(run("check-timeline", "2026-09-22T11:00:00Z").status.code(), Some(2));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn category_check_has_no_time_window_and_reports_missing_and_invalid() {
+    let dir = unique_temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let run = || plumb_command().args(["event", "check-category", "--root"]).arg(dir.as_path()).args(["--explicit", "--json"]).output().unwrap();
+    let path = dir.as_path().join("day.plumb");
+    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= category phd misc\n").unwrap();
+    let out = run();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["checked"], 1);
+    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n").unwrap();
+    let out = run();
+    assert_eq!(out.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["missing"].as_array().unwrap().len(), 1);
+    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= category\n").unwrap();
+    assert_eq!(run().status.code(), Some(2));
+    std::fs::remove_dir_all(dir).unwrap();
+}

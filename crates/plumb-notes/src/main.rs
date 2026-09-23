@@ -25,7 +25,7 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
             return ExitCode::from(error.exit_code() as u8);
         }
     };
-    let agenda_query = matches!(&config.command, Command::Event(EventConfig { command: Some(EventCommand::Summary(_) | EventCommand::CheckTimeline(_)) }));
+    let agenda_query = matches!(&config.command, Command::Event(EventConfig { command: Some(EventCommand::Summary(_) | EventCommand::CheckTimeline(_) | EventCommand::CheckCategory(_)) }));
     match run(config) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
@@ -116,6 +116,7 @@ fn run(config: Config) -> Result<u8, String> {
         },
         Command::Event(event) => match event.command {
             Some(EventCommand::Summary(options)) => return agenda::run(&loaded, config.query.as_deref(), &options, true),
+            Some(EventCommand::CheckCategory(options)) => return agenda::check_category(&loaded, config.query.as_deref(), &options),
             Some(EventCommand::CheckTimeline(options)) => return agenda::run(&loaded, config.query.as_deref(), &options, false),
             Some(EventCommand::ExportVdir(export)) => {
                 if config.query.is_some() {
@@ -225,10 +226,21 @@ struct EventConfig {
 enum EventCommand {
     /// Summarize clipped event time by category, item, or task.
     Summary(AgendaConfig),
+    /// Check categories of all selected events, without a time window.
+    CheckCategory(CategoryCheckConfig),
     /// Require complete, non-overlapping coverage of a time window.
     CheckTimeline(AgendaConfig),
     /// Generate a managed read-only vdir calendar.
     ExportVdir(EventExportConfig),
+}
+
+#[derive(Debug, Args)]
+struct CategoryCheckConfig {
+    /// Check only the category declared on each event, without resolving references.
+    #[arg(long)]
+    explicit: bool,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
