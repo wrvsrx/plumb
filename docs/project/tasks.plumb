@@ -1,3 +1,19 @@
 `= title plumb tasks
 
 本页只记录可以直接实施和验收的工作。方向、约束和 deferred design 继续放在 `->{roadmap roadmap.plumb}；已经结束的任务及其验收记录保存在 `->{{completed tasks} completed-tasks.plumb}。
+
+`- 优化 event check-category 的持久化缓存查询性能
+
+ `+ task
+
+ `@ optimize-event-category-cache-query
+
+ `= created 2026-09-23T23:30:00+08:00
+
+ 复现：约 34,831 条 event，大量历史记录集中在同一文档并引用 activity。release CLI 默认缓存路径首次约 29.4 秒，热缓存约 25.1 秒；no-cache 路径约 2.4 秒。测量期间新增一条 event，以上为定位用近似数据，验收须使用固定快照。
+
+ 疑似瓶颈：每条 event 的核算单独调用 links_in_range，SQL 仅限制 start 下界和 end 上界。现有 (path, start, end) 索引只能按 path 与 start 下界扫描，可能反复遍历归档后续链接。SQLite 查询计划已确认这一扫描形态；加入 start 上界后可以形成双边索引范围，实际提速仍需验证。
+
+ 实施：优先验证链接起点上界优化，保持完整包含的范围语义；测量后再判断是否需要批量查询或复用同一 activity 的解析结果。优化共享 workspace/store 查询层，不在 CLI 绕开缓存。
+
+ 验收：在固定大归档快照对比修改前后冷缓存、热缓存和 no-cache 耗时；核对全部检查结果一致，包括引用继承、多分类、缺分类和解析错误。为范围边界加入回归测试，并记录性能数据，确认热缓存不再显著慢于 no-cache。
