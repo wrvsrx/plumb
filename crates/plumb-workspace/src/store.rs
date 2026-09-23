@@ -1261,15 +1261,20 @@ impl SqliteSemanticStore {
                 .push(to_i64(key.start)?);
         }
         let mut records = Vec::<StoredRecord<EventRecord>>::with_capacity(keys.len());
-        for (path, starts) in grouped {
-            let rows = events::table
-                .inner_join(documents::table.on(documents::path.eq(events::path)))
-                .filter(events::path.eq(path))
-                .filter(events::start.eq_any(starts))
-                .select((events::path, documents::revision, events::record))
-                .order(events::start)
-                .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
-            records.extend(decode_records(rows.into_iter().map(Ok), &[])?);
+        for (path, mut starts) in grouped {
+            starts.sort_unstable();
+            starts.dedup();
+            // Leave room for the path binding even on SQLite's older 999 limit.
+            for batch in starts.chunks(900) {
+                let rows = events::table
+                    .inner_join(documents::table.on(documents::path.eq(events::path)))
+                    .filter(events::path.eq(&path))
+                    .filter(events::start.eq_any(batch))
+                    .select((events::path, documents::revision, events::record))
+                    .order(events::start)
+                    .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
+                records.extend(decode_records(rows.into_iter().map(Ok), &[])?);
+            }
         }
         records.sort_by(|left, right| {
             left.path
@@ -2439,6 +2444,24 @@ mod tests {
                 start: first_start,
             }])
             .is_err());
+    }
+
+    #[test]
+    fn large_event_selection_batches_bindings_and_deduplicates_source_keys() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let source = (0..33_000).map(|i| format!("`- 2026-09-22T10:00:00Z Event {i}\n `+ event\n")).collect::<String>();
+        let output = analyzed(&source);
+        store.replace(Path::new("large.plumb"), 0, &source, Some(&output)).unwrap();
+        let mut keys = output.events().events.iter().map(|e| StoredEventSourceKey {
+            path: PathBuf::from("large.plumb"), start: e.range.start,
+        }).collect::<Vec<_>>();
+        keys.extend_from_within(..1000);
+        keys.reverse();
+        let selected = store.events_by_source_keys(&keys).unwrap();
+        assert_eq!(selected.len(), 33_000);
+        for (i, selected) in selected.iter().enumerate() {
+            assert_eq!(selected.record.title, format!("Event {i}"));
+        }
     }
 
     #[test]

@@ -383,12 +383,14 @@ includeDeclaration 为 true 时声明仍在首项，其余 references 保持 wor
 
 `## 8.1 Agenda queries
 
-实现状态：待实现。agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影结果。
+agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影结果。
 category 与 direct title reference inputs 来自同一 syntax-valid revision 的 semantic records，不能由 adapter
 重新 parse；persistent、memory 与 open overlay 查询必须等价，引用目标分类变化后不能返回旧分类。
 
 summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 category、item、task 汇总。
 返回逐事件分摊依据、汇总、覆盖时间、问题与 completeness，支持结构化 JSON。分摊保留精度到展示边界。
+完整汇总可能选择同一文档数万个 events；store 按 source keys 加载记录时必须去重并分批绑定参数，
+不能因 SQLite 单条语句的变量上限而失败。分批不改变 source ordering，也不解码未选中的 records。
 
 check-timeline 接受相同 half-open window，要求其中每一 instant 恰好有一个原始 event interval 覆盖。
 选取所有相交事件（包括从 window 之前开始的事件），裁剪边界后做 interval sweep，不只比较相邻事件。
