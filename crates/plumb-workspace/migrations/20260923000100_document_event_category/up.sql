@@ -1,0 +1,1 @@
+ALTER TABLE documents ADD COLUMN event_category BLOB NOT NULL DEFAULT X'';

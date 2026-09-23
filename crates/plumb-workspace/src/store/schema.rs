@@ -14,6 +14,7 @@ diesel::table! {
         title -> Text,
         title_start -> BigInt,
         title_end -> BigInt,
+        event_category -> Binary,
     }
 }
 

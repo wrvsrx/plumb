@@ -212,9 +212,7 @@ LSP completion/hover/definition 使用 declared files。无 bibliography 的 val
 `">" block head 是 quoted first paragraph，body children 是 remaining quote blocks；nested quote 合法。unconsumed
 declarations 通过 Pandoc inner Div 保留。
 
-`"()" 是 transparent block/inline marker：消费自身 marker，不产生 redundant data-plumb-marker；它仍保留
-ordinary owner content/children/declarations。anonymous block/group 与 explicit `"()" owner 是不同 syntax
-category，但 official export 的 visible wrapper transparent。
+`"()" 是 transparent block/inline marker：消费自身 marker，不产生 redundant data-plumb-marker；它仍保留 ordinary owner content/children/declarations。anonymous block/group 与 explicit `"()" owner 是不同 syntax event-category，但 official export 的 visible wrapper transparent。
 
 六种 inline style marker 都是 content containers：消费 zero or more source-ordered visible elements作为完整 style
 body，不建立 positional arity。direct declarations从 visible body过滤并保留为 attributes；whitespace 与 adjacency
@@ -323,38 +321,25 @@ invalid explicit override 不 fallback ancestor。tasks 创建 association，不
 deterministically derivation；source uid/when opaque。vdir export 是 managed readonly VEVENT files。
 
 `## 11.1 Agenda accounting
+分类声明字段为 event-category；旧 category 仍是普通属性，不再参与事件核算。普通文档也可在根层声明 event-category，作为直接引用整个文档的 event 的默认分类，不要求 task 或 activity facet；普通文档不会进入 task 用时统计。引用具体条目只读取条目本身的分类，不回退到文档。CLI 的 check-category、--group-by category 及 JSON category/values 字段保持不变。
 
-`"category" 的 scalar spelling 按 first : rest 分隔：首个元素是 key，全部剩余内容是一个分类（例如 phd misc）。
-允许 anonymous grouping 与 unmarked inline verbatim；多个分类必须使用head 仅含 category 的 property 下直接 leaf `"-" list items，每项完整内容是一个分类。
-分类按首次出现顺序去重。不允许 marked rich inline、重复 property、空值、非 list children 或嵌套 children。
-list item（包括 task、event）与 document task 可以声明分类。不从标题前缀、tags、父节点或任意链接递归推导。
-普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
+`"event-category" 的 scalar spelling 按 first : rest 分隔：首个元素是 key，全部剩余内容是一个分类（例如 phd misc）。 允许 anonymous grouping 与 unmarked inline verbatim；多个分类必须使用head 仅含 event-category 的 property 下直接 leaf `"-" list items，每项完整内容是一个分类。 分类按首次出现顺序去重。不允许 marked rich inline、重复 property、空值、非 list children 或嵌套 children。 list item（包括 task、event）与 document task 可以声明分类。不从标题前缀、tags、父节点或任意链接递归推导。 普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
 
 event 显式 tasks 声明优先定义核算事项集合，保持现有 task target 校验；即使为空或非法也不回退。
 否则只从 event title 中的直接 Link members 收集事项引用，details 中的链接、embedded resources 与嵌套 inline 的链接不参与核算。
-目标必须是 list item anchor 或 document task；引用普通条目不会创建 task。
+目标必须是 list item anchor 或 plumb 文档；普通文档读取根层 event-category，引用普通条目或文档不会创建 task。引用具体条目不回退到所属文档分类。
 同一 normalized target 去重后均分 event duration；重复引用不能增加份额。
 无法解析、歧义或非法目标必须保留问题并使结果不完整，不能删除该项再重新均分。
 
-分类来自事项自身的 category；缺少分类的份额进入未分类。event 自身显式 category 覆盖整段事件的类别，
-但不改变事项分摊。每个事项所得时长再按其去重分类数量均分；分类总时长不会膨胀。非法显式分类不回退。没有事项的事件仍计入 event category 或未分类。
-查询保留 source event、target、分类来源与均分依据，内部不按显示精度舍入。
-事项分类修改后历史事件动态重算；固定某次历史类别应在 event 上写显式 category。
-分类冲突不报错：例如 60 分钟关联 work、work、learn 三项，分别分得 20 分钟，类别合计为 40 与 20 分钟。
+分类来自事项自身的 event-category；缺少分类的份额进入未分类。event 自身显式 event-category 覆盖整段事件的类别， 但不改变事项分摊。每个事项所得时长再按其去重分类数量均分；分类总时长不会膨胀。非法显式分类不回退。没有事项的事件仍计入 event event-category 或未分类。 查询保留 source event、target、分类来源与均分依据，内部不按显示精度舍入。 事项分类修改后历史事件动态重算；固定某次历史类别应在 event 上写显式 event-category。 分类冲突不报错：例如 60 分钟关联 work、work、learn 三项，分别分得 20 分钟，类别合计为 40 与 20 分钟。
 
-用时只来自有效 event interval，不使用 task focused history。point event 不推测时长。
-按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。
-重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、
-索引不完整均显式呈现。笔记多值 tags 与 category 无隐式转换。
+用时只来自有效 event interval，不使用 task focused history。point event 不推测时长。 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、 索引不完整均显式呈现。笔记多值 tags 与 event-category 无隐式转换。
 
-vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保持原始 category spelling；未知份额不伪造分类。
-该集合不编码权重，不能据此复原均分；精确核算消费者必须使用 summary JSON 中的 shares/categories。
-无法完成分类解析时 export 明确失败，不静默丢弃分类或重新推断标题前缀。
+vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保持原始 event-category spelling；未知份额不伪造分类。 该集合不编码权重，不能据此复原均分；精确核算消费者必须使用 summary JSON 中的 shares/categories。 无法完成分类解析时 export 明确失败，不静默丢弃分类或重新推断标题前缀。
 
 `## 11.2 分类完整性检查
 
-event check-category 查询全部选中 events，不要求时间窗口。默认检查有效继承分类的每个份额；explicit 模式只检查 event 自身声明，不解析引用。
-无分类给出 event 位置；非法 category 或无法完整查询返回不完整。point events 同样检查。退出码 0 表示全部有分类，1 表示存在未分类，2 表示不完整。
+event check-category 查询全部选中 events，不要求时间窗口。默认检查有效继承分类的每个份额；explicit 模式只检查 event 自身声明，不解析引用。 无分类给出 event 位置；非法 event-category 或无法完整查询返回不完整。point events 同样检查。退出码 0 表示全部有分类，1 表示存在未分类，2 表示不完整。
 
 
 `# 12. Tables

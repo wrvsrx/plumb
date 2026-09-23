@@ -3,7 +3,7 @@ use plumb_syntax::parse;
 
 #[test]
 fn category_is_owner_local_and_preserves_invalid_declarations() {
-    let source = "`+ task\n`= category project\n`- Phone\n `@ phone\n `= category relax\n`- Child task\n `+ task\n `= category phd misc\n`- Invalid\n `@ invalid\n `= category\n  `+ relax\n`- Duplicate\n `@ duplicate\n `= category work\n `= category relax\n`- Missing\n `@ missing\n";
+    let source = "`+ task\n`= event-category project\n`- Phone\n `@ phone\n `= event-category relax\n`- Child task\n `+ task\n `= event-category phd misc\n`- Invalid\n `@ invalid\n `= event-category\n  `+ relax\n`- Duplicate\n `@ duplicate\n `= event-category work\n `= event-category relax\n`- Missing\n `@ missing\n";
     let parsed = parse(source);
     let output = analyze_document(parsed.valid_syntax().unwrap());
     let tasks = &output.tasks().tasks;
@@ -47,7 +47,7 @@ fn category_is_owner_local_and_preserves_invalid_declarations() {
 
 #[test]
 fn accounting_links_only_include_direct_title_members() {
-    let source = "`- 2026-09-22T10:00:00Z--11:00 `->{#a} `->\"#b\" `*{see `->{#c}}\n `+ event\n `= category override\n\n Reference `->{#d}\n";
+    let source = "`- 2026-09-22T10:00:00Z--11:00 `->{#a} `->\"#b\" `*{see `->{#c}}\n `+ event\n `= event-category override\n\n Reference `->{#d}\n";
     let parsed = parse(source);
     let output = analyze_document(parsed.valid_syntax().unwrap());
     let event = output.events().events.get(0).unwrap();
@@ -68,7 +68,7 @@ fn accounting_links_only_include_direct_title_members() {
 #[test]
 fn category_accepts_plain_grouping_and_literal_spelling_but_not_rich_values() {
     for spelling in ["phd misc", "{phd misc}", "`\"phd misc\""] {
-        let source = format!("`- Work\n `+ task\n `= category {spelling}\n");
+        let source = format!("`- Work\n `+ task\n `= event-category {spelling}\n");
         let parsed = parse(&source);
         let output = analyze_document(parsed.valid_syntax().unwrap());
         let category = output.tasks().tasks.get(0).unwrap().category;
@@ -78,7 +78,7 @@ fn category_accepts_plain_grouping_and_literal_spelling_but_not_rich_values() {
             Some("phd misc")
         );
     }
-    let parsed = parse("`- Work\n `+ task\n `= category `!{work}\n");
+    let parsed = parse("`- Work\n `+ task\n `= event-category `!{work}\n");
     assert!(
         analyze_document(parsed.valid_syntax().unwrap())
             .tasks()
@@ -93,13 +93,13 @@ fn category_accepts_plain_grouping_and_literal_spelling_but_not_rich_values() {
 #[test]
 fn category_list_preserves_multiword_values_and_deduplicates() {
     let parsed =
-        parse("`- Work\n `+ task\n `= category\n  `- phd misc\n  `- others\n  `- phd misc\n");
+        parse("`- Work\n `+ task\n `= event-category\n  `- phd misc\n  `- others\n  `- phd misc\n");
     let output = analyze_document(parsed.valid_syntax().unwrap());
     let category = output.tasks().tasks.get(0).unwrap().category;
     assert!(!category.invalid);
     assert_eq!(category.values, ["phd misc", "others"]);
     for tail in ["", "  `-\n", "  `- work\n\n   nested\n", "  `+ work\n"] {
-        let parsed = parse(&format!("`- Work\n `+ task\n `= category\n{tail}"));
+        let parsed = parse(&format!("`- Work\n `+ task\n `= event-category\n{tail}"));
         assert!(
             analyze_document(parsed.valid_syntax().unwrap())
                 .tasks()
@@ -110,4 +110,12 @@ fn category_list_preserves_multiword_values_and_deduplicates() {
                 .invalid
         );
     }
+}
+
+#[test]
+fn category_remains_generic_metadata_and_event_category_is_document_local() {
+    let parsed = parse("`= category topic\n`= event-category phd misc\n\n`- Item\n `@ item\n `= category unrelated\n");
+    let output = analyze_document(parsed.valid_syntax().unwrap());
+    assert_eq!(output.document_category().values, ["phd misc"]);
+    assert!(output.anchors().get(0).unwrap().category.values.is_empty());
 }

@@ -227,20 +227,15 @@ impl Workspace {
                         .map(|r| location(&target_path, r.clone()));
                 }
                 ResolvedTarget::Document { path: target_path } => {
-                    if let Some(task) = self
-                        .tasks_for_path(&target_path)
-                        .map_err(|e| e.to_string())?
-                        .into_iter()
-                        .find(|t| t.owner == TaskOwner::Document)
-                    {
-                        is_task = true;
-                        valid = true;
-                        category = task.category;
-                        category_source = category
-                            .declarations
-                            .first()
-                            .map(|r| location(&target_path, r.clone()));
-                    }
+                    is_task = self.tasks_for_path(&target_path).map_err(|e| e.to_string())?
+                        .iter().any(|t| t.owner == TaskOwner::Document);
+                    valid = !event.tasks_override || is_task;
+                    category = if self.documents.contains_key(&target_path) {
+                        self.current_output(&target_path).map(|o| o.document_category()).unwrap_or_default()
+                    } else if let Some(store) = &self.disk_store {
+                        store.document_category(&target_path).map_err(|e| e.to_string())?.unwrap_or_default()
+                    } else { Category::default() };
+                    category_source = category.declarations.first().map(|r| location(&target_path, r.clone()));
                 }
                 _ => {}
             }

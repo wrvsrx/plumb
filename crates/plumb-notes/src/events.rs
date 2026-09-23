@@ -317,7 +317,7 @@ mod tests {
         ));
         let output = root.join("calendar");
         std::fs::create_dir_all(&root).unwrap();
-        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:30 Review, parser; semantics with a deliberately long summary that must be folded safely\n\n `+ event\n\n `= tasks #write\n\n `note First line\n`- Write parser\n `+ task\n `@ write\n `= category work\n";
+        let source = "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:30 Review, parser; semantics with a deliberately long summary that must be folded safely\n\n `+ event\n\n `= tasks #write\n\n `note First line\n`- Write parser\n `+ task\n `@ write\n `= event-category work\n";
         let mut workspace = Workspace::new();
         insert_fixture(&mut workspace, root.join("events.plumb"), 1, source);
         let mut loaded = LoadedWorkspace::from_memory(root.clone(), workspace);

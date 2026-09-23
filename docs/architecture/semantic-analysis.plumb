@@ -382,15 +382,11 @@ includeDeclaration 为 true 时声明仍在首项，其余 references 保持 wor
 官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3；shared `"next" shortlist 的 projection 使用 `"plumb/next" schema version 1，只映射两段结果、上限、completeness 与 skipped-invalid 报告，adapter 不重新过滤或排序。request 的可选 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative `"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item 还可包含 `"id"、resolved `"start"/`"end" 与 associated `"tasks"。增加 record kind 或改变 typed fields 必须提升 schema version；client 必须按 initialize capability 中声明的 version 接受或明确拒绝。
 
 `## 8.1 Agenda queries
+文档级 event-category 从既有 GreenDocument 的根层声明提取，包含普通文档，不重解析。persistent store 保存文档分类及来源范围；schema epoch 更新必须使旧 category 语义缓存失效。document 分类修改立即影响当前查询，memory、disk cache 与 open overlay 结果一致。
 
-agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影结果。
-category 与 direct title reference inputs 来自同一 syntax-valid revision 的 semantic records，不能由 adapter
-重新 parse；persistent、memory 与 open overlay 查询必须等价，引用目标分类变化后不能返回旧分类。
+agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影结果。 event-category 与 direct title reference inputs 来自同一 syntax-valid revision 的 semantic records，不能由 adapter 重新 parse；persistent、memory 与 open overlay 查询必须等价，引用目标分类变化后不能返回旧分类。
 
-summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 category、item、task 汇总。
-返回逐事件分摊依据、汇总、覆盖时间、问题与 completeness，支持结构化 JSON。分摊保留精度到展示边界。
-完整汇总可能选择同一文档数万个 events；store 按 source keys 加载记录时必须去重并分批绑定参数，
-不能因 SQLite 单条语句的变量上限而失败。分批不改变 source ordering，也不解码未选中的 records。
+summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 category、item、task 汇总。 返回逐事件分摊依据、汇总、覆盖时间、问题与 completeness，支持结构化 JSON。分摊保留精度到展示边界。 完整汇总可能选择同一文档数万个 events；store 按 source keys 加载记录时必须去重并分批绑定参数， 不能因 SQLite 单条语句的变量上限而失败。分批不改变 source ordering，也不解码未选中的 records。
 
 check-timeline 接受相同 half-open window，要求其中每一 instant 恰好有一个原始 event interval 覆盖。
 选取所有相交事件（包括从 window 之前开始的事件），裁剪边界后做 interval sweep，不只比较相邻事件。
@@ -484,6 +480,4 @@ Exported semantic delta 的 record address 显式区分 document reducer record 
 
 `## 分类检查查询
 
-check-event-categories 在 workspace 层复用 event selection 与 category 解析，独立于 timeline window。explicit 模式不解析事项引用；默认检查每个有效核算份额。
-输出 complete、checked、missing source locations 与 issues。CLI event check-category 仅投影结果与 0/1/2 退出码，不另行推导类别。
-Category 持久化保存去重 values 数组；结构变化提升 store schema version，旧缓存重新索引。
+check-event-categories 在 workspace 层复用 event selection 与 event-category 解析，独立于 timeline window。explicit 模式不解析事项引用；默认检查每个有效核算份额。 输出 complete、checked、missing source locations 与 issues。CLI event check-category 仅投影结果与 0/1/2 退出码，不另行推导类别。 Category 持久化保存去重 values 数组；结构变化提升 store schema version，旧缓存重新索引。

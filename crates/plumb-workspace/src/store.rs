@@ -130,7 +130,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -620,6 +620,17 @@ impl SqliteSemanticStore {
         diesel::select(exists(documents::table.filter(documents::path.eq(path))))
             .get_result(&mut *connection)
             .map_err(Into::into)
+    }
+
+    pub fn document_category(&self, path: &Path) -> StoreResult<Option<plumb_semantics::Category>> {
+        let mut connection = self.connection.lock().expect("semantic store lock poisoned");
+        let record = documents::table
+            .filter(documents::path.eq(path_bytes(path)))
+            .filter(documents::valid.eq(true))
+            .select(documents::event_category)
+            .first::<Vec<u8>>(&mut *connection)
+            .optional()?;
+        record.map(|bytes| Ok(bincode::deserialize(&bytes)?)).transpose()
     }
 
     pub fn document(&self, path: &Path) -> StoreResult<Option<StoredDocument>> {
@@ -1711,6 +1722,7 @@ fn replace_generation(
             documents::title.eq(title),
             documents::title_start.eq(to_i64(title_range.start)?),
             documents::title_end.eq(to_i64(title_range.end)?),
+            documents::event_category.eq(encode(&output.map(|o| o.document_category()).unwrap_or_default())?),
         ))
         .execute(connection)?;
     diesel::insert_into(diagnostic_inputs::table)

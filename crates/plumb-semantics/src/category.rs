@@ -10,6 +10,17 @@ pub struct Category {
     pub invalid: bool,
 }
 impl Category {
+    /// Document-level event classification, including ordinary non-task documents.
+    pub(crate) fn from_green_document(document: plumb_syntax::ValidGreenDocument<'_>) -> Self {
+        let mut result = Self::default();
+        for view in document.syntax().shards() {
+            let mut category = Self::from_blocks(&view.shard().parsed().syntax.blocks);
+            category.shift(view.offset() as isize);
+            result.extend(category);
+        }
+        result
+    }
+
     pub(crate) fn from_blocks(blocks: &[Block]) -> Self {
         let mut result = Self::default();
         for block in blocks {
@@ -22,7 +33,7 @@ impl Category {
             let Some((key, _, scalar)) = crate::metadata::direct_property_parts(property) else {
                 continue;
             };
-            if key != "category" {
+            if key != "event-category" {
                 continue;
             }
             result.declarations.push(property.range.clone());

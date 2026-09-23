@@ -7,7 +7,7 @@ fn dt(s: &str) -> DateTime<FixedOffset> {
 }
 const START: &str = "2026-09-22T10:00:00Z";
 const END: &str = "2026-09-22T11:00:00Z";
-const ITEMS: &str = "`- A\n `+ task\n `@ a\n `= category work\n`- B\n `+ task\n `@ b\n `= category work\n`- C\n `@ c\n `= category learn\n";
+const ITEMS: &str = "`- A\n `+ task\n `@ a\n `= event-category work\n`- B\n `+ task\n `@ b\n `= event-category work\n`- C\n `@ c\n `= event-category learn\n";
 const EVENT: &str = "`- 2026-09-22T10:00:00Z--11:00 `->{items.plumb#a} `->{items.plumb#b} `->{items.plumb#c} `->{items.plumb#a}\n `+ event\n\n See `->{items.plumb#missing}\n";
 fn report(w: &Workspace, accounting: bool) -> plumb_workspace::AgendaReport {
     w.agenda_report(
@@ -68,7 +68,7 @@ fn explicit_category_overrides_and_empty_tasks_suppresses_inference() {
     w.insert(
         "/notes/day.plumb",
         0,
-        EVENT.replace(" `+ event", " `+ event\n `= category personal"),
+        EVENT.replace(" `+ event", " `+ event\n `= event-category personal"),
     );
     let r = report(&w, true);
     assert!(r.complete);
@@ -156,7 +156,7 @@ fn document_tasks_supply_categories_and_filter_is_recorded() {
     w.insert(
         "/notes/project.plumb",
         0,
-        "`+ task\n`= title Project\n`= category work\n",
+        "`+ task\n`= title Project\n`= event-category work\n",
     );
     w.insert(
         "/notes/day.plumb",
@@ -188,8 +188,8 @@ fn category_lists_split_each_item_share_without_inflating_totals() {
         "/notes/items.plumb",
         0,
         ITEMS.replace(
-            " `= category learn",
-            " `= category\n  `- learn\n  `- phd misc\n  `- learn",
+            " `= event-category learn",
+            " `= event-category\n  `- learn\n  `- phd misc\n  `- learn",
         ),
     );
     w.insert("/notes/day.plumb", 0, EVENT);
@@ -213,7 +213,7 @@ fn category_lists_split_each_item_share_without_inflating_totals() {
         1,
         EVENT.replace(
             " `+ event",
-            " `+ event\n `= category\n  `- personal\n  `- work",
+            " `+ event\n `= event-category\n  `- personal\n  `- work",
         ),
     );
     let r = report(&w, true);
@@ -246,14 +246,14 @@ fn category_check_covers_all_dates_points_and_explicit_mode_ignores_references()
         1,
         EVENT
             .replace("items.plumb#a", "missing.plumb")
-            .replace(" `+ event", " `+ event\n `= category phd misc"),
+            .replace(" `+ event", " `+ event\n `= event-category phd misc"),
     );
     assert!(check(&w, true).complete);
     assert!(!check(&w, false).complete);
     w.insert(
         "/notes/old.plumb",
         1,
-        "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= category\n",
+        "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category\n",
     );
     assert!(!check(&w, true).complete);
 }
@@ -296,4 +296,36 @@ fn category_check_and_multivalue_accounting_match_persistent_queries() {
         .unwrap();
     assert_eq!(check.checked, 0);
     assert!(check.complete);
+}
+
+#[test]
+fn ordinary_document_event_categories_are_persistent_and_not_task_shares() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap();
+    let mut disk = Workspace::with_sqlite_store(store);
+    let source = "`= title Dinner\n`= event-category\n `- girlfriend\n `- daily\n\nDetails.\n";
+    let event = "`- 2026-09-22T10:00:00Z--11:00 `->\"dinner.plumb\"\n `+ event\n";
+    disk.insert_disk("/notes/dinner.plumb", 0, source).unwrap();
+    disk.insert_disk("/notes/day.plumb", 0, event).unwrap();
+    let mut memory = Workspace::new();
+    memory.insert("/notes/dinner.plumb", 0, source);
+    memory.insert("/notes/day.plumb", 0, event);
+    let r = report(&disk, true);
+    assert!(r.complete, "{:?}", r.issues);
+    assert!(r.tasks.is_empty());
+    assert_eq!(r.categories.len(), 2);
+    assert!(r.categories.iter().all(|c| c.seconds == 1800.0));
+    assert_eq!(serde_json::to_value(&r).unwrap(), serde_json::to_value(report(&memory, true)).unwrap());
+    disk.open_document("/notes/dinner.plumb", 1, "`= event-category work\n");
+    assert_eq!(report(&disk, true).categories[0].category.as_deref(), Some("work"));
+    disk.close_document("/notes/dinner.plumb");
+    assert_eq!(report(&disk, true).categories.len(), 2);
+    disk.insert_disk("/notes/dinner.plumb", 2, "`= category topic\n").unwrap();
+    let r = report(&disk, true);
+    assert!(r.complete);
+    assert!(r.categories[0].category.is_none());
+    disk.insert_disk("/notes/dinner.plumb", 3, "`= event-category\n").unwrap();
+    assert!(!report(&disk, true).complete);
+    disk.insert_disk("/notes/day.plumb", 1, "`- 2026-09-22T10:00:00Z--11:00 Dinner\n `+ event\n `= tasks dinner.plumb\n").unwrap();
+    assert!(!report(&disk, true).complete, "explicit tasks still requires a task");
 }

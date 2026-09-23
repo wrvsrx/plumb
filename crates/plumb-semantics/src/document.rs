@@ -296,6 +296,7 @@ pub use delta::{
 impl PartialEq for ExportedSemanticSummary<'_> {
     fn eq(&self, other: &Self) -> bool {
         document_title_fact(self.output.metadata()) == document_title_fact(other.output.metadata())
+            && self.output.document_category() == other.output.document_category()
             && self.output.anchors().absolute_eq(other.output.anchors())
             && self.output.links().absolute_eq(other.output.links())
             && self
@@ -545,6 +546,10 @@ pub struct DocumentChange {
 
 impl DocumentOutput {
     /// The immutable syntax snapshot that owns these semantic records.
+    pub fn document_category(&self) -> crate::Category {
+        crate::Category::from_green_document(self.syntax().valid_syntax().expect("semantic output is syntax-valid"))
+    }
+
     pub fn syntax(&self) -> &plumb_syntax::GreenDocument {
         &self.root.tree.syntax
     }

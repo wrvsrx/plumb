@@ -148,7 +148,7 @@ fn exports_events_as_a_khal_readonly_vdir() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("agenda.plumb"),
-        "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:00 Parser review\n `+ event\n `@ review\n `= tasks #write\n`- Implement parser\n `+ task\n `@ write\n `= category work\n",
+        "`= date 2026-07-30\n`= timezone +08:00\n\n`- 14:00--15:00 Parser review\n `+ event\n `@ review\n `= tasks #write\n`- Implement parser\n `+ task\n `@ write\n `= event-category work\n",
     )
     .unwrap();
     let exported = plumb_command()
@@ -1071,7 +1071,7 @@ fn concurrent_cli_commands_share_cache_without_mixing_outputs() {
 fn agenda_cli_projects_shared_allocations_and_coverage_exit_status() {
     let dir = unique_temp_dir();
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.as_path().join("day.plumb"), "`= date 2026-09-22\n`= timezone +00:00\n`- 10:00--11:00 Work\n `+ event\n `= category work\n").unwrap();
+    std::fs::write(dir.as_path().join("day.plumb"), "`= date 2026-09-22\n`= timezone +00:00\n`- 10:00--11:00 Work\n `+ event\n `= event-category work\n").unwrap();
     let run = |command: &str, end: &str| plumb_command().args(["event", command, "--root"]).arg(dir.as_path())
         .args(["--from", "2026-09-22T10:00:00Z", "--to", end, "--json"]).output().unwrap();
     let summary = run("summary", "2026-09-22T11:00:00Z");
@@ -1096,7 +1096,7 @@ fn category_check_has_no_time_window_and_reports_missing_and_invalid() {
     std::fs::create_dir_all(&dir).unwrap();
     let run = || plumb_command().args(["event", "check-category", "--root"]).arg(dir.as_path()).args(["--explicit", "--json"]).output().unwrap();
     let path = dir.as_path().join("day.plumb");
-    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= category phd misc\n").unwrap();
+    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category phd misc\n").unwrap();
     let out = run();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -1106,7 +1106,7 @@ fn category_check_has_no_time_window_and_reports_missing_and_invalid() {
     assert_eq!(out.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(json["missing"].as_array().unwrap().len(), 1);
-    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= category\n").unwrap();
+    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category\n").unwrap();
     assert_eq!(run().status.code(), Some(2));
     std::fs::remove_dir_all(dir).unwrap();
 }
