@@ -27,14 +27,7 @@ impl Category {
             }
             result.declarations.push(property.range.clone());
             let value = scalar
-                .filter(|c| {
-                    c.items.iter().all(|i| {
-                        matches!(
-                            i,
-                            Inline::Text { .. } | Inline::Space { .. } | Inline::SoftBreak { .. }
-                        )
-                    })
-                })
+                .filter(|c| plain_scalar(&c.items))
                 .map(|c| c.plain_text().trim().to_owned())
                 .filter(|v| !v.is_empty());
             result.invalid |= value.is_none() || result.declarations.len() > 1;
@@ -58,4 +51,23 @@ impl Category {
         }
         self.declarations.extend(other.declarations);
     }
+}
+
+fn plain_scalar(inlines: &[Inline]) -> bool {
+    let mut pending = inlines.iter().collect::<Vec<_>>();
+    while let Some(inline) = pending.pop() {
+        match inline {
+            Inline::Text { .. }
+            | Inline::Space { .. }
+            | Inline::SoftBreak { .. }
+            | Inline::Verbatim { mark: None, .. } => {}
+            Inline::Group {
+                mark: None,
+                content,
+                ..
+            } => pending.extend(&content.items),
+            _ => return false,
+        }
+    }
+    true
 }

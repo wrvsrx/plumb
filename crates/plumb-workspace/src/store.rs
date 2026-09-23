@@ -130,7 +130,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -810,6 +810,14 @@ impl SqliteSemanticStore {
         rows.into_iter()
             .map(|bytes| Ok(bincode::deserialize(&bytes)?))
             .collect()
+    }
+    pub(crate) fn links_in_range(&self, path: &Path, range: &Range<usize>) -> StoreResult<Vec<LinkRecord>> {
+        let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
+        let rows = links::table.filter(links::path.eq(path_bytes(&normalize(path))))
+            .filter(links::start.ge(to_i64(range.start)?))
+            .filter(links::end.le(to_i64(range.end)?))
+            .select(links::record).order(links::start).load::<Vec<u8>>(&mut *connection)?;
+        rows.into_iter().map(|bytes| Ok(bincode::deserialize(&bytes)?)).collect()
     }
     pub fn events_for_path(&self, path: &Path) -> StoreResult<Vec<EventRecord>> {
         let mut connection = self

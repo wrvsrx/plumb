@@ -382,7 +382,10 @@ fn event_record(
         EventRecord {
             category: crate::Category::from_blocks(&block.children),
             accounting_links: block.content.items.iter().filter_map(|inline| match inline {
-                Inline::Group { mark: Some(mark), range, .. } | Inline::Verbatim { mark: Some(mark), range, .. } if mark.marker == "->" => Some(range.clone()),
+                Inline::Group { mark: Some(mark), range, content }
+                    if mark.marker == "->" && !crate::has_embed_facet(content) => Some(range.clone()),
+                Inline::Verbatim { mark: Some(mark), range, .. }
+                    if mark.marker == "->" => Some(range.clone()),
                 _ => None,
             }).collect(),
             range: block.range.clone(),

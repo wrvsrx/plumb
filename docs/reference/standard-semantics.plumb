@@ -326,12 +326,13 @@ deterministically derivation；source uid/when opaque。vdir export 是 managed 
 
 实现状态：本节是待实现契约；完成 shared query、CLI 和迁移验证前，不视为当前可用能力。
 
-`"category" 是 owner 自身的单值 nonempty plain scalar property；允许内部空格，不允许重复、空值或结构化值。
+`"category" 是 owner 自身的单值 nonempty plain scalar property；允许内部空格、anonymous grouping 与 unmarked inline verbatim，
+这些 spelling 按 Stringify 得到同一分类。不允许 marked rich inline、重复、空值或带 block children 的结构化值。
 list item（包括 task、event）与 document task 可以声明分类。不从标题前缀、tags、父节点或任意链接递归推导。
 普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
 
 event 显式 tasks 声明优先定义核算事项集合，保持现有 task target 校验；即使为空或非法也不回退。
-否则只从 event title 中的直接 Link members 收集事项引用，details 中的链接不参与核算。
+否则只从 event title 中的直接 Link members 收集事项引用，details 中的链接、embedded resources 与嵌套 inline 的链接不参与核算。
 目标必须是 list item anchor 或 document task；引用普通条目不会创建 task。
 同一 normalized target 去重后均分 event duration；重复引用不能增加份额。
 无法解析、歧义或非法目标必须保留问题并使结果不完整，不能删除该项再重新均分。
@@ -346,6 +347,10 @@ event 显式 tasks 声明优先定义核算事项集合，保持现有 task targ
 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。
 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、
 索引不完整均显式呈现。笔记多值 tags 与单值 category 无隐式转换。
+
+vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保持原始 category spelling；未知份额不伪造分类。
+该集合不编码权重，不能据此复原均分；精确核算消费者必须使用 summary JSON 中的 shares/categories。
+无法完成分类解析时 export 明确失败，不静默丢弃分类或重新推断标题前缀。
 
 `# 12. Tables
 

@@ -43,3 +43,25 @@ fn accounting_links_only_include_direct_title_members() {
         ["`->{#a}", "`->\"#b\""]
     );
 }
+
+#[test]
+fn category_accepts_plain_grouping_and_literal_spelling_but_not_rich_values() {
+    for spelling in ["phd misc", "{phd misc}", "`\"phd misc\""] {
+        let source = format!("`- Work\n `+ task\n `= category {spelling}\n");
+        let parsed = parse(&source);
+        let output = analyze_document(parsed.valid_syntax().unwrap());
+        let category = output.tasks().tasks.get(0).unwrap().category;
+        assert!(!category.invalid, "{spelling}");
+        assert_eq!(category.value.as_deref(), Some("phd misc"));
+    }
+    let parsed = parse("`- Work\n `+ task\n `= category `!{work}\n");
+    assert!(
+        analyze_document(parsed.valid_syntax().unwrap())
+            .tasks()
+            .tasks
+            .get(0)
+            .unwrap()
+            .category
+            .invalid
+    );
+}
