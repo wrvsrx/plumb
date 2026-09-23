@@ -228,17 +228,17 @@ titles need no group.
 Schedules accept a point or `START--END`; document/ancestor `date` and
 `timezone` provide context. Task and event facets conflict on one item.
 
-Events can inherit `category` values from directly linked list items or document
-tasks. Reusable activities are ordinary anchored list items, without an `activity`
+Events can inherit `event-category` values from directly linked list items or whole plumb
+documents (including ordinary documents). Reusable activities are ordinary anchored list items, without an `activity`
 property or facet. Explicit `tasks` takes precedence over title links; details and
 nested inline links do not participate in accounting. Distinct targets split time
-equally before category aggregation. Duplicate references count once. Missing
+equally before event-category aggregation. Duplicate references count once. Missing
 categories remain unclassified; unresolved references make the result incomplete.
-An event's own `category` overrides category attribution without changing the split.
+An event's own `event-category` overrides event-category attribution without changing the split.
 Categories accept nonempty plain text, anonymous grouping and unmarked verbatim,
 but not rich values or duplicate declarations. Scalar properties split first : rest, so
-`= category phd misc` is one category. Multiple categories use direct leaf `-`
-children under `= category`, one full plain value per item. Duplicate values count
+`= event-category phd misc` is one event-category. Multiple categories use direct leaf `-`
+children under `= event-category`, one full plain value per item. Duplicate values count
 once; each item share is divided equally among its categories.
 
 `plumb event check-category --json` checks all selected events without a time window.
@@ -299,3 +299,8 @@ Inline `$"x^2" math.
 blocks export as Divs, marked groups as Spans, verbatim blocks as CodeBlocks,
 and inline verbatim as Code. Export emits Pandoc JSON for piping to a Pandoc
 writer; unsupported Pandoc import nodes are rejected rather than discarded.
+
+The accounting declaration is `event-category`; a generic `category` property does not
+participate. Whole-document links inherit root event-category; item links do not
+fall back to their document. Ordinary documents do not become tasks. CLI command
+names and report JSON fields are unchanged.

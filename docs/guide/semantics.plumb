@@ -268,31 +268,26 @@ SpaceRun boundaries，连续 properties可按 Unicode width对齐。trailing `"-
 Web Agenda 提供在线创建、编辑和删除；Calendar/khal 只读取 projection。首版不支持 recurrence、全天 event、reminder、外部 iCalendar 回写或 CalDAV client。
 
 `## 分类与用时
+event-category 也可放在普通文档根层，供引用整个文档的 event 继承；不需要为文档添加 task 或 activity。文档没有分类时显示未分类，引用具体条目不继承所属文档分类。旧 category 不再用于事件核算；check-category 命令名和统计 JSON 字段名保持不变。
 
-用 category 记录核算类别。事项可以是 task，也可以是带 explicit id 的普通 list item；事件直接引用它：
+用 event-category 记录核算类别。事项可以是 task，也可以是带 explicit id 的普通 list item；事件直接引用它：
 
 `plumb"
  `- 玩手机
   `@ phone
-  `= category relax
+  `= event-category relax
  `- 2026-09-22T18:20:00+08:00--18:40 `->{玩手机 #phone}
   `+ event
 
-事件标题中的直接事项链接参与核算，详情里的参考链接不参与。显式 tasks 声明优先指定任务集合。
-不同事项均分事件时长，再按每项的去重 category 均分与汇总；同一目标的重复引用只算一次。缺分类的份额进入未分类，
-无法解析的引用使结果不完整，不重新分给其他事项。事件自己的 category 覆盖类别，不改变事项分摊。
-category 的首个元素是 key，剩余内容完整作为一个类别（例如 phd misc）。也可用 anonymous group 或 unmarked inline verbatim。
-多个类别使用 category property 的直接 leaf list children；重复类别去重，重复 property、空值与 rich 内容使核算不完整：
+事件标题中的直接事项链接参与核算，详情里的参考链接不参与。显式 tasks 声明优先指定任务集合。 不同事项均分事件时长，再按每项的去重 event-category 均分与汇总；同一目标的重复引用只算一次。缺分类的份额进入未分类， 无法解析的引用使结果不完整，不重新分给其他事项。事件自己的 event-category 覆盖类别，不改变事项分摊。 event-category 的首个元素是 key，剩余内容完整作为一个类别（例如 phd misc）。也可用 anonymous group 或 unmarked inline verbatim。 多个类别使用 event-category property 的直接 leaf list children；重复类别去重，重复 property、空值与 rich 内容使核算不完整：
 
 `plumb"
- `= category
+ `= event-category
   `- phd misc
   `- others
 
 
-分类随目标修改而动态重算。需要固定历史归属时，在事件上显式填写 category。
-笔记 tags 不转换成用时分类，task focused history 也不代替 event 时间。
-vdir 的 CATEGORIES 保存去重后的分类集合；精确份额使用 summary JSON，不能从分类集合反推。
+分类随目标修改而动态重算。需要固定历史归属时，在事件上显式填写 event-category。 笔记 tags 不转换成用时分类，task focused history 也不代替 event 时间。 vdir 的 CATEGORIES 保存去重后的分类集合；精确份额使用 summary JSON，不能从分类集合反推。
 
 `# Task
 
