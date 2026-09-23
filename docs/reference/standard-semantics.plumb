@@ -324,8 +324,6 @@ deterministically derivation；source uid/when opaque。vdir export 是 managed 
 
 `## 11.1 Agenda accounting
 
-实现状态：本节是待实现契约；完成 shared query、CLI 和迁移验证前，不视为当前可用能力。
-
 `"category" 是 owner 自身的单值 nonempty plain scalar property；允许内部空格、anonymous grouping 与 unmarked inline verbatim，
 这些 spelling 按 Stringify 得到同一分类。不允许 marked rich inline、重复、空值或带 block children 的结构化值。
 list item（包括 task、event）与 document task 可以声明分类。不从标题前缀、tags、父节点或任意链接递归推导。

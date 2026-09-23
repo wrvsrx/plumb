@@ -228,6 +228,24 @@ titles need no group.
 Schedules accept a point or `START--END`; document/ancestor `date` and
 `timezone` provide context. Task and event facets conflict on one item.
 
+Events can inherit a single `category` from directly linked list items or document
+tasks. Reusable activities are ordinary anchored list items, without an `activity`
+property or facet. Explicit `tasks` takes precedence over title links; details and
+nested inline links do not participate in accounting. Distinct targets split time
+equally before category aggregation. Duplicate references count once. Missing
+categories remain unclassified; unresolved references make the result incomplete.
+An event's own `category` overrides category attribution without changing the split.
+Categories accept nonempty plain text, anonymous grouping and unmarked verbatim,
+but not rich values, duplicate declarations or block-structured values.
+
+`plumb event summary --from RFC3339 --to RFC3339` clips events to a half-open
+window and supports `--group-by category|item|task` and `--json`.
+`plumb event check-timeline` uses the same explicit window and requires exactly
+one event covering each instant: exit 0 passes, 1 reports gaps/overlaps, and 2
+reports failure/incompleteness. Point events do not provide coverage. Task focus
+history and note tags do not define event accounting. Calendar `CATEGORIES` is
+only a set; use summary JSON for exact allocated totals.
+
 ## Tables
 
 `table` owns direct `-` rows. Every direct row-head positional element is a compact cell;

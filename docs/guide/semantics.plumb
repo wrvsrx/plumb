@@ -267,6 +267,26 @@ SpaceRun boundaries，连续 properties可按 Unicode width对齐。trailing `"-
 
 Web Agenda 提供在线创建、编辑和删除；Calendar/khal 只读取 projection。首版不支持 recurrence、全天 event、reminder、外部 iCalendar 回写或 CalDAV client。
 
+`## 分类与用时
+
+用单值 category 记录核算类别。事项可以是 task，也可以是带 explicit id 的普通 list item；事件直接引用它：
+
+`plumb"
+ `- 玩手机
+  `@ phone
+  `= category relax
+ `- 2026-09-22T18:20:00+08:00--18:40 `->{玩手机 #phone}
+  `+ event
+
+事件标题中的直接事项链接参与核算，详情里的参考链接不参与。显式 tasks 声明优先指定任务集合。
+不同事项均分事件时长，再按 category 汇总；同一目标的重复引用只算一次。缺分类的份额进入未分类，
+无法解析的引用使结果不完整，不重新分给其他事项。事件自己的 category 覆盖类别，不改变事项分摊。
+category 可写内部空格、anonymous group 或 unmarked inline verbatim；重复、空值与 rich 内容会使核算不完整。
+
+分类随目标修改而动态重算。需要固定历史归属时，在事件上显式填写 category。
+笔记 tags 不转换成用时分类，task focused history 也不代替 event 时间。
+vdir 的 CATEGORIES 保存去重后的分类集合；精确份额使用 summary JSON，不能从分类集合反推。
+
 `# Task
 
 文档根层添加 direct leaf `"+ task" facet 后，整个文件成为一个任务：

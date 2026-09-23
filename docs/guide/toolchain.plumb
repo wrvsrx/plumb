@@ -2,6 +2,25 @@
 
 本页记录当前 release 的 commands、inputs、outputs 与 failure behavior。未来方向只进入 roadmap， 内部 crate/store contracts 只进入 architecture。
 
+`# Agenda 核算与完整覆盖检查
+
+`sh"
+ plumb event summary --root DIR --from 2026-09-22T00:00:00+08:00 --to 2026-09-23T00:00:00+08:00
+ plumb event summary --root DIR --from 2026-09-22T00:00:00+08:00 --to 2026-09-23T00:00:00+08:00 --group-by task --json
+ plumb event check-timeline --root DIR --from 2026-09-22T00:00:00+08:00 --to 2026-09-23T00:00:00+08:00
+
+from/to 使用带 offset 的 RFC 3339，结束必须晚于开始。summary 可按 category（默认）、item 或 task 显示秒数；
+JSON 同时提供各类汇总、逐事件份额、分类来源、source byte ranges、point events、空档、重叠与 completeness。
+跨范围事件裁剪后计时，多事项先去重再均分；task 汇总不重新分配普通活动份额。
+累计时长包含重叠，covered_seconds 只算时间轴的实际覆盖。
+
+check-timeline 要求 half-open 范围内每个时刻恰好有一个 event 覆盖，包括首尾边界。
+空集合报告整个范围缺失；point event 不提供覆盖，分类分摊不会生成额外事件。
+两种查询都支持现有 event CEL 的 --query，并在响应中标明筛选条件。
+退出码 0 表示成功，check-timeline 的 1 表示覆盖不合格，2 表示查询失败或结果不完整；
+summary 的空档与重叠不单独改变成功退出码。无效文档或无法确定时间的所选事件使检查不完整，不能假定其在范围外。
+这些检查只由主动查询执行，不改变文档语法合法性。
+
 `# Build and test
 
 `text"
