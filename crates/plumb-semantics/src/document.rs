@@ -57,6 +57,8 @@ pub enum AnchorKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnchorRecord {
+    pub category: crate::Category,
+    pub list_item: bool,
     pub id: SourceBacked<String>,
     pub kind: AnchorKind,
     pub range: Range<usize>,
@@ -69,6 +71,7 @@ impl RelativeSemanticRecord for AnchorRecord {
     }
 
     fn shift(&mut self, delta: isize) {
+        self.category.shift(delta);
         shift_source_backed(&mut self.id, delta);
         shift_range(&mut self.range, delta);
         shift_range(&mut self.selection_range, delta);
@@ -1901,6 +1904,7 @@ fn collect_blocks(
                     };
                     collect_anchor(
                         source,
+                        Some(parsed),
                         &mark.attrs,
                         kind,
                         parsed.range.clone(),
@@ -1924,6 +1928,7 @@ fn collect_blocks(
                 if let Some(mark) = &block.mark {
                     collect_anchor(
                         source,
+                        None,
                         &mark.attrs,
                         AnchorKind::VerbatimBlock,
                         block.range.clone(),
@@ -1956,6 +1961,7 @@ fn collect_inlines(
                 if let Some(mark) = mark {
                     collect_anchor(
                         source,
+                        None,
                         &mark.attrs,
                         AnchorKind::Inline,
                         range.clone(),
@@ -1969,6 +1975,7 @@ fn collect_inlines(
                     if mark.is_none() {
                         collect_anchor(
                             source,
+                            None,
                             &attrs,
                             AnchorKind::Inline,
                             range.clone(),
@@ -2026,6 +2033,7 @@ fn collect_inlines(
                 if let Some(mark) = mark {
                     collect_anchor(
                         source,
+                        None,
                         &mark.attrs,
                         AnchorKind::Inline,
                         range.clone(),
@@ -2287,6 +2295,7 @@ fn resource_source(
 
 fn collect_anchor(
     source: &str,
+    owner: Option<&plumb_syntax::ParsedBlock>,
     attrs: &Attributes,
     kind: AnchorKind,
     range: Range<usize>,
@@ -2315,6 +2324,8 @@ fn collect_anchor(
         first_ids.insert(value.clone(), value_range.clone());
     }
     output.anchors.push(AnchorRecord {
+        category: owner.map(|o| crate::Category::from_blocks(&o.children)).unwrap_or_default(),
+        list_item: owner.is_some_and(|o| o.mark.as_ref().is_some_and(|m| matches!(m.marker.as_str(), "-" | "."))),
         id,
         kind,
         range,

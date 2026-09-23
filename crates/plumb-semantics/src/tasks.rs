@@ -138,6 +138,7 @@ pub enum TaskOwner {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
+    pub category: crate::Category,
     pub owner: TaskOwner,
     pub range: Range<usize>,
     pub marker_range: Range<usize>,
@@ -339,6 +340,7 @@ impl RelativeSemanticRecord for TaskRecord {
     }
 
     fn shift(&mut self, delta: isize) {
+        self.category.shift(delta);
         shift_range(&mut self.range, delta);
         shift_range(&mut self.marker_range, delta);
         shift_range(&mut self.selection_range, delta);
@@ -477,11 +479,15 @@ fn document_task_record<'a>(
 ) -> Option<(TaskRecord, Vec<AttrItem>, Vec<Diagnostic>)> {
     let facet = metadata.facets.iter().find(|facet| facet.name == "task")?;
     let mut attrs = Vec::new();
+    let mut category = crate::Category::default();
     let mut focus_occurrences = Vec::new();
     let mut field_diagnostics = Vec::new();
     let mut dependencies = None;
     let mut prev_reference = None;
     for (document, local_source, offset) in documents {
+        let mut local_category = crate::Category::from_blocks(&document.blocks);
+        local_category.shift(offset as isize);
+        category.extend(local_category);
         if prev_reference.is_none() {
             prev_reference = previous_reference(local_source, &document.blocks);
             if let Some(reference) = &mut prev_reference { reference.shift(offset as isize); }
@@ -581,6 +587,7 @@ fn document_task_record<'a>(
         })
         .unwrap_or_else(|| facet.selection_range.clone());
     let task = TaskRecord {
+        category,
         owner: TaskOwner::Document,
         range: 0..source.len(),
         marker_range: facet.range.clone(),
@@ -672,6 +679,7 @@ fn task_record(source: &str, block: &ParsedBlock, depth: usize) -> TaskRecord {
     let mark = block.mark.as_ref().expect("task is a marked block");
     let attrs = &mark.attrs;
     TaskRecord {
+        category: crate::Category::from_blocks(&block.children),
         range: block.range.clone(),
         marker_range: mark.range.clone(),
         selection_range: crate::inline_selection_range(&block.content),

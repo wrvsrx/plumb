@@ -1,3 +1,5 @@
+mod category;
+pub use category::Category;
 mod citations;
 mod definitions;
 mod document;

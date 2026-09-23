@@ -21,6 +21,8 @@ pub struct EventField {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventRecord {
+    pub category: crate::Category,
+    pub accounting_links: Vec<Range<usize>>,
     pub range: Range<usize>,
     pub marker_range: Range<usize>,
     pub selection_range: Range<usize>,
@@ -207,6 +209,8 @@ pub fn analyze_events(valid: ValidDocument<'_>, metadata: &MetadataOutput) -> Ev
 
 fn shift_events(events: &mut [EventRecord], delta: isize) {
     for event in events {
+        event.category.shift(delta);
+        for range in &mut event.accounting_links { shift_range(range, delta); }
         shift_range(&mut event.range, delta);
         shift_range(&mut event.marker_range, delta);
         shift_range(&mut event.selection_range, delta);
@@ -376,6 +380,11 @@ fn event_record(
     });
     (
         EventRecord {
+            category: crate::Category::from_blocks(&block.children),
+            accounting_links: block.content.items.iter().filter_map(|inline| match inline {
+                Inline::Group { mark: Some(mark), range, .. } | Inline::Verbatim { mark: Some(mark), range, .. } if mark.marker == "->" => Some(range.clone()),
+                _ => None,
+            }).collect(),
             range: block.range.clone(),
             marker_range: mark.range.clone(),
             selection_range,
