@@ -6534,3 +6534,37 @@ fn document_parent_placement_creates_root_list_task_without_wrapping_document() 
     assert_eq!(tasks.tasks.len(), 2);
     assert_eq!(tasks.tasks.get(1).unwrap().depth, 1);
 }
+
+#[test]
+fn document_task_cursor_region_controls_new_fields_and_preserves_other_regions() {
+    let source = "`= title Project\n\n`+ custom\n\n`= priority 1\n\nBody unchanged\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("regions.plumb", 1, source);
+    let timestamp = "2026-09-21T09:00:00+08:00";
+    let edit = workspace.mark_document_task_at("regions.plumb", timestamp, Some(source.find("priority").unwrap())).unwrap();
+    let marked = apply_document_edit(source.into(), "regions.plumb", 1, edit).unwrap();
+    let prefix = "`= title Project\n\n`+ custom\n\n";
+    assert!(marked.starts_with(prefix));
+    assert!(marked.contains("`= priority 1\n`= created 2026-09-21T09:00:00+08:00\n\n`+ task"));
+    workspace.insert("regions.plumb", 2, marked.clone());
+    let edit = workspace.focus_document_task_at("regions.plumb", timestamp, Some(marked.find("priority").unwrap())).unwrap();
+    let focused = apply_document_edit(marked.clone(), "regions.plumb", 2, edit).unwrap();
+    assert!(focused.starts_with(prefix));
+    assert!(focused.find("`= focused").unwrap() < focused.find("`+ task").unwrap());
+    workspace.insert("regions.plumb", 3, focused.clone());
+    // A cursor in the other region must update the existing field in place.
+    let edit = workspace.unfocus_document_task_at("regions.plumb", "2026-09-21T10:00:00+08:00", Some(2)).unwrap();
+    let unfocused = apply_document_edit(focused, "regions.plumb", 3, edit).unwrap();
+    assert!(unfocused.starts_with(prefix));
+    assert_eq!(unfocused.matches("`= focused").count(), 1);
+    assert!(unfocused.contains("09:00:00+08:00--2026-09-21T10:00:00+08:00"));
+    workspace.insert("regions.plumb", 2, marked.clone());
+    for status in [TaskStatus::Done, TaskStatus::Canceled] {
+        let edit = workspace.set_document_task_status_at("regions.plumb", status, timestamp, Some(marked.find("priority").unwrap())).unwrap();
+        let result = apply_document_edit(marked.clone(), "regions.plumb", 2, edit).unwrap();
+        assert!(result.starts_with(prefix));
+        let field = if status == TaskStatus::Done { "`= done" } else { "`= canceled" };
+        assert!(result.find(field).unwrap() < result.find("`+ task").unwrap());
+        assert!(result.ends_with("\n\nBody unchanged\n"));
+    }
+}

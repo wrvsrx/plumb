@@ -1,5 +1,5 @@
 mod root;
-pub use root::{edit_green_root_declarations, green_root_declaration, RootDeclarationEdit};
+pub use root::{edit_green_root_declarations_at, root_declaration_region, edit_green_root_declarations, green_root_declaration, RootDeclarationEdit};
 
 use std::{collections::HashMap, ops::Range};
 

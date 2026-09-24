@@ -1143,8 +1143,8 @@ fn focused_task_offers_unfocus_instead_of_focus() {
 #[test]
 fn document_task_actions_use_root_declarations_without_capturing_child_tasks() {
     let uri = "file:///tmp/document-task-actions.plumb";
-    let source = "`+ task\n`= title Project\n\n`- Child\n `+ task\n";
-    for (line, document) in [(0, true), (3, false)] {
+    let source = "`= title Project\n\n`+ task\n\n`= priority 1\n\n`+ custom\n\n`- Child\n `+ task\n";
+    for (line, document) in [(0, true), (4, true), (6, true), (8, false), (3, false)] {
         let messages = [
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
                 "processId":null,"rootUri":null,"capabilities":{
@@ -1166,6 +1166,10 @@ fn document_task_actions_use_root_declarations_without_capturing_child_tasks() {
         let output = run_server(&messages);
         let actions = response(&output, 2)["result"].as_array().unwrap();
         assert_eq!(actions.iter().any(|action| action["title"] == "Remove document task facet"), document);
+        if line == 3 {
+            assert!(!actions.iter().any(|action| matches!(action["title"].as_str(), Some("Focus task" | "Complete task" | "Cancel task"))));
+            continue;
+        }
         let focus = actions.iter().find(|action| action["title"] == "Focus task").unwrap();
         let edits = focus["edit"]["documentChanges"][0]["edits"].as_array().unwrap();
         let text = edits.iter().map(|edit| edit["newText"].as_str().unwrap()).collect::<String>();
@@ -1173,6 +1177,9 @@ fn document_task_actions_use_root_declarations_without_capturing_child_tasks() {
         if document {
             assert!(!text.contains("`- Child"));
             assert!(!text.contains(" `= focused"));
+            assert_eq!(edits[0]["range"]["start"]["line"], if line == 0 { 0 } else { 4 });
+            let facet = if line == 0 { "`+ task" } else { "`+ custom" };
+            assert!(text.find("`= focused").unwrap() < text.find(facet).unwrap());
         } else {
             assert!(text.contains(" `= focused"));
         }

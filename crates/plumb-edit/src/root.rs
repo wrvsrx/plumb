@@ -99,6 +99,58 @@ pub fn green_root_declaration(
     Ok(found)
 }
 
+/// Metadata regions are a property run followed by a facet run.
+pub fn root_declaration_region(
+    document: &GreenDocument,
+    cursor: Option<usize>,
+) -> Option<Range<usize>> {
+    let mut regions: Vec<Range<usize>> = Vec::new();
+    let mut active = false;
+    let mut facet = false;
+    for shard in document.shards() {
+        for block in &shard.shard().parsed().syntax.blocks {
+            let marker = match block {
+                Block::Parsed(owner) => owner.mark.as_ref().map(|m| m.marker.as_str()),
+                _ => None,
+            };
+            if !matches!(marker, Some("=" | "+")) {
+                active = false;
+                continue;
+            }
+            let range = block.range().start + shard.offset()..block.range().end + shard.offset();
+            if !active || (facet && marker == Some("=")) {
+                regions.push(range);
+            } else {
+                regions.last_mut().unwrap().end = range.end;
+            }
+            active = true;
+            facet = marker == Some("+");
+        }
+    }
+    match cursor {
+        Some(cursor) => {
+            if cursor > document.source().len() || !document.source().is_char_boundary(cursor) {
+                return None;
+            }
+            let line = document.source()[..cursor].rfind('\n').map_or(0, |i| i + 1);
+            let end = document.source()[line..]
+                .find('\n')
+                .map_or(document.source().len(), |i| line + i);
+            if document.source()[line..end].trim().is_empty() {
+                return None;
+            }
+            regions.into_iter().find(|range| {
+                range.contains(&cursor)
+                    || (cursor == document.source().len() && range.end == cursor)
+            })
+        }
+        None => regions
+            .into_iter()
+            .next()
+            .filter(|range| document.source()[..range.start].trim().is_empty()),
+    }
+}
+
 /// Apply a declaration transaction against one valid green revision.
 /// Existing body blocks and unrelated declarations retain their exact source bytes.
 /// Duplicate properties cannot be silently overwritten; removal explicitly removes all
@@ -107,6 +159,22 @@ pub fn edit_green_root_declarations(
     document: &GreenDocument,
     intents: &[RootDeclarationEdit],
 ) -> Result<Vec<TextEdit>, EditError> {
+    edit_green_root_declarations_at(document, intents, None)
+}
+
+pub fn edit_green_root_declarations_at(
+    document: &GreenDocument,
+    intents: &[RootDeclarationEdit],
+    cursor: Option<usize>,
+) -> Result<Vec<TextEdit>, EditError> {
+    let region = root_declaration_region(document, cursor);
+    if cursor.is_some()
+        && region.is_none()
+        && !(cursor == Some(0) && root_declaration_region(document, None).is_none())
+    {
+        return Err(EditError::InvalidRange);
+    }
+    let region = region.unwrap_or(0..0);
     let mut declarations = root_declarations(document)?;
     for intent in intents {
         let matches = declarations
@@ -171,55 +239,50 @@ pub fn edit_green_root_declarations(
             }
         }
     }
+    let inserting = declarations
+        .iter()
+        .any(|d| d.range.is_none() && d.current.is_some());
     let mut edits = Vec::new();
-    let mut additions = Vec::new();
+    let mut region_blocks = Vec::new();
+    let mut original_region = Vec::new();
     for declaration in declarations {
-        if declaration.current == declaration.original {
-            continue;
-        }
-        match (declaration.range, declaration.current) {
-            (Some(range), Some(block)) => edits.push(replace_green_block(document, range, &block)?),
-            (Some(range), None) => {
-                edits.push(TextEdit::replace_source(document.source(), range, "")?)
+        if inserting
+            && declaration
+                .range
+                .as_ref()
+                .is_none_or(|range| region.start <= range.start && range.end <= region.end)
+        {
+            if let Some(block) = declaration.original {
+                original_region.push(block);
             }
-            (None, Some(block)) => additions.push(block),
-            (None, None) => {}
+            if let Some(block) = declaration.current {
+                region_blocks.push(block);
+            }
+        } else if declaration.current != declaration.original {
+            let range = declaration.range.unwrap();
+            edits.push(match declaration.current {
+                Some(block) => replace_green_block(document, range, &block)?,
+                None => TextEdit::replace_source(document.source(), range, "")?,
+            });
         }
     }
-    if !additions.is_empty() {
-        // Keep root authoring order stable: properties come before the task
-        // facet, while later properties are appended after existing metadata.
-        additions.sort_by_key(|block| match block {
-            OwnedBlock::Parsed { marker: Some(marker), .. } if marker == "+" => 1,
-            _ => 0,
-        });
-        // Top-level block ranges include their children. Stop at the first
-        // body owner, leaving declarations later in the body in place.
-        let mut anchor = None;
-        'header: for shard in document.shards() {
-            for block in &shard.shard().parsed().syntax.blocks {
-                if !matches!(block, Block::Parsed(owner) if owner.mark.as_ref()
-                    .is_some_and(|mark| matches!(mark.marker.as_str(), "=" | "+"))) {
-                    break 'header;
-                }
-                anchor = Some((shard, block.range().clone()));
-            }
+    region_blocks.sort_by_key(|block| match block {
+        OwnedBlock::Parsed {
+            marker: Some(marker),
+            ..
+        } if marker == "+" => 1,
+        _ => 0,
+    });
+    if !intents.is_empty() && region_blocks != original_region {
+        let mut text = format_owned_blocks(&region_blocks, line_ending(document.source()))?;
+        if region.is_empty() && !text.is_empty() && !document.source().is_empty() {
+            text.push_str(line_ending(document.source()));
         }
-        let insertion = if let Some((shard, local)) = anchor {
-            let parsed = shard.shard().parsed();
-            let offset = shard.offset();
-            let mut session = EditSession::new(parsed, local.clone())?;
-            let absolute = local.start + offset..local.end + offset;
-            if let Some(index) = edits.iter().position(|edit| edit.range == absolute) {
-                let edit = edits.remove(index);
-                session.replace(local.clone(), edit.new_text)?;
-            }
-            session.insert_sibling_blocks(&local, &additions)?;
-            rebase_edit(session.finish()?, offset)?
-        } else {
-            prepend_green_blocks(document, &additions)?
-        };
-        edits.push(insertion);
+        edits.push(TextEdit::replace_source(
+            document.source(),
+            region.clone(),
+            text,
+        )?);
     }
 
     edits.sort_by_key(|edit| edit.range.start);
@@ -249,15 +312,128 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_root_declarations_keep_properties_before_task_and_append_after_metadata() {
-        let document = GreenDocument::parse(
-            "`= title Plan\n\nBody\n",
+    fn region_cursor_accepts_eof_but_rejects_leading_blank_line() {
+        let source = "`= title Plan";
+        let document = GreenDocument::parse(source);
+        assert_eq!(
+            root_declaration_region(&document, Some(source.len())),
+            Some(0..source.len())
         );
+        let document = GreenDocument::parse("\n`= title Plan\n");
+        assert!(edit_green_root_declarations_at(
+            &document,
+            &[RootDeclarationEdit::SetFacet {
+                name: "task".into(),
+                present: true
+            }],
+            Some(0)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn empty_groups_and_body_boundaries_use_local_region() {
+        for source in ["`+ custom\n\nBody\n", "`= title Plan\n\nBody\n"] {
+            let document = GreenDocument::parse(source);
+            let edits = edit_green_root_declarations_at(
+                &document,
+                &[
+                    RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar("done", "now")),
+                    RootDeclarationEdit::SetFacet {
+                        name: "task".into(),
+                        present: true,
+                    },
+                ],
+                Some(2),
+            )
+            .unwrap();
+            let result = apply_text_edits(source.into(), edits).unwrap();
+            assert!(result.find("`= done").unwrap() < result.find("`+ task").unwrap());
+            assert!(result.ends_with("\n\nBody\n"));
+            if source.contains("custom") {
+                assert!(result.find("custom").unwrap() < result.find("task").unwrap());
+            }
+        }
+        let source = "Body\n\n`= title Tail\n";
+        let doc = GreenDocument::parse(source);
+        let intents = [RootDeclarationEdit::SetFacet {
+            name: "task".into(),
+            present: true,
+        }];
+        let result = apply_text_edits(
+            source.into(),
+            edit_green_root_declarations(&doc, &intents).unwrap(),
+        )
+        .unwrap();
+        assert!(result.starts_with("`+ task\n\nBody"));
+        let result = apply_text_edits(
+            source.into(),
+            edit_green_root_declarations_at(&doc, &intents, Some(source.find("Tail").unwrap()))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(result.starts_with("Body\n\n`= title Tail\n\n`+ task"));
+    }
+
+    #[test]
+    fn cursor_selects_region_without_reordering_other_regions() {
+        for nl in ["\n", "\r\n"] {
+            let source = "`= title First\n\n`+ custom\n\n`= tags\n\n `+ alpha\n\n`+ task\n\nBody unchanged\n".replace('\n', nl);
+            let doc = GreenDocument::parse(&source);
+            let intents = [RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar(
+                "done", "now",
+            ))];
+            for cursor in [
+                source.find("tags").unwrap(),
+                source.find("alpha").unwrap(),
+                source.find("task").unwrap(),
+            ] {
+                let result = apply_text_edits(
+                    source.clone(),
+                    edit_green_root_declarations_at(&doc, &intents, Some(cursor)).unwrap(),
+                )
+                .unwrap();
+                assert!(result.starts_with(&source[..source.find("`= tags").unwrap()]));
+                assert!(result.contains(&"`= done now\n\n`+ task".replace('\n', nl)));
+                assert!(result.ends_with(&"\n\nBody unchanged\n".replace('\n', nl)));
+            }
+            let result = apply_text_edits(
+                source.clone(),
+                edit_green_root_declarations(&doc, &intents).unwrap(),
+            )
+            .unwrap();
+            assert!(result.contains(&"`= done now\n\n`+ custom".replace('\n', nl)));
+            assert!(root_declaration_region(&doc, Some(source.find("\n").unwrap() + 1)).is_none());
+            let result = apply_text_edits(
+                source.clone(),
+                edit_green_root_declarations_at(
+                    &doc,
+                    &[RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar(
+                        "title", "Updated",
+                    ))],
+                    Some(source.find("tags").unwrap()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert!(result.ends_with(&source[source.find("`= tags").unwrap()..]));
+        }
+    }
+
+    #[test]
+    fn new_root_declarations_keep_properties_before_task_and_append_after_metadata() {
+        let document = GreenDocument::parse("`= title Plan\n\nBody\n");
         let edits = edit_green_root_declarations(
             &document,
             &[
-                RootDeclarationEdit::SetFacet { name: "task".into(), present: true },
-                RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar("created", "2026-09-24T09:00:00+08:00")),
+                RootDeclarationEdit::SetFacet {
+                    name: "task".into(),
+                    present: true,
+                },
+                RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar(
+                    "created",
+                    "2026-09-24T09:00:00+08:00",
+                )),
             ],
         )
         .unwrap();
@@ -279,24 +455,45 @@ mod tests {
         let source = apply_text_edits(document.source().to_owned(), edits).unwrap();
         assert_eq!(
             source,
-            "`= title Plan\n`= created 2026-09-24T09:00:00+08:00\n\n`+ task\n\n`= focused 2026-09-24T10:00:00+08:00--\n\nBody\n"
+            "`= title Plan\n`= created 2026-09-24T09:00:00+08:00\n`= focused 2026-09-24T10:00:00+08:00--\n\n`+ task\n\nBody\n"
         );
     }
 
     #[test]
     fn root_insertion_matches_formatter_at_existing_and_new_boundaries() {
         for newline in ["\n", "\r\n"] {
-            for source in ["", "`= title Plan", "`= title Plan\n\nBody\n",
-                "`= title Plan\n\n`+ task\n\nBody\n"] {
+            for source in [
+                "",
+                "`= title Plan",
+                "`= title Plan\n\nBody\n",
+                "`= title Plan\n\n`+ task\n\nBody\n",
+            ] {
                 let source = source.replace('\n', newline);
                 let document = GreenDocument::parse(&source);
-                let edits = edit_green_root_declarations(&document, &[
-                    RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar("title", "Updated")),
-                    RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar("done", "2026-09-24T10:00:00+08:00")),
-                    RootDeclarationEdit::SetFacet { name: "task".into(), present: true },
-                ]).unwrap();
+                let edits = edit_green_root_declarations(
+                    &document,
+                    &[
+                        RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar(
+                            "title", "Updated",
+                        )),
+                        RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar(
+                            "done",
+                            "2026-09-24T10:00:00+08:00",
+                        )),
+                        RootDeclarationEdit::SetFacet {
+                            name: "task".into(),
+                            present: true,
+                        },
+                    ],
+                )
+                .unwrap();
                 let result = apply_text_edits(source, edits).unwrap();
-                assert!(format_green(&GreenDocument::parse(&result)).unwrap().is_empty(), "{result:?}");
+                assert!(
+                    format_green(&GreenDocument::parse(&result))
+                        .unwrap()
+                        .is_empty(),
+                    "{result:?}"
+                );
                 assert!(result.starts_with("`= title Updated"));
             }
         }
@@ -399,7 +596,10 @@ mod tests {
         )
         .unwrap();
         let result = apply_text_edits(source.into(), edits).unwrap();
-        assert_eq!(result, "`= due dates\n\n `+ tomorrow\n\n`= due 2026-09-21T09:00:00+08:00\n\nBody.\n");
+        assert_eq!(
+            result,
+            "`= due dates\n\n `+ tomorrow\n\n`= due 2026-09-21T09:00:00+08:00\n\nBody.\n"
+        );
     }
 
     #[test]

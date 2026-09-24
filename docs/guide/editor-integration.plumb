@@ -257,3 +257,5 @@ Note preview 对 `"cite" 运行 Pandoc citeproc。Bibliography relative path 从
 在空文档或根层 metadata/facet 声明处，LSP code action 提供 Mark document as task 或 Remove document task facet。已有文档任务还可使用 Complete task、Cancel task、Focus task 和 Unfocus task。子任务内部的操作只作用于对应列表任务。Neovim 使用原生 code action 入口即可，无需另写编辑命令。
 
 文档任务完成或取消时，仅对 title 或 task facet 的选择范围提供状态高亮，不覆盖正文或子任务；文档任务不生成整文件的列表折叠标签，现有结构折叠继续使用原有边界。
+
+文档任务的新增声明按光标所在 metadata 区域插入：连续 properties 及其后 facets 构成一区域，空行不拆组。新增属性放在本组 properties 末尾、facets 前，新增 facet 放在 facets 末尾。已有字段原位更新，其他区域不重排；metadata 空白行不提供区域操作。CLI/Web 默认使用文件开头的第一区域，没有头部 metadata 时在文件开头创建。

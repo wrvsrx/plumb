@@ -179,9 +179,5 @@ Document task 的显式操作按 document owner 定位，不转成任意 list of
 
 列表任务的 create/move 若显式选择 Document task 为 parent，shared editing 将其映射到文档根层插入位置；不构造整文件列表 wrapper。文档任务本身不能作为 after sibling。
 
-根层新增声明追加到文档开头连续的 property/facet 声明区末尾、正文之前；空行不打断声明区。没有开头声明区时在文档开头创建。
-同批新增声明中 properties 按 intent 顺序排在新增 facets 前；既有声明不重排，已有 property 在原位置替换。
-因此首次标记文档 task 时补充的 created 在新增 task facet 前；后续 focused、done 等新增字段在已有 task facet 后追加。
-正文之后分散的根层声明仍可原位更新，但不能成为新声明的插入位置。保留正文与既有分隔空行、LF/CRLF；声明区位于 EOF 且没有行末换行时先补换行。
-
-根层新增声明必须与声明区最后一个 owner 一起执行局部 format finalization；新声明之间与插入边界的分隔由 formatter 决定，不能逐块 format 后直接拼接。不同 marker（例如 property 与 task facet）之间保留 canonical 空行；同 marker 的 leaf properties 使用 canonical 紧凑排列。正文与不在局部范围内的声明不参与重排。
+根层声明按连续 properties 组及紧随的 facets 组划分区域；空行不打断组，正文打断区域，facet 后的 property 开始下一区域。光标落在声明或子结构内时选择所属区域，空白行不匹配。新增 property 追加在本区域 properties 后、facets 前；新增 facet 追加在 facets 后。已有字段全局原位更新，不搬动或合并区域，不重排已有声明。
+无光标时选择文件开头的第一区域；开头没有声明时创建区域。无 metadata 的文件允许在 offset 0 创建区域。LSP 将 cursor byte offset 传入共享编辑层，CLI/Web 使用默认区域。formatter 负责本区域分隔与缩进，区域外源码保留，支持 LF/CRLF。

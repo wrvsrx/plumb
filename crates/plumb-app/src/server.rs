@@ -2380,7 +2380,7 @@ impl LanguageServer for ServerState {
                     let edit = if existing {
                         self.workspace.remove_document_task(&path)
                     } else {
-                        self.workspace.mark_document_task(&path, &timestamp)
+                        self.workspace.mark_document_task_at(&path, &timestamp, Some(offset))
                     };
                     if let Some(edit) = edit.ok().and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit)) {
                         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
@@ -2494,7 +2494,7 @@ impl LanguageServer for ServerState {
         if code_action_kind_requested(params.context.only.as_deref(), &CodeActionKind::QUICKFIX) {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(entry.parsed.source(), params.range.start);
-                let document_context = document_task_action_context(entry.parsed.green(), offset);
+                let document_context = plumb_edit::root_declaration_region(entry.parsed.green(), Some(offset)).is_some();
                 let focus = if document_context {
                     self.workspace.document_task(&path)
                 } else { entry.current.as_ref().and_then(|current| {
@@ -2510,8 +2510,9 @@ impl LanguageServer for ServerState {
                     (TaskStatus::Done, "Complete task", true),
                     (TaskStatus::Canceled, "Cancel task", false),
                 ] {
+                    if !document_context && focus.is_none() { continue; }
                     let edit = if document_context {
-                        self.workspace.set_document_task_status(&path, status, &timestamp)
+                        self.workspace.set_document_task_status_at(&path, status, &timestamp, Some(offset))
                     } else {
                         self.workspace.set_task_status(&path, offset, status, &timestamp)
                     };
@@ -2543,9 +2544,9 @@ impl LanguageServer for ServerState {
                 if let Some((title, preferred)) = focus_action {
                     let edit = if document_context {
                         if title == "Focus task" {
-                            self.workspace.focus_document_task(&path, &timestamp)
+                            self.workspace.focus_document_task_at(&path, &timestamp, Some(offset))
                         } else {
-                            self.workspace.unfocus_document_task(&path, &timestamp)
+                            self.workspace.unfocus_document_task_at(&path, &timestamp, Some(offset))
                         }
                     } else if title == "Focus task" {
                         self.workspace.focus_task(&path, offset, &timestamp)
@@ -5135,13 +5136,6 @@ mod tests {
 
 // Document actions belong to root declarations, never to a child task's body.
 fn document_task_action_context(document: &plumb_syntax::GreenDocument, offset: usize) -> bool {
-    if document.source().trim().is_empty() { return true; }
-    document.shards().any(|shard| {
-        let local = offset.checked_sub(shard.offset());
-        shard.shard().parsed().syntax.blocks.iter().any(|block| {
-            let plumb_syntax::Block::Parsed(block) = block else { return false; };
-            block.mark.as_ref().is_some_and(|mark| matches!(mark.marker.as_str(), "+" | "="))
-                && local.is_some_and(|local| block.range.start <= local && local <= block.content.range.end)
-        })
-    })
+    plumb_edit::root_declaration_region(document, Some(offset)).is_some()
+        || (offset == 0 && plumb_edit::root_declaration_region(document, None).is_none())
 }
