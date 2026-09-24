@@ -195,32 +195,31 @@ pub fn edit_green_root_declarations(
         });
         // Top-level block ranges include their children. Stop at the first
         // body owner, leaving declarations later in the body in place.
-        let mut offset = 0;
+        let mut anchor = None;
         'header: for shard in document.shards() {
             for block in &shard.shard().parsed().syntax.blocks {
                 if !matches!(block, Block::Parsed(owner) if owner.mark.as_ref()
                     .is_some_and(|mark| matches!(mark.marker.as_str(), "=" | "+"))) {
                     break 'header;
                 }
-                offset = shard.offset() + block.range().end;
+                anchor = Some((shard, block.range().clone()));
             }
         }
-        let newline = line_ending(document.source());
-        let mut text = String::new();
-        if offset > 0 && !document.source()[..offset].ends_with(newline) {
-            text.push_str(newline);
-        }
-        for block in &additions {
-            text.push_str(&format_owned_blocks(std::slice::from_ref(block), newline)?);
-        }
-        if offset == 0 && !document.source().is_empty() {
-            text.push_str(newline);
-        }
-        if let Some(edit) = edits.iter_mut().find(|edit| edit.range.start == offset) {
-            edit.new_text.insert_str(0, &text);
+        let insertion = if let Some((shard, local)) = anchor {
+            let parsed = shard.shard().parsed();
+            let offset = shard.offset();
+            let mut session = EditSession::new(parsed, local.clone())?;
+            let absolute = local.start + offset..local.end + offset;
+            if let Some(index) = edits.iter().position(|edit| edit.range == absolute) {
+                let edit = edits.remove(index);
+                session.replace(local.clone(), edit.new_text)?;
+            }
+            session.insert_sibling_blocks(&local, &additions)?;
+            rebase_edit(session.finish()?, offset)?
         } else {
-            edits.push(TextEdit::replace_source(document.source(), offset..offset, text)?);
-        }
+            prepend_green_blocks(document, &additions)?
+        };
+        edits.push(insertion);
     }
 
     edits.sort_by_key(|edit| edit.range.start);
@@ -265,7 +264,7 @@ mod tests {
         let source = apply_text_edits(document.source().to_owned(), edits).unwrap();
         assert_eq!(
             source,
-            "`= title Plan\n`= created 2026-09-24T09:00:00+08:00\n`+ task\n\nBody\n"
+            "`= title Plan\n`= created 2026-09-24T09:00:00+08:00\n\n`+ task\n\nBody\n"
         );
 
         let document = GreenDocument::parse(&source);
@@ -280,8 +279,27 @@ mod tests {
         let source = apply_text_edits(document.source().to_owned(), edits).unwrap();
         assert_eq!(
             source,
-            "`= title Plan\n`= created 2026-09-24T09:00:00+08:00\n`+ task\n`= focused 2026-09-24T10:00:00+08:00--\n\nBody\n"
+            "`= title Plan\n`= created 2026-09-24T09:00:00+08:00\n\n`+ task\n\n`= focused 2026-09-24T10:00:00+08:00--\n\nBody\n"
         );
+    }
+
+    #[test]
+    fn root_insertion_matches_formatter_at_existing_and_new_boundaries() {
+        for newline in ["\n", "\r\n"] {
+            for source in ["", "`= title Plan", "`= title Plan\n\nBody\n",
+                "`= title Plan\n\n`+ task\n\nBody\n"] {
+                let source = source.replace('\n', newline);
+                let document = GreenDocument::parse(&source);
+                let edits = edit_green_root_declarations(&document, &[
+                    RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar("title", "Updated")),
+                    RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar("done", "2026-09-24T10:00:00+08:00")),
+                    RootDeclarationEdit::SetFacet { name: "task".into(), present: true },
+                ]).unwrap();
+                let result = apply_text_edits(source, edits).unwrap();
+                assert!(format_green(&GreenDocument::parse(&result)).unwrap().is_empty(), "{result:?}");
+                assert!(result.starts_with("`= title Updated"));
+            }
+        }
     }
 
     #[test]
@@ -381,7 +399,7 @@ mod tests {
         )
         .unwrap();
         let result = apply_text_edits(source.into(), edits).unwrap();
-        assert_eq!(result, "`= due dates\n `+ tomorrow\n`= due 2026-09-21T09:00:00+08:00\n\nBody.\n");
+        assert_eq!(result, "`= due dates\n\n `+ tomorrow\n\n`= due 2026-09-21T09:00:00+08:00\n\nBody.\n");
     }
 
     #[test]
