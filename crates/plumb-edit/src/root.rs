@@ -193,13 +193,36 @@ pub fn edit_green_root_declarations(
             OwnedBlock::Parsed { marker: Some(marker), .. } if marker == "+" => 1,
             _ => 0,
         });
-        let insertion = prepend_green_blocks(document, &additions)?;
-        if let Some(edit) = edits.iter_mut().find(|edit| edit.range.end == document.source().len()) {
-            edit.new_text.push_str(&insertion.new_text);
+        // Top-level block ranges include their children. Stop at the first
+        // body owner, leaving declarations later in the body in place.
+        let mut offset = 0;
+        'header: for shard in document.shards() {
+            for block in &shard.shard().parsed().syntax.blocks {
+                if !matches!(block, Block::Parsed(owner) if owner.mark.as_ref()
+                    .is_some_and(|mark| matches!(mark.marker.as_str(), "=" | "+"))) {
+                    break 'header;
+                }
+                offset = shard.offset() + block.range().end;
+            }
+        }
+        let newline = line_ending(document.source());
+        let mut text = String::new();
+        if offset > 0 && !document.source()[..offset].ends_with(newline) {
+            text.push_str(newline);
+        }
+        for block in &additions {
+            text.push_str(&format_owned_blocks(std::slice::from_ref(block), newline)?);
+        }
+        if offset == 0 && !document.source().is_empty() {
+            text.push_str(newline);
+        }
+        if let Some(edit) = edits.iter_mut().find(|edit| edit.range.start == offset) {
+            edit.new_text.insert_str(0, &text);
         } else {
-            edits.push(insertion);
+            edits.push(TextEdit::replace_source(document.source(), offset..offset, text)?);
         }
     }
+
     edits.sort_by_key(|edit| edit.range.start);
     if let (Some(first), Some(last)) = (edits.first(), edits.last()) {
         let changed = apply_text_edits(document.source().to_owned(), edits.clone())?;
@@ -242,7 +265,7 @@ mod tests {
         let source = apply_text_edits(document.source().to_owned(), edits).unwrap();
         assert_eq!(
             source,
-            "`= created 2026-09-24T09:00:00+08:00\n\n`+ task\n\n`= title Plan\n\nBody\n"
+            "`= title Plan\n`= created 2026-09-24T09:00:00+08:00\n`+ task\n\nBody\n"
         );
 
         let document = GreenDocument::parse(&source);
@@ -257,7 +280,7 @@ mod tests {
         let source = apply_text_edits(document.source().to_owned(), edits).unwrap();
         assert_eq!(
             source,
-            "`= focused 2026-09-24T10:00:00+08:00--\n\n`= created 2026-09-24T09:00:00+08:00\n\n`+ task\n\n`= title Plan\n\nBody\n"
+            "`= title Plan\n`= created 2026-09-24T09:00:00+08:00\n`+ task\n`= focused 2026-09-24T10:00:00+08:00--\n\nBody\n"
         );
     }
 
@@ -358,7 +381,7 @@ mod tests {
         )
         .unwrap();
         let result = apply_text_edits(source.into(), edits).unwrap();
-        assert!(result.contains(source));
+        assert_eq!(result, "`= due dates\n `+ tomorrow\n`= due 2026-09-21T09:00:00+08:00\n\nBody.\n");
     }
 
     #[test]
