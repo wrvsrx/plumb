@@ -481,3 +481,7 @@ Exported semantic delta 的 record address 显式区分 document reducer record 
 `## 分类检查查询
 
 check-event-categories 在 workspace 层复用 event selection 与 event-category 解析，独立于 timeline window。explicit 模式不解析事项引用；默认检查每个有效核算份额。 输出 complete、checked、missing source locations 与 issues。CLI event check-category 仅投影结果与 0/1/2 退出码，不另行推导类别。 Category 持久化保存去重 values 数组；结构变化提升 store schema version，旧缓存重新索引。
+
+CLI event check-category 的 missing-category 终端位置使用事件 selection_range，格式为 path:start_line:start_column..end_line:end_column。
+行、列均从 1 开始，列按 Unicode scalar value 计数，不按 UTF-8 bytes、UTF-16 units 或显示宽度计数；结束位置不包含在范围内。
+两端从同一已加载 source snapshot 转换，支持跨行标题、CRLF 与空范围；不重新读取或解析文件。JSON 与 protocol-neutral report 保留 UTF-8 half-open byte ranges。

@@ -1110,3 +1110,34 @@ fn category_check_has_no_time_window_and_reports_missing_and_invalid() {
     assert_eq!(run().status.code(), Some(2));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn category_check_terminal_uses_one_based_unicode_positions_and_json_keeps_bytes() {
+    let dir = unique_temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("day.plumb");
+    let source = "`= title 中文\r\n`- 2020-01-01T10:00:00Z 中文😀\r\n 继续\r\n `+ event\r\n";
+    std::fs::write(&path, source).unwrap();
+    let run = |extra: &[&str]| {
+        plumb_command()
+            .args(["event", "check-category", "--root"])
+            .arg(&dir)
+            .arg("--explicit")
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    // Cold, warm, and uncached projections must use the same source positions.
+    for extra in [&[][..], &[][..], &["--no-cache"][..]] {
+        let out = run(extra);
+        assert_eq!(out.status.code(), Some(1), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8(out.stdout).unwrap(), format!(
+            "checked: 1; missing: 1\nmissing-category\t{}:2:25..3:4\n", path.display()
+        ));
+    }
+    let out = run(&["--json"]);
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["missing"][0]["range"]["start"], source.find("中文😀").unwrap());
+    assert_eq!(json["missing"][0]["range"]["end"], source.find("继续").unwrap() + "继续".len());
+    std::fs::remove_dir_all(dir).unwrap();
+}

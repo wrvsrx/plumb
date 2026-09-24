@@ -139,11 +139,14 @@ pub(super) fn check_category(
             report.missing.len()
         );
         for source in &report.missing {
+            let text = loaded.source(&source.path).ok_or_else(|| {
+                format!("missing source snapshot: {}", source.path.display())
+            })?;
+            let (start_line, start_column) = super::line_column(text, source.range.start);
+            let (end_line, end_column) = super::line_column(text, source.range.end);
             println!(
-                "missing-category\t{}:{}..{}",
+                "missing-category\t{}:{start_line}:{start_column}..{end_line}:{end_column}",
                 source.path.display(),
-                source.range.start,
-                source.range.end
             );
         }
         for issue in &report.issues {
