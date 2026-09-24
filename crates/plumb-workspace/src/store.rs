@@ -525,12 +525,15 @@ impl SqliteSemanticStore {
         })
     }
 
-    pub(crate) fn reconcile_generations(
+    pub(crate) fn reconcile_generations<E>(
         &self,
         retained_paths: &[PathBuf],
-        generations: &[StoredGeneration<'_>],
         prune_missing: bool,
-    ) -> StoreResult<()> {
+        publish: impl FnOnce(&mut dyn FnMut(StoredGeneration<'_>) -> StoreResult<()>) -> Result<(), E>,
+    ) -> Result<(), E>
+    where
+        E: From<StoreError> + From<diesel::result::Error>,
+    {
         let retained_paths = retained_paths
             .iter()
             .map(|path| normalize(path))
@@ -539,7 +542,7 @@ impl SqliteSemanticStore {
             .connection
             .lock()
             .map_err(|_| StoreError::LockPoisoned)?;
-        connection.transaction::<_, StoreError, _>(|connection| {
+        connection.transaction::<_, E, _>(|connection| {
             if prune_missing {
                 let stored_paths = documents::table
                     .select(documents::path)
@@ -553,7 +556,7 @@ impl SqliteSemanticStore {
                     }
                 }
             }
-            for generation in generations {
+            publish(&mut |generation| {
                 replace_generation(
                     connection,
                     &normalize(generation.path),
@@ -561,9 +564,8 @@ impl SqliteSemanticStore {
                     generation.source,
                     generation.output,
                     generation.diagnostics,
-                )?;
-            }
-            Ok(())
+                )
+            })
         })
     }
 

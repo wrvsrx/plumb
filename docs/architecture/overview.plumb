@@ -152,3 +152,5 @@ verbatim、introducer/marker/kind 的 nesting与 stable byte ranges。invalid re
 portability 由 export 保证。plumb 自己充当 Pandoc reader：标准 semantic structures lower 为原生 Pandoc nodes，generic structures lower 为 Div/Span/CodeBlock/Code 并保留 opaque data。Pandoc 只 负责目标 writer。
 
 import 是 portability boundary 的反向 consumer，而不是 syntax authority。`"plumb-import" 使用 typed Pandoc AST，拒绝没有标准 plumb 表示的 nodes 与冲突 attributes；生成 source 必须经过 strict parser 与 protocol-neutral formatter。它保证官方 exporter profile 内的 semantic round-trip，不把任意 Pandoc presentation surface 变成 core syntax 或隐式 semantics。
+
+LSP stdio tests 不得把共享 /tmp 或用户目录作为隐式 workspace；无 workspace 需求时 rootUri 为 null，需要索引时使用独立 TestDirectory。测试 shutdown 后对子进程退出设置有界 deadline，超时必须 kill/reap，不能无限等待后台索引。

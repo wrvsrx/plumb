@@ -163,6 +163,11 @@ impl LspTestSession {
 
     pub fn finish(mut self) -> Vec<Value> {
         self.stdin.take();
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while self.child.as_mut().expect("LSP child").try_wait().expect("poll LSP exit").is_none() {
+            assert!(std::time::Instant::now() < deadline, "LSP failed to exit within 15 seconds");
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let status = self
             .child
             .take()

@@ -2,12 +2,12 @@ use serde_json::json;
 
 use crate::support::{response, run_server};
 
-fn initialize(root_uri: &str) -> serde_json::Value {
+fn initialize() -> serde_json::Value {
     json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {
             "processId": null,
-            "rootUri": root_uri,
+            "rootUri": null,
             "workspaceFolders": null,
             "capabilities": {
                 "textDocument": {
@@ -25,7 +25,7 @@ fn publishes_new_group_diagnostics_and_heading_symbols() {
     let uri = "file:///tmp/current-diagnostics.plumb";
     let source = "`# Heading\nBroken `span{open\n";
     let messages = [
-        initialize("file:///tmp"),
+        initialize(),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
         json!({
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -59,7 +59,7 @@ fn completes_current_link_and_task_constructs() {
     let uri = "file:///tmp/current-completion.plumb";
     let source = "Text `->\n`-\nText `->\"";
     let messages = [
-        initialize("file:///tmp"),
+        initialize(),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
         json!({
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -112,7 +112,7 @@ fn formats_recursive_children_with_one_structural_space() {
     let uri = "file:///tmp/current-format.plumb";
     let source = "`node Parent\n   `child Example\n";
     let messages = [
-        initialize("file:///tmp"),
+        initialize(),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
         json!({
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -152,7 +152,7 @@ fn aligned_arguments_are_idempotent_across_code_action_and_formatting() {
         })
     };
     let messages = [
-        initialize("file:///tmp"),
+        initialize(),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
         json!({
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -229,7 +229,7 @@ fn returns_task_fold_and_status_actions_for_current_properties() {
     let uri = "file:///tmp/current-task.plumb";
     let source = "`- Current task\n `+ task\n `@ current\n `= created 2026-09-02T09:00:00+08:00\n";
     let messages = [
-        initialize("file:///tmp"),
+        initialize(),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
         json!({
             "jsonrpc": "2.0", "method": "textDocument/didOpen",

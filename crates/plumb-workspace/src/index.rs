@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use plumb_semantics::analyze_green_document;
@@ -78,6 +78,12 @@ impl std::fmt::Display for BatchIndexError {
     }
 }
 
+impl From<diesel::result::Error> for BatchIndexError {
+    fn from(error: diesel::result::Error) -> Self {
+        Self::Store(StoreError::Diesel(error))
+    }
+}
+
 impl std::error::Error for BatchIndexError {}
 
 impl From<StoreError> for BatchIndexError {
@@ -92,27 +98,16 @@ struct ReadDocument {
     source: String,
 }
 
-enum PreparedDocument {
-    Memory {
-        path: PathBuf,
-        revision: i64,
-        parsed: Arc<DocumentRevision>,
-        current: Option<Arc<VersionedDocumentOutput>>,
-    },
-    Persistent {
-        path: PathBuf,
-        revision: i64,
-        source: String,
-        output: Option<Box<plumb_semantics::DocumentOutput>>,
-        diagnostics: CachedDiagnosticInputs,
-    },
+struct PreparedDocument {
+    path: PathBuf,
+    revision: i64,
+    parsed: Arc<DocumentRevision>,
+    current: Option<Arc<VersionedDocumentOutput>>,
 }
 
 impl PreparedDocument {
     fn path(&self) -> &Path {
-        match self {
-            Self::Memory { path, .. } | Self::Persistent { path, .. } => path,
-        }
+        &self.path
     }
 }
 
@@ -228,6 +223,58 @@ impl Workspace {
 
         let hash_time = hash_started.elapsed();
         let analysis_started = Instant::now();
+        if let Some(store) = &self.disk_store {
+            let mut analysis_time = Duration::ZERO;
+            let mut parsed_documents = 0;
+            if !misses.is_empty() || stored_paths_changed {
+                store.reconcile_generations::<BatchIndexError>(
+                    &paths,
+                    stored_paths_changed,
+                    |write| {
+                        for document in misses {
+                            if cancelled() {
+                                return Err(BatchIndexError::Cancelled);
+                            }
+                            let started = Instant::now();
+                            let green = Arc::new(GreenDocument::parse(document.source));
+                            let output = green.valid_syntax().and_then(|valid| {
+                                analyze_green_document(valid, Arc::clone(&green))
+                            });
+                            let diagnostics =
+                                CachedDiagnosticInputs::new(&green.diagnostics(), output.as_ref());
+                            analysis_time += started.elapsed();
+                            parsed_documents += 1;
+                            write(StoredGeneration {
+                                path: &document.path,
+                                revision: document.revision,
+                                source: green.source(),
+                                output: output.as_ref(),
+                                diagnostics: &diagnostics,
+                            })?;
+                        }
+                        if cancelled() {
+                            return Err(BatchIndexError::Cancelled);
+                        }
+                        Ok(())
+                    },
+                )?;
+            }
+            if parsed_documents == 0 && !stored_paths_changed && cancelled() {
+                return Err(BatchIndexError::Cancelled);
+            }
+            failures.sort_by(|left, right| left.path.cmp(&right.path));
+            return Ok(BatchIndexResult {
+                documents: indexed,
+                failures,
+                parsed_documents,
+                timings: BatchIndexTimings {
+                    read: read_time,
+                    hash: hash_time,
+                    analysis: analysis_time,
+                    publication: analysis_started.elapsed().saturating_sub(analysis_time),
+                },
+            });
+        }
         let total_miss_bytes = misses
             .iter()
             .map(|document| document.source.len())
@@ -240,30 +287,12 @@ impl Workspace {
         let balanced_misses = misses.len() > 1
             && largest_miss_bytes <= 256 * 1024
             && largest_miss_bytes.saturating_mul(2) <= total_miss_bytes;
-        let persistent = self.disk_store.is_some();
         let parsed_documents = AtomicUsize::new(0);
         let prepare = |document: ReadDocument| {
             if cancelled() {
                 return None;
             }
             parsed_documents.fetch_add(1, Ordering::Relaxed);
-            if persistent {
-                let green = Arc::new(GreenDocument::parse(document.source));
-                let output = green
-                    .valid_syntax()
-                    .and_then(|valid| analyze_green_document(valid, Arc::clone(&green)))
-                    .map(Box::new);
-                return Some(PreparedDocument::Persistent {
-                    path: document.path,
-                    revision: document.revision,
-                    source: green.source().to_string(),
-                    diagnostics: CachedDiagnosticInputs::new(
-                        &green.diagnostics(),
-                        output.as_deref(),
-                    ),
-                    output,
-                });
-            }
             let parsed = Arc::new(DocumentRevision::from_green(Arc::new(
                 GreenDocument::parse(document.source),
             )));
@@ -277,7 +306,7 @@ impl Workspace {
                         output: Arc::new(output),
                     })
                 });
-            Some(PreparedDocument::Memory {
+            Some(PreparedDocument {
                 path: document.path,
                 revision: document.revision,
                 parsed,
@@ -297,43 +326,14 @@ impl Workspace {
 
         let analysis_time = analysis_started.elapsed();
         let publication_started = Instant::now();
-        if let Some(store) = &self.disk_store {
-            let generations = prepared
-                .iter()
-                .map(|document| {
-                    let PreparedDocument::Persistent {
-                        path,
-                        revision,
-                        source,
-                        output,
-                        diagnostics,
-                    } = document
-                    else {
-                        unreachable!("persistent workspace prepares persistent generations")
-                    };
-                    StoredGeneration {
-                        path,
-                        revision: *revision,
-                        source,
-                        output: output.as_deref(),
-                        diagnostics,
-                    }
-                })
-                .collect::<Vec<_>>();
-            if !generations.is_empty() || stored_paths_changed {
-                store.reconcile_generations(&paths, &generations, stored_paths_changed)?;
-            }
-        } else {
+        {
             for document in prepared {
-                let PreparedDocument::Memory {
+                let PreparedDocument {
                     path,
                     revision,
                     parsed,
                     current,
-                } = document
-                else {
-                    unreachable!("memory workspace prepares memory snapshots")
-                };
+                } = document;
                 let previous_last_valid = self
                     .documents
                     .get(&path)
@@ -475,6 +475,51 @@ mod tests {
             .unwrap();
         assert_eq!(warm.cache_hits(), 1);
         assert_eq!(workspace.document_paths().unwrap().value, [first]);
+    }
+
+    #[test]
+    fn cancellation_after_writes_rolls_back_generations_and_pruning() {
+        let directory = tempdir().unwrap();
+        let a = directory.path().join("a.plumb");
+        let b = directory.path().join("b.plumb");
+        let removed = directory.path().join("removed.plumb");
+        for path in [&a, &b, &removed] {
+            std::fs::write(path, "Old\n").unwrap();
+        }
+        let mut workspace =
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap());
+        let options = BatchIndexOptions {
+            prune_missing: true,
+            retain_sources: false,
+        };
+        workspace
+            .index_disk_files(
+                &[a.clone(), b.clone(), removed.clone()],
+                options,
+                |_| 1,
+                || false,
+            )
+            .unwrap();
+        for path in [&a, &b] {
+            std::fs::write(path, "New\n").unwrap();
+        }
+        let calls = AtomicUsize::new(0);
+        let result = workspace.index_disk_files(
+            &[a.clone(), b.clone()],
+            options,
+            |_| 2,
+            || calls.fetch_add(1, Ordering::Relaxed) >= 6,
+        );
+        assert!(matches!(result, Err(BatchIndexError::Cancelled)));
+        assert_eq!(calls.load(Ordering::Relaxed), 7);
+        for path in [&a, &b, &removed] {
+            assert!(workspace
+                .disk_store
+                .as_ref()
+                .unwrap()
+                .contains_current(path, "Old\n")
+                .unwrap());
+        }
     }
 
     #[test]
