@@ -171,10 +171,15 @@ LSP、CLI 和 Web 使用同一 document task locator 与 revision guard。docume
 
 已实现的 edit_green_root_declarations 接受同一 valid GreenDocument 与 ordered SetProperty/RemoveProperty/SetFacet intents。它只 ownership 根层声明，不 ownership 正文或伪造容器。相同 property value 与已存在 facet 的设置是 no-op；重复同 key property 的设置失败，显式 removal 删除全部匹配声明。child-bearing property 以完整 head 为 key，不将未知多词 key 误认为 task field。
 
-transaction 在原位置替换已有声明，在根层插入新声明；根层 facet removal 不匹配 nested facets。source byte zero 的 insertion 与 replacement 合并为一个 edit。返回 edits 按 source order 排列且不重叠，并以 next green revision 验证 batch syntax validity。未修改的 body、opaque declarations、focus history 和 line ending 保持原样；任何失败不返回部分编辑。green_root_declaration 提供同一 revision 上的 scalar/list property 查询，拒绝 ambiguous duplicate key。
+transaction 在原位置替换已有声明，在根层插入新声明；根层 facet removal 不匹配 nested facets。同一 source position 的 insertion 与 replacement 合并为一个 edit。返回 edits 按 source order 排列且不重叠，并以 next green revision 验证 batch syntax validity。未修改的 body、opaque declarations、focus history 和 line ending 保持原样；任何失败不返回部分编辑。green_root_declaration 提供同一 revision 上的 scalar/list property 查询，拒绝 ambiguous duplicate key。
 
 Document task 字段 patch 只修改明确提供的根层属性；未提供的 title、字段、focus history 与正文保持原样。删除 title 恢复文件名显示。非空 recur 被拒绝，依赖修改按文档路径身份校验自环与混合 owner 环。带 placement 的更新和 move 明确拒绝 Document owner。
 
 Document task 的显式操作按 document owner 定位，不转成任意 list offset。cursor 操作保留原有 list task 向开放 list ancestor 回退的规则，但命中 child 时不能进一步退回 document parent 并修改整个文件任务。
 
 列表任务的 create/move 若显式选择 Document task 为 parent，shared editing 将其映射到文档根层插入位置；不构造整文件列表 wrapper。文档任务本身不能作为 after sibling。
+
+根层新增声明追加到文档开头连续的 property/facet 声明区末尾、正文之前；空行不打断声明区。没有开头声明区时在文档开头创建。
+同批新增声明中 properties 按 intent 顺序排在新增 facets 前；既有声明不重排，已有 property 在原位置替换。
+因此首次标记文档 task 时补充的 created 在新增 task facet 前；后续 focused、done 等新增字段在已有 task facet 后追加。
+正文之后分散的根层声明仍可原位更新，但不能成为新声明的插入位置。保留正文与既有分隔空行、LF/CRLF；声明区位于 EOF 且没有行末换行时先补换行。

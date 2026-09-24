@@ -187,14 +187,15 @@ pub fn edit_green_root_declarations(
         }
     }
     if !additions.is_empty() {
+        // Keep root authoring order stable: properties come before the task
+        // facet, while later properties are appended after existing metadata.
+        additions.sort_by_key(|block| match block {
+            OwnedBlock::Parsed { marker: Some(marker), .. } if marker == "+" => 1,
+            _ => 0,
+        });
         let insertion = prepend_green_blocks(document, &additions)?;
-        // A prepend and replacement at byte zero must be one edit, not two
-        // order-dependent edits sharing the same start.
-        if let Some(first) = edits.iter_mut().find(|edit| edit.range.start == 0) {
-            if insertion.range != (0..0) {
-                return Err(EditError::OverlappingEdits);
-            }
-            first.new_text.insert_str(0, &insertion.new_text);
+        if let Some(edit) = edits.iter_mut().find(|edit| edit.range.end == document.source().len()) {
+            edit.new_text.push_str(&insertion.new_text);
         } else {
             edits.push(insertion);
         }
@@ -224,6 +225,41 @@ pub fn edit_green_root_declarations(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_root_declarations_keep_properties_before_task_and_append_after_metadata() {
+        let document = GreenDocument::parse(
+            "`= title Plan\n\nBody\n",
+        );
+        let edits = edit_green_root_declarations(
+            &document,
+            &[
+                RootDeclarationEdit::SetFacet { name: "task".into(), present: true },
+                RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar("created", "2026-09-24T09:00:00+08:00")),
+            ],
+        )
+        .unwrap();
+        let source = apply_text_edits(document.source().to_owned(), edits).unwrap();
+        assert_eq!(
+            source,
+            "`= created 2026-09-24T09:00:00+08:00\n\n`+ task\n\n`= title Plan\n\nBody\n"
+        );
+
+        let document = GreenDocument::parse(&source);
+        let edits = edit_green_root_declarations(
+            &document,
+            &[RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar(
+                "focused",
+                "2026-09-24T10:00:00+08:00--",
+            ))],
+        )
+        .unwrap();
+        let source = apply_text_edits(document.source().to_owned(), edits).unwrap();
+        assert_eq!(
+            source,
+            "`= focused 2026-09-24T10:00:00+08:00--\n\n`= created 2026-09-24T09:00:00+08:00\n\n`+ task\n\n`= title Plan\n\nBody\n"
+        );
+    }
 
     #[test]
     fn root_transaction_updates_cross_shard_properties_and_preserves_body() {
