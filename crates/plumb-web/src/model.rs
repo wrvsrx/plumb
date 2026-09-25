@@ -326,6 +326,8 @@ pub struct WebQuery {
     pub cursor: Option<String>,
     pub graph_revision: Option<u64>,
     #[serde(default)]
+    pub retained_documents: Vec<String>,
+    #[serde(default)]
     pub traversal: GraphQuery,
 }
 
@@ -3033,6 +3035,17 @@ mod tests {
                 .source
                 == "cursor"
         );
+
+        let retained = workspace.query_tasks(&WebQuery {
+            view: WebView::Tasks,
+            sort: vec![QuerySort::Due],
+            limit: Some(1),
+            retained_documents: vec![workspace.document_id(root.join("a.plumb")).unwrap().to_string()],
+            ..WebQuery::default()
+        }).unwrap();
+        assert!(retained.tasks.iter().any(|task| task.path == "a.plumb"));
+        assert!(retained.tasks.iter().any(|task| task.path == "b.plumb"));
+        assert!(retained.tasks.iter().all(|task| task.path == "a.plumb" || task.path == "b.plumb"));
 
         let due_then_priority = workspace
             .query_tasks(&WebQuery {

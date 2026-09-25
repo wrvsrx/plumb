@@ -136,21 +136,31 @@ export function taskAncestorKeys(tasks, task) {
 // Drop the fold state that hides a task, so selection can always reveal the
 // row it selected. Returns true when anything actually changed.
 export function revealTask(collapsed, tasks, task) {
-  if (!task) return false;
+  return revealTasks(collapsed, tasks, task ? [task] : []);
+}
+
+// Share the forest/index for a whole visible frontier during reconciliation.
+export function revealTasks(collapsed, tasks, targets) {
+  if (!targets.length) return false;
+  const forest = taskForest(tasks);
+  const documents = new Map(forest.documents.map((node) => [node.path, node]));
+  const grouped = forest.documents.some((document) => document.focusedCount > 0);
   const collapsedDocuments = keySet(collapsed.documents);
   const collapsedTasks = keySet(collapsed.tasks);
-  let changed = collapsedDocuments.delete(task.path);
-  for (const key of taskAncestorKeys(tasks, task)) {
-    if (collapsedTasks.delete(key)) changed = true;
-  }
-  if (task.focused) return changed;
-  const forest = taskForest(tasks);
-  if (forest.documents.some((document) => document.focusedCount > 0)) {
-    const expanded = collapsed.expandedGroups ||= new Set();
-    const open = (key) => {
-      if (!expanded.has(key)) { expanded.add(key); changed = true; }
-    };
-    const document = forest.documents.find((candidate) => candidate.path === task.path);
+  const expanded = collapsed.expandedGroups ||= new Set();
+  let changed = false;
+  const open = (key) => {
+    if (!expanded.has(key)) { expanded.add(key); changed = true; }
+  };
+  for (const task of targets) {
+    if (collapsedDocuments.delete(task.path)) changed = true;
+    let ancestor = forest.nodes.get(task.parentKey);
+    while (ancestor) {
+      if (collapsedTasks.delete(ancestor.task.key)) changed = true;
+      ancestor = forest.nodes.get(ancestor.task.parentKey);
+    }
+    if (!grouped || task.focused) continue;
+    const document = documents.get(task.path);
     if (document && document.focusedCount === 0) open(FILES_GROUP);
     let node = forest.nodes.get(task.key);
     while (node && node.focusedCount === 0) {

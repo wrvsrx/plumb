@@ -17,6 +17,7 @@ import {
 } from './agenda-state.js';
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 import { revealTask, taskListItems } from './task-tree.js';
+import { captureTaskContext, reconcileTaskContext, taskQueryScope, queryTaskContext } from './task-context.js';
 import {
   focusAge,
   focusBadge,
@@ -60,6 +61,8 @@ import {
     view: initialView,
     tasks: null,
     selectedTask: null,
+    taskLoadRevision: 0,
+    taskScope: null,
     collapsed: { documents: new Set(), tasks: new Set(), expandedGroups: new Set() },
     presets: { graph: [], tasks: ['ready', 'blocked'], agenda: [] },
     presetsSpecified: { graph: false, tasks: false, agenda: false },
@@ -1078,20 +1081,38 @@ import {
   }
 
   async function loadTasks(cursor = null) {
+    const generation = ++state.taskLoadRevision;
+    const request = queryRequest('tasks');
+    const scope = taskQueryScope(request);
+    const snapshot = scope === state.taskScope ? state.tasks : null;
     try {
-      const previousFocus = new Set((state.tasks?.tasks || []).filter(isFocused).map((task) => task.key));
-      const result = await executeQuery('tasks', cursor);
+      const result = await queryTaskContext(request, snapshot, Boolean(cursor),
+        (query) => executeQuery('tasks', query.cursor, query));
+      if (generation !== state.taskLoadRevision) return;
+      // Capture at installation, so selection/folding changed during the request wins.
+      const context = captureTaskContext(state.tasks?.tasks || [], state.selectedTask, state.collapsed);
+      const mapped = reconcileTaskContext(context, result.tasks.tasks);
+      state.tasks = result.tasks;
+      state.taskScope = scope;
+      state.selectedTask = mapped.selected;
+      state.collapsed = mapped.collapsed;
       observeRevision(state.workspaceRevision, result.tasks.revision);
-      state.tasks = cursor ? {
-        ...result.tasks,
-        tasks: [...state.tasks.tasks, ...result.tasks.tasks],
-      } : result.tasks;
-      for (const task of state.tasks.tasks) {
-        if (isFocused(task) && !previousFocus.has(task.key)) revealTask(state.collapsed, state.tasks.tasks, task);
-      }
       setQueryError('tasks', null);
       renderTasks();
+      if (!state.selectedTask && context.selected) clearTaskDetail('No task selected', 'The selected task is no longer in the current results.');
+      updateUrl();
+      const treeChanged = !cursor || result.tasks.revision !== snapshot?.revision;
+      if (treeChanged && state.view === 'tasks' && !state.narrow && state.selectedTask) {
+        const row = Array.from(taskList.querySelectorAll('[data-task-key]'))
+          .find((element) => element.dataset.taskKey === state.selectedTask);
+        if (row) {
+          const bounds = row.getBoundingClientRect();
+          const pane = taskList.parentElement.getBoundingClientRect();
+          if (bounds.top < pane.top || bounds.bottom > pane.bottom) row.scrollIntoView({ block: 'nearest' });
+        }
+      }
     } catch (error) {
+      if (generation !== state.taskLoadRevision) return;
       setQueryError('tasks', error);
       if (!state.tasks) taskSummary.textContent = 'Tasks unavailable';
     }
@@ -1486,6 +1507,7 @@ import {
     const task = item.task;
     const row = document.createElement('div');
     row.className = 'task-list-item';
+    row.dataset.taskKey = task.key;
     row.classList.toggle('selected', task.key === state.selectedTask);
     if (task.matched === false) row.title = 'Parent task shown for context';
     row.classList.toggle('collapsed', item.collapsed);
@@ -1591,7 +1613,7 @@ import {
     if (state.selectedTask) {
       const selected = taskByKey(state.tasks, state.selectedTask);
       if (selected) renderTaskDetail(selected);
-      else clearTaskDetail('Task unavailable', 'This task is no longer in the workspace.');
+      else clearTaskDetail('Task unavailable', 'This task is not in the current results.');
     }
     syncDetail();
   }
@@ -1672,7 +1694,7 @@ import {
       await loadTasks();
       const message = String(error);
       const latest = taskByKey(state.tasks, task.key);
-      if (latest) {
+      if (latest && latest.key === state.selectedTask) {
         renderTaskDetail(latest);
         const line = taskPanel.querySelector('.task-mutation-error');
         if (line) {
@@ -1744,7 +1766,7 @@ import {
       await loadTasks();
       const task = state.tasks.tasks.find((candidate) => candidate.documentId === documentId && candidate.locator.kind === 'document');
       if (task) selectTask(task);
-      else clearTaskDetail('Document task removed', 'The document and its child tasks are preserved.');
+      else if (!state.selectedTask) clearTaskDetail('Document task removed', 'The document and its child tasks are preserved.');
       notify(present ? 'Document marked as task.' : 'Document task facet removed.');
     } catch (error) {
       notify(String(error), true);
@@ -1946,7 +1968,6 @@ import {
       form.querySelector('.field-error').textContent = 'Recurring tasks require a due date.';
       return;
     }
-    const listScroll = taskList.parentElement.scrollTop;
     const panelScroll = taskPanel.scrollTop;
     state.pendingTask = task.key;
     beginMutation(state.workspaceRevision);
@@ -1962,17 +1983,18 @@ import {
       state.pendingTask = null;
       await loadTasks();
       const latest = taskByKey(state.tasks, task.key);
-      if (latest) renderTaskDetail(latest);
-      taskList.parentElement.scrollTop = listScroll;
-      taskPanel.scrollTop = panelScroll;
-      taskPanel.querySelector(`.task-property-value[data-property="${property}"]`)?.focus();
+      if (latest && latest.key === state.selectedTask) {
+        taskPanel.scrollTop = panelScroll;
+        taskPanel.querySelector(`.task-property-value[data-property="${property}"]`)?.focus();
+      }
       notify(`${EDITABLE_TASK_PROPERTIES.find((candidate) => candidate.key === property).label} updated.`);
     } catch (error) {
       state.pendingTask = null;
       await loadTasks();
       const latest = taskByKey(state.tasks, task.key);
-      if (latest) renderTaskPropertyEditor(latest, property);
-      taskPanel.querySelector('.task-property-editor .field-error').textContent = String(error);
+      if (latest && latest.key === state.selectedTask) renderTaskPropertyEditor(latest, property);
+      const fieldError = taskPanel.querySelector('.task-property-editor .field-error');
+      if (fieldError) fieldError.textContent = String(error);
       notify(String(error), true);
     } finally {
       state.pendingTask = null;
@@ -2194,14 +2216,13 @@ import {
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
       observeMutationResponse(response);
       await loadTasks();
-      const selected = state.tasks.tasks.find((candidate) => candidate.title === fields.title && candidate.documentId === document.id);
-      state.selectedTask = selected?.key || task?.key || null;
-      if (selected) revealTask(state.collapsed, state.tasks.tasks, selected);
-      renderTasks(); updateUrl(); notify(`Task ${action}d.`);
+      if (!state.selectedTask) clearTaskDetail(`Task ${action}d`, 'Select a task from the list to continue.');
+      notify(`Task ${action}d.`);
     } catch (error) {
       await loadTasks();
       const latest = task ? taskByKey(state.tasks, task.key) : null;
-      renderTaskForm(latest);
+      if (task && (!latest || latest.key !== state.selectedTask)) { notify(String(error), true); return; }
+      await renderTaskForm(latest);
       const activeForm = taskPanel.querySelector('.task-form');
       const message = String(error);
       const field = message.includes('RFC 3339') ? 'due'

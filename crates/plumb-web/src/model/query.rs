@@ -36,9 +36,12 @@ impl WebWorkspace {
                 sort.push(order);
             }
         }
+        let retained_documents = query.retained_documents.iter()
+            .filter_map(|id| self.document_path(id).map(Path::to_path_buf))
+            .collect::<Vec<_>>();
         let page = self
             .workspace
-            .query_task_tree_page(&TaskPageQuery {
+            .query_task_tree_page_retaining(&TaskPageQuery {
                 root: self.root.clone(),
                 text: query.query.clone(),
                 filter_groups,
@@ -47,7 +50,7 @@ impl WebWorkspace {
                 cursor: query.cursor.clone(),
                 workspace_revision: self.revision,
                 now,
-            })
+            }, &retained_documents)
             .map_err(task_query_failure)?
             .value;
         let mut tasks = page
