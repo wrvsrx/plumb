@@ -6568,3 +6568,39 @@ fn document_task_cursor_region_controls_new_fields_and_preserves_other_regions()
         assert!(result.ends_with("\n\nBody unchanged\n"));
     }
 }
+
+#[test]
+fn task_tree_refresh_retains_documents_beyond_soft_limit_and_continues_without_gaps() {
+    for disk in [false, true] {
+        let mut workspace = if disk {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else { Workspace::new() };
+        for path in ["a.plumb", "b.plumb", "c.plumb", "d.plumb"] {
+            let source = "`+ task\n\n`- Needle\n `+ task\n `@ needle\n";
+            if disk { workspace.insert_disk(path, 1, source).unwrap(); }
+            else { workspace.insert(path, 1, source); }
+        }
+        let mut query = TaskPageQuery {
+            root: PathBuf::from("."), text: "Needle".into(), filter_groups: Vec::new(),
+            sort: vec![TaskSortOrder::Source], limit: 1, cursor: None, workspace_revision: 2,
+            now: DateTime::parse_from_rfc3339("2026-09-21T10:00:00+08:00").unwrap(),
+        };
+        let retained = [PathBuf::from("c.plumb"), PathBuf::from("deleted.plumb")];
+        let page = workspace.query_task_tree_page_retaining(&query, &retained).unwrap().value;
+        assert_eq!(page.tasks.len(), 6);
+        assert_eq!(page.tasks.iter().filter(|task| task.matched).count(), 3);
+        assert_eq!(page.tasks.last().unwrap().path, Path::new("c.plumb"));
+        assert!(!page.complete);
+        query.cursor = page.next_cursor;
+        let next = workspace.query_task_tree_page(&query).unwrap().value;
+        assert_eq!(next.tasks.len(), 2);
+        assert!(next.tasks.iter().all(|task| task.path == Path::new("d.plumb")));
+        assert!(next.complete);
+        query.cursor = None;
+        let removed = workspace.query_task_tree_page_retaining(&query, &[PathBuf::from("missing.plumb")]).unwrap().value;
+        assert_eq!(removed.tasks.len(), 2);
+        let all = workspace.query_task_tree_page_retaining(&query, &[PathBuf::from("d.plumb")]).unwrap().value;
+        assert!(all.complete);
+        assert!(all.next_cursor.is_none());
+    }
+}

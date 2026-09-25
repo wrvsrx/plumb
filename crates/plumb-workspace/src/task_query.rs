@@ -228,20 +228,31 @@ impl Workspace {
         &self,
         query: &TaskPageQuery,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
-        self.query_task_page_impl(query, false)
+        self.query_task_page_impl(query, false, &[])
     }
 
     pub fn query_task_tree_page(
         &self,
         query: &TaskPageQuery,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
-        self.query_task_page_impl(query, true)
+        self.query_task_page_impl(query, true, &[])
+    }
+
+    /// Refresh a contiguous tree prefix covering the previously loaded documents.
+    /// Retention expands the soft limit before hydration, never mixes revisions.
+    pub fn query_task_tree_page_retaining(
+        &self,
+        query: &TaskPageQuery,
+        documents: &[PathBuf],
+    ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
+        self.query_task_page_impl(query, true, documents)
     }
 
     fn query_task_page_impl(
         &self,
         query: &TaskPageQuery,
         include_ancestors: bool,
+        documents: &[PathBuf],
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
         let filters = compile_filters(&query.filter_groups)?;
         let candidate = if include_ancestors { None } else { task_candidate_predicate(&filters) };
@@ -330,7 +341,12 @@ impl Workspace {
         });
         apply_cursor(&mut retained, query, include_ancestors)?;
         let remaining_count = retained.len();
-        truncate_complete_task_documents(&mut retained, query.limit, |fact| &fact.document_order);
+        let documents = documents.iter().collect::<HashSet<_>>();
+        let retained_limit = if query.cursor.is_none() {
+            retained.iter().rposition(|fact| documents.contains(&fact.key.path))
+                .map_or(0, |index| index + 1)
+        } else { 0 };
+        truncate_complete_task_documents(&mut retained, query.limit.max(retained_limit), |fact| &fact.document_order);
         let complete = retained.len() == remaining_count;
         let next_cursor = (!complete)
             .then(|| {
