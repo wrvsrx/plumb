@@ -131,15 +131,15 @@ shared task page 在分页前按 subtree focused 优先排序；Web 只投影该
 
 `## Web task interaction context
 
-以下 contract 正在实现，完成验证前不视为可用行为。任务业务 focused 与浏览器 interaction selection 是两个独立状态。任务树刷新由同一个 protocol-neutral presentation coordinator 映射交互上下文，不由各 mutation handler 猜测标题或分别重置 selection。上下文包含已加载 document identities、已显示任务顺序、selection 与 document/task/group 展开状态；不保存长期像素坐标。
+任务业务 focused 与浏览器 interaction selection 是两个独立状态。任务树刷新由同一个 protocol-neutral presentation coordinator 映射交互上下文，不由各 mutation handler 猜测标题或分别重置 selection。上下文包含已加载 document identities、已显示任务顺序、selection 与 document/task/group 展开状态；不保存长期像素坐标。
 
-同一筛选会话内刷新保留已加载文档中仍匹配的树，并至少保留原加载数量；排序变化仍延续会话。改变搜索、presets 或 CEL 条件开始新的加载范围。刷新只安装同一 revision 的完整响应，迟到请求不得覆盖新请求。Load more 的旧 cursor 失效时重新取得当前范围加一页，不拼接不同 revision。
+同一筛选会话内刷新保留已加载文档中仍匹配的树，并至少保留原加载数量；排序变化仍延续会话。改变搜索、presets 或 CEL 条件开始新的加载范围。刷新只安装同一 revision 的完整响应，迟到请求不得覆盖新请求。Load more 沿用生成 cursor 时的 query limit；旧 cursor 失效时重新取得当前范围加一页，不拼接不同 revision。
 
 协调器优先保留仍在结果树中的同一任务；原任务退出视图时按旧可见顺序选择后继、前驱，最后最近的存活祖先，没有候选则清空 selection。无显式 id 的 offset locator 只在同一 document revision 内表示身份，不得在源码变更后以相同 offset 或标题猜测同一任务。显式 id 与 Document task identity 可跨 revision 延续。删除、筛选退出与 recur close 共用规则；recur 新实例是插入，不是旧实例 replacement，不自动接管 selection。
 
-展开状态按身份延续；仍可识别的旧可见任务若因 focused 分组重建而被隐藏，应展开其新分组路径，但不展开用户此前折叠的子树。selection 映射改变或其路径改变时展开新 selection 路径。普通刷新不推翻用户手动折叠。详情与 URL 使用同一映射后的 selection；未在当前筛选结果中的任务不能误报为已从 workspace 删除。
+展开状态按身份延续；显式 id 的任务暂时被筛选排除不清除其手动折叠状态，恢复筛选后继续使用该状态。仍可识别的旧可见任务若因 focused 分组重建而被隐藏，应展开其新分组路径，但不展开用户此前折叠的子树。selection 映射改变或其路径改变时展开新 selection 路径。普通刷新不推翻用户手动折叠。详情与 URL 使用同一映射后的 selection；未在当前筛选结果中的任务不能误报为已从 workspace 删除。
 
-DOM adapter 只将映射后的任务行保持可见，已经可见时不滚动；不承诺像素级位置稳定，不持续监听窗口尺寸计算偏移。mutation、外部 revision 与排序刷新使用同一协调器。自动化验证覆盖分页后 recur close、删除回退、排序越过原页边界、分组变化、无 id 的 revision 边界和异步响应竞态。
+DOM adapter 只将映射后的任务行保持可见，已经可见时不滚动；同一 revision 的 Load more 仅追加结果，不拉回旧 selection。 不承诺像素级位置稳定，不持续监听窗口尺寸计算偏移。mutation、外部 revision 与排序刷新使用同一协调器。自动化验证覆盖分页后 recur close、删除回退、排序越过原页边界、分组变化、无 id 的 revision 边界和异步响应竞态。
 
 `# 7. Tree-sitter boundary
 

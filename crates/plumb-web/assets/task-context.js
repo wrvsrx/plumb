@@ -31,11 +31,13 @@ export function reconcileTaskContext(context, tasks) {
   };
   // Do not transfer offset-based folding to a different node in a new revision.
   for (const key of collapsed.tasks) {
-    if (!surviving(previous.get(key))) collapsed.tasks.delete(key);
+    const old = previous.get(key);
+    if (old?.locator?.kind === 'offset' && !surviving(old)) collapsed.tasks.delete(key);
   }
   for (const key of collapsed.expandedGroups) {
     const [kind, owner] = JSON.parse(key);
-    if (kind === 'task' && !surviving(previous.get(owner))) collapsed.expandedGroups.delete(key);
+    const old = previous.get(owner);
+    if (kind === 'task' && old?.locator?.kind === 'offset' && !surviving(old)) collapsed.expandedGroups.delete(key);
   }
   // Preserve the visible frontier when focus grouping inserts new ancestors.
   revealTasks(collapsed, tasks, context.visible.map(surviving).filter(Boolean));
@@ -66,17 +68,22 @@ export function taskQueryScope(request) {
 }
 
 export async function queryTaskContext(request, snapshot, append, execute) {
-  const refresh = async (extra = 0) => execute({
-    ...request,
-    cursor: null,
-    limit: Math.max(request.limit, (snapshot?.tasks.length || 0) + extra),
-    retainedDocuments: [...new Set((snapshot?.tasks || []).map((task) => task.documentId))],
-  });
+  const refresh = async (extra = 0) => {
+    const limit = Math.max(request.limit, (snapshot?.tasks.length || 0) + extra);
+    const result = await execute({
+      ...request,
+      cursor: null,
+      limit,
+      retainedDocuments: [...new Set((snapshot?.tasks || []).map((task) => task.documentId))],
+    });
+    return { ...result, tasks: { ...result.tasks, pageLimit: limit } };
+  };
   if (!append || !snapshot?.nextCursor) return refresh();
   try {
-    const result = await execute({ ...request, cursor: snapshot.nextCursor });
+    const limit = snapshot.pageLimit || request.limit;
+    const result = await execute({ ...request, limit, cursor: snapshot.nextCursor });
     if (result.tasks.revision === snapshot.revision) {
-      return { ...result, tasks: { ...result.tasks, tasks: [...snapshot.tasks, ...result.tasks.tasks] } };
+      return { ...result, tasks: { ...result.tasks, pageLimit: limit, tasks: [...snapshot.tasks, ...result.tasks.tasks] } };
     }
   } catch (error) {
     if (error.source !== 'cursor') throw error;

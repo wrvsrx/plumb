@@ -76,4 +76,4 @@ Web 树查询通过 shared query_task_tree_page 保留命中任务的完整 ance
 
 树查询与普通查询的 cursor signature 区分是否保留 ancestors。complete 根据按完整文档截断后的实际剩余结果计算；最后一个文档即使超过软 limit，只要已全部返回，也必须 complete=true 且不生成空后续页。
 
-Task tree refresh 可以携带已加载 document paths（正在实现）。shared query 在同一 revision 上先过滤、补 ancestors 与排序，再把普通 soft limit 扩展到最后一个仍有结果的 retained document，保持结果为连续 prefix 和完整文档。已不匹配或已删除的文档不产生 stale records；未加载的其余文档不 hydrate。返回 cursor 从实际 prefix 末尾继续，不能跳过或重复结果。retention 只用于无 cursor 的 refresh；普通 task page 与 CLI query 语义不变。Web adapter 将 document identities 转成 indexed paths，不能自行合并旧 records 或重复查询整个 collection。
+Task tree refresh 可以携带已加载 document paths。shared query 在同一 revision 上先过滤、补 ancestors 与排序，再把普通 soft limit 扩展到最后一个仍有结果的 retained document，保持结果为连续 prefix 和完整文档。已不匹配或已删除的文档不产生 stale records；未加载的其余文档不 hydrate。返回 cursor 从实际 prefix 末尾继续，不能跳过或重复结果。retention 只用于无 cursor 的 refresh；普通 task page 与 CLI query 语义不变。Web adapter 将 document identities 转成 indexed paths，不能自行合并旧 records 或重复查询整个 collection。

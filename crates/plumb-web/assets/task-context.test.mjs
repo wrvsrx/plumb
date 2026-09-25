@@ -82,3 +82,26 @@ test('valid continuation appends once and non-cursor errors remain errors', asyn
   assert.equal(result.tasks.tasks.length, 251);
   await assert.rejects(queryTaskContext(request, snapshot, true, async () => { throw new Error('offline'); }), /offline/);
 });
+
+test('filtering stable nodes out and back in preserves manual subtree folding', () => {
+  const tasks = [task('parent'), task('child', { parentKey: 'parent' })];
+  const collapsed = folds(); collapsed.tasks.add('parent');
+  const empty = reconcileTaskContext(capture(tasks, null, collapsed), []);
+  const restored = reconcileTaskContext(capture([], null, empty.collapsed), tasks);
+  assert.equal(restored.collapsed.tasks.has('parent'), true);
+  assert.deepEqual(taskListItems(tasks, restored.collapsed).filter((item) => item.kind === 'task').map((item) => item.task.key), ['parent']);
+});
+
+test('continuation uses the limit bound into the refreshed cursor signature', async () => {
+  const refreshed = await queryTaskContext(request, snapshot, false, async (query) => ({
+    tasks: { ...snapshot, nextCursor: String(query.limit) },
+  }));
+  let calls = 0;
+  const next = await queryTaskContext(request, refreshed.tasks, true, async (query) => {
+    calls++;
+    assert.equal(String(query.limit), query.cursor);
+    return { tasks: { revision: 1, tasks: [task('next')] } };
+  });
+  assert.equal(calls, 1);
+  assert.equal(next.tasks.tasks.length, 251);
+});
