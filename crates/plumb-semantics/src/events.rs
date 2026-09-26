@@ -21,6 +21,8 @@ pub struct EventField {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventRecord {
+    /// Own or nearest structural ancestor category within the syntax shard.
+    /// Workspace accounting supplies the document default when absent.
     pub category: crate::Category,
     pub accounting_links: Vec<Range<usize>>,
     pub range: Range<usize>,
@@ -245,6 +247,7 @@ fn shifted_range(range: &Range<usize>, delta: isize) -> Range<usize> {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct EventContext {
+    category: crate::Category,
     date: Option<String>,
     timezone: Option<String>,
 }
@@ -265,6 +268,7 @@ impl EventContext {
             }
         };
         Self {
+            category: crate::Category::default(),
             date: scalar("date"),
             timezone: scalar("timezone"),
         }
@@ -272,6 +276,7 @@ impl EventContext {
 
     fn with_attributes(&self, attrs: &[AttrItem]) -> Self {
         Self {
+            category: self.category.clone(),
             date: pair_value(attrs, "date")
                 .map_or_else(|| self.date.clone(), |value| Some(value.decoded.clone())),
             timezone: pair_value(attrs, "timezone").map_or_else(
@@ -294,20 +299,25 @@ fn collect_blocks(
         let Block::Parsed(block) = block else {
             continue;
         };
+        let mut scoped_context = context.clone();
+        let category = crate::Category::from_blocks(&block.children);
+        if !category.declarations.is_empty() {
+            scoped_context.category = category;
+        }
         let Some(mark) = &block.mark else {
             for child in crate::body_children(block) {
                 collect_blocks(
                     source,
                     std::slice::from_ref(child),
                     event_depth,
-                    context,
+                    &scoped_context,
                     table_items,
                     output,
                 );
             }
             continue;
         };
-        let scoped_context = context.with_attributes(&mark.attrs.items);
+        let scoped_context = scoped_context.with_attributes(&mark.attrs.items);
         let is_event = !table_items.contains(&block.range.start)
             && crate::list_item_facet(block) == crate::ListItemFacet::Event;
 
@@ -381,7 +391,7 @@ fn event_record(
     });
     (
         EventRecord {
-            category: crate::Category::from_blocks(&block.children),
+            category: context.category.clone(),
             accounting_links: block.content.items.iter().filter_map(|inline| match inline {
                 Inline::Group { mark: Some(mark), range, content }
                     if mark.marker == "->" && !crate::has_embed_facet(content) => Some(range.clone()),

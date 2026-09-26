@@ -117,6 +117,22 @@ fn issue(code: &str, message: impl Into<String>, source: AgendaLocation) -> Agen
     }
 }
 impl Workspace {
+    fn agenda_document_category(&self, path: &Path) -> Result<Category, String> {
+        if self.documents.contains_key(path) {
+            Ok(self
+                .current_output(path)
+                .map(|o| o.document_category())
+                .unwrap_or_default())
+        } else if let Some(store) = &self.disk_store {
+            store
+                .document_category(path)
+                .map(|c| c.unwrap_or_default())
+                .map_err(|e| e.to_string())
+        } else {
+            Ok(Category::default())
+        }
+    }
+
     /// Resolve one event's accounting inputs against the current workspace revision.
     /// Reference failures retain their denominator share and make the result incomplete.
     pub fn event_accounting(
@@ -127,6 +143,11 @@ impl Workspace {
     ) -> Result<(Vec<AgendaShare>, Vec<AgendaIssue>), String> {
         let path = normalize(path);
         let source = location(&path, event.selection_range.clone());
+        let event_category = if event.category.declarations.is_empty() {
+            self.agenda_document_category(&path)?
+        } else {
+            event.category.clone()
+        };
         let mut issues = Vec::new();
         if event.tasks_override && event.tasks.is_empty() {
             issues.push(issue(
@@ -233,18 +254,7 @@ impl Workspace {
                         .iter()
                         .any(|t| t.owner == TaskOwner::Document);
                     valid = !event.tasks_override || is_task;
-                    category = if self.documents.contains_key(&target_path) {
-                        self.current_output(&target_path)
-                            .map(|o| o.document_category())
-                            .unwrap_or_default()
-                    } else if let Some(store) = &self.disk_store {
-                        store
-                            .document_category(&target_path)
-                            .map_err(|e| e.to_string())?
-                            .unwrap_or_default()
-                    } else {
-                        Category::default()
-                    };
+                    category = self.agenda_document_category(&target_path)?;
                     category_source = category
                         .declarations
                         .first()
@@ -259,7 +269,7 @@ impl Workspace {
                     location(&path, range),
                 ));
             }
-            if category.invalid && event.category.declarations.is_empty() {
+            if category.invalid && event_category.declarations.is_empty() {
                 issues.push(issue(
                     "agenda.invalid-category",
                     "item category must be a nonempty scalar or list of plain categories",
@@ -290,22 +300,26 @@ impl Workspace {
             });
         }
         let divided = duration_seconds / shares.len() as f64;
-        if event.category.invalid {
+        if event_category.invalid {
             issues.push(issue(
                 "agenda.invalid-category",
                 "event category must be a nonempty scalar or list of plain categories",
-                source.clone(),
+                event_category
+                    .declarations
+                    .first()
+                    .map(|range| location(&path, range.clone()))
+                    .unwrap_or_else(|| source.clone()),
             ));
         }
         let mut allocated = Vec::new();
         for (mut share, inherited) in shares.into_iter().zip(item_categories) {
-            let categories = if !event.category.declarations.is_empty() {
+            let categories = if !event_category.declarations.is_empty() {
                 share.category_source =
-                    Some(location(&path, event.category.declarations[0].clone()));
-                if event.category.invalid {
+                    Some(location(&path, event_category.declarations[0].clone()));
+                if event_category.invalid {
                     Vec::new()
                 } else {
-                    event.category.values.clone()
+                    event_category.values.clone()
                 }
             } else {
                 inherited

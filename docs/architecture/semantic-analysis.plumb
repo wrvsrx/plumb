@@ -382,6 +382,8 @@ includeDeclaration 为 true 时声明仍在首项，其余 references 保持 wor
 官方 workspace search query 的 LSP projection 使用 `"plumb/search" schema version 3；shared `"next" shortlist 的 projection 使用 `"plumb/next" schema version 1，只映射两段结果、上限、completeness 与 skipped-invalid 报告，adapter 不重新过滤或排序。request 的可选 `"kind" 是 `"note"、`"task" 或 `"event"；result item 共享 `"kind"、`"title"、workspace-relative `"path"、LSP `"location" 与 revision `"provenance"。Task item 还可包含 workflow fields；Event item 还可包含 `"id"、resolved `"start"/`"end" 与 associated `"tasks"。增加 record kind 或改变 typed fields 必须提升 schema version；client 必须按 initialize capability 中声明的 version 接受或明确拒绝。
 
 `## 8.1 Agenda queries
+
+事件祖先分类继承：semantic EventRecord.category 保存事件自身或 shard 内最近结构祖先的声明及相对来源范围，未声明时为空；不把跨 shard 的文档范围塞入局部 record。shared workspace event_accounting 在该字段缺省时读取当前事件所属文档的根分类，然后才回退到引用事项。祖先修改使 owning shard 重算；文档默认值每次从当前 output/store 读取；同一 immutable DocumentOutput 按需缓存根分类，避免每个事件重扫所有 shards，新的 revision 不复用旧来源范围，overlay、关闭恢复、持久缓存与 fresh analysis 必须一致。schema epoch 更新使旧的无祖先分类 event records 失效。check、LSP、summary 与 vdir 共用此解析，不在适配层推导。非法有效分类的问题指向声明本身；完全缺失仍指向事件。
 文档级 event-category 从既有 GreenDocument 的根层声明提取，包含普通文档，不重解析。persistent store 保存文档分类及来源范围；schema epoch 更新必须使旧 category 语义缓存失效。document 分类修改立即影响当前查询，memory、disk cache 与 open overlay 结果一致。
 
 agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影结果。 event-category 与 direct title reference inputs 来自同一 syntax-valid revision 的 semantic records，不能由 adapter 重新 parse；persistent、memory 与 open overlay 查询必须等价，引用目标分类变化后不能返回旧分类。

@@ -316,6 +316,7 @@ impl Eq for ExportedSemanticSummary<'_> {}
 
 #[derive(Debug, Clone)]
 pub struct SemanticRoot {
+    document_category: OnceLock<crate::Category>,
     anchor_index: Arc<OnceLock<HashMap<String, Vec<(usize, usize)>>>>,
     tree: Arc<SemanticTree>,
     document_declaration_end: usize,
@@ -456,6 +457,7 @@ struct RootProjectionIndex {
 impl Default for SemanticRoot {
     fn default() -> Self {
         Self {
+            document_category: OnceLock::new(),
             anchor_index: Arc::new(OnceLock::new()),
             tree: Arc::new(SemanticTree::empty()),
             document_declaration_end: 0,
@@ -545,9 +547,18 @@ pub struct DocumentChange {
 }
 
 impl DocumentOutput {
-    /// The immutable syntax snapshot that owns these semantic records.
+    /// Root category from this immutable revision, reduced at most once.
     pub fn document_category(&self) -> crate::Category {
-        crate::Category::from_green_document(self.syntax().valid_syntax().expect("semantic output is syntax-valid"))
+        self.root
+            .document_category
+            .get_or_init(|| {
+                crate::Category::from_green_document(
+                    self.syntax()
+                        .valid_syntax()
+                        .expect("semantic output is syntax-valid"),
+                )
+            })
+            .clone()
     }
 
     /// Distinct valid categories declared by the document and every list item.
@@ -1242,6 +1253,7 @@ fn analyze_semantic_tree_observed(
 
     Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
+            document_category: OnceLock::new(),
             anchor_index: previous
                 .filter(|_| anchor_ids_rebindable)
                 .map(|previous| Arc::clone(&previous.root.anchor_index))
@@ -1344,6 +1356,7 @@ fn rebind_unchanged_document(
 
     Some(DocumentOutput {
         root: Arc::new(SemanticRoot {
+            document_category: OnceLock::new(),
             anchor_index: Arc::clone(&previous.root.anchor_index),
             tree,
             document_declaration_end,
@@ -2769,6 +2782,38 @@ mod tests {
             .events()
             .events
             .shares_segment_topology(&previous_output.events().events));
+    }
+
+    #[test]
+    fn event_category_ancestor_changes_and_shifted_ranges_match_fresh_analysis() {
+        let old = "`= title Day\n`# Section\n `= event-category parent\n `- 2026-09-22T10:00:00Z First\n  `+ event\n  `- 2026-09-22T11:00:00Z Child\n   `+ event\n   `= event-category own\n `- 2026-09-22T12:00:00Z Sibling\n  `+ event\n`- 2026-09-22T13:00:00Z Outside\n `+ event\n";
+        let previous = parse(old);
+        let previous_output = analyze_document(previous.valid_syntax().unwrap());
+        for new in [
+            old.replace("parent", "changed"),
+            old.replace("Day", "Longer day title"),
+            old.replace("parent", ""),
+        ] {
+            let current = parse_incremental(&previous, new.clone());
+            let change = DocumentChange {
+                old_range: current.old_reparsed_range,
+                new_range: current.reparsed_range,
+            };
+            let incremental = analyze_document_incremental(
+                current.document.valid_syntax().unwrap(),
+                &previous_output,
+                &change,
+            );
+            let fresh = analyze_document(parse(&new).valid_syntax().unwrap());
+            assert_eq!(incremental, fresh);
+            let events = &incremental.events().events;
+            let first = events.get(0).unwrap();
+            assert_eq!(first.category, events.get(2).unwrap().category);
+            assert_eq!(events.get(1).unwrap().category.values, ["own"]);
+            assert!(events.get(3).unwrap().category.declarations.is_empty());
+            assert!(new[first.category.declarations[0].clone()].starts_with("`= event-category"));
+            assert_eq!(first.category.invalid, new.contains("event-category \n"));
+        }
     }
 
     #[test]

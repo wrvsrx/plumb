@@ -577,3 +577,171 @@ fn diagnostic_snapshot_is_detached_and_rejects_changed_closed_source_positions()
         "open bytes override saved source"
     );
 }
+
+#[test]
+fn event_category_scope_precedence_and_invalid_barriers_match_disk_and_memory() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut disk = Workspace::with_sqlite_store(
+        SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap(),
+    );
+    let mut memory = Workspace::new();
+    disk.insert_disk("/notes/items.plumb", 0, ITEMS).unwrap();
+    memory.insert("/notes/items.plumb", 0, ITEMS);
+    let cases = [
+        (
+            format!(
+                "`= event-category\n{}",
+                EVENT.replace(" `+ event", " `+ event\n `= event-category own")
+            ),
+            vec!["own"],
+            true,
+        ),
+        (
+            format!("`= event-category root\n{EVENT}"),
+            vec!["root"],
+            true,
+        ),
+        (
+            format!("{EVENT}\n`= event-category root\n"),
+            vec!["root"],
+            true,
+        ),
+        (
+            format!(
+                "`= event-category root\n`# Section\n `= event-category section\n{}",
+                EVENT.lines().map(|l| format!(" {l}\n")).collect::<String>()
+            ),
+            vec!["section"],
+            true,
+        ),
+        (
+            format!(
+                "`= event-category root\n`# Section\n `= event-category section\n{}",
+                EVENT
+                    .replace(" `+ event", " `+ event\n `= event-category own")
+                    .lines()
+                    .map(|l| format!(" {l}\n"))
+                    .collect::<String>()
+            ),
+            vec!["own"],
+            true,
+        ),
+        (
+            format!(
+                "`= event-category root\n\nAnonymous\n `= event-category anonymous\n{}",
+                EVENT.lines().map(|l| format!(" {l}\n")).collect::<String>()
+            ),
+            vec!["anonymous"],
+            true,
+        ),
+        (
+            format!("`= event-category root\n`# Sibling\n `= event-category section\n{EVENT}"),
+            vec!["root"],
+            true,
+        ),
+        (
+            format!("`= event-category\n `- one\n `- two\n{EVENT}"),
+            vec!["one", "two"],
+            true,
+        ),
+        (
+            format!(
+                "`= event-category root\n{}",
+                EVENT.replace(" `+ event", " `+ event\n `= event-category")
+            ),
+            vec![],
+            false,
+        ),
+        (
+            format!(
+                "`= event-category root\n`# Section\n `= event-category\n{}",
+                EVENT.lines().map(|l| format!(" {l}\n")).collect::<String>()
+            ),
+            vec![],
+            false,
+        ),
+        (format!("`= event-category\n{EVENT}"), vec![], false),
+        (
+            format!("`= event-category root\n`= event-category duplicate\n{EVENT}"),
+            vec![],
+            false,
+        ),
+        (
+            format!("`= event-category `!{{rich}}\n{EVENT}"),
+            vec![],
+            false,
+        ),
+        (EVENT.to_owned(), vec!["learn", "work"], true),
+    ];
+    for (revision, (source, expected, complete)) in cases.iter().enumerate() {
+        memory.insert("/notes/day.plumb", revision as i64, source.clone());
+        disk.insert_disk("/notes/day.plumb", revision as i64, source.clone())
+            .unwrap();
+        let result = report(&memory, true);
+        assert_eq!(result.complete, *complete, "{source}: {:?}", result.issues);
+        assert_eq!(
+            result
+                .categories
+                .iter()
+                .filter_map(|c| c.category.as_deref())
+                .collect::<Vec<_>>(),
+            *expected,
+            "{source}"
+        );
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            serde_json::to_value(report(&disk, true)).unwrap()
+        );
+        let check = memory
+            .check_event_categories(Path::new("/notes"), dt(START), None)
+            .unwrap();
+        assert_eq!(check.complete, *complete, "{source}");
+        assert_eq!(check.missing.is_empty(), *complete, "{source}");
+        assert_eq!(
+            serde_json::to_value(&check).unwrap(),
+            serde_json::to_value(
+                disk.check_event_categories(Path::new("/notes"), dt(START), None)
+                    .unwrap()
+            )
+            .unwrap()
+        );
+        assert_eq!(result.items.len(), 3);
+        assert!(result.items.iter().all(|item| item.seconds == 1200.0));
+        if let Some(issue) = result
+            .issues
+            .iter()
+            .find(|i| i.code == "agenda.invalid-category")
+        {
+            assert!(source[issue.source.range.start..issue.source.range.end]
+                .starts_with("`= event-category"));
+        }
+    }
+}
+
+#[test]
+fn document_category_defaults_follow_unsaved_overlay_and_close() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut w = Workspace::with_sqlite_store(
+        SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap(),
+    );
+    let event = "`- 2026-09-22T10:00:00Z--11:00 Work\n `+ event\n";
+    let source = format!("`= event-category saved\n{event}");
+    w.insert_disk("/notes/day.plumb", 0, source.clone())
+        .unwrap();
+    assert_eq!(
+        report(&w, true).categories[0].category.as_deref(),
+        Some("saved")
+    );
+    w.open_document("/notes/day.plumb", 1, source.replace("saved", "unsaved"));
+    assert_eq!(
+        report(&w, true).categories[0].category.as_deref(),
+        Some("unsaved")
+    );
+    w.open_document("/notes/day.plumb", 2, event);
+    assert!(report(&w, true).categories[0].category.is_none());
+    w.close_document("/notes/day.plumb");
+    assert_eq!(
+        report(&w, true).categories[0].category.as_deref(),
+        Some("saved")
+    );
+}
