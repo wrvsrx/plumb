@@ -224,23 +224,22 @@ fn category_lists_split_each_item_share_without_inflating_totals() {
 }
 
 #[test]
-fn category_check_covers_all_dates_points_and_explicit_mode_ignores_references() {
+fn category_check_covers_all_dates_points_and_requires_resolvable_inheritance() {
     let mut w = Workspace::new();
     w.insert("/notes/items.plumb", 0, ITEMS);
     w.insert("/notes/day.plumb", 0, EVENT);
-    let check = |w: &Workspace, explicit| {
-        w.check_event_categories(Path::new("/notes"), dt(START), None, explicit)
+    let check = |w: &Workspace| {
+        w.check_event_categories(Path::new("/notes"), dt(START), None)
             .unwrap()
     };
-    assert!(check(&w, false).missing.is_empty());
-    assert_eq!(check(&w, true).missing.len(), 1);
+    assert!(check(&w).missing.is_empty());
     w.insert(
         "/notes/old.plumb",
         0,
         "`- 2020-01-01T10:00:00Z Point\n `+ event\n",
     );
-    assert_eq!(check(&w, false).checked, 2);
-    assert_eq!(check(&w, false).missing.len(), 1);
+    assert_eq!(check(&w).checked, 2);
+    assert_eq!(check(&w).missing.len(), 1);
     w.insert(
         "/notes/day.plumb",
         1,
@@ -248,14 +247,13 @@ fn category_check_covers_all_dates_points_and_explicit_mode_ignores_references()
             .replace("items.plumb#a", "missing.plumb")
             .replace(" `+ event", " `+ event\n `= event-category phd misc"),
     );
-    assert!(check(&w, true).complete);
-    assert!(!check(&w, false).complete);
+    assert!(!check(&w).complete);
     w.insert(
         "/notes/old.plumb",
         1,
         "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category\n",
     );
-    assert!(!check(&w, true).complete);
+    assert!(!check(&w).complete);
 }
 
 #[test]
@@ -276,22 +274,19 @@ fn category_check_and_multivalue_accounting_match_persistent_queries() {
         serde_json::to_value(report(&disk, true)).unwrap(),
         serde_json::to_value(report(&memory, true)).unwrap()
     );
-    for explicit in [true, false] {
-        let check = |w: &Workspace| {
-            w.check_event_categories(Path::new("/notes"), dt(START), None, explicit)
-                .unwrap()
-        };
-        assert_eq!(
-            serde_json::to_value(check(&disk)).unwrap(),
-            serde_json::to_value(check(&memory)).unwrap()
-        );
-    }
+    let check = |w: &Workspace| {
+        w.check_event_categories(Path::new("/notes"), dt(START), None)
+            .unwrap()
+    };
+    assert_eq!(
+        serde_json::to_value(check(&disk)).unwrap(),
+        serde_json::to_value(check(&memory)).unwrap()
+    );
     let check = disk
         .check_event_categories(
             Path::new("/notes"),
             dt(START),
             Some("path == 'other.plumb'"),
-            true,
         )
         .unwrap();
     assert_eq!(check.checked, 0);
@@ -315,17 +310,139 @@ fn ordinary_document_event_categories_are_persistent_and_not_task_shares() {
     assert!(r.tasks.is_empty());
     assert_eq!(r.categories.len(), 2);
     assert!(r.categories.iter().all(|c| c.seconds == 1800.0));
-    assert_eq!(serde_json::to_value(&r).unwrap(), serde_json::to_value(report(&memory, true)).unwrap());
+    assert_eq!(
+        serde_json::to_value(&r).unwrap(),
+        serde_json::to_value(report(&memory, true)).unwrap()
+    );
     disk.open_document("/notes/dinner.plumb", 1, "`= event-category work\n");
-    assert_eq!(report(&disk, true).categories[0].category.as_deref(), Some("work"));
+    assert_eq!(
+        report(&disk, true).categories[0].category.as_deref(),
+        Some("work")
+    );
     disk.close_document("/notes/dinner.plumb");
     assert_eq!(report(&disk, true).categories.len(), 2);
-    disk.insert_disk("/notes/dinner.plumb", 2, "`= category topic\n").unwrap();
+    disk.insert_disk("/notes/dinner.plumb", 2, "`= category topic\n")
+        .unwrap();
     let r = report(&disk, true);
     assert!(r.complete);
     assert!(r.categories[0].category.is_none());
-    disk.insert_disk("/notes/dinner.plumb", 3, "`= event-category\n").unwrap();
+    disk.insert_disk("/notes/dinner.plumb", 3, "`= event-category\n")
+        .unwrap();
     assert!(!report(&disk, true).complete);
-    disk.insert_disk("/notes/day.plumb", 1, "`- 2026-09-22T10:00:00Z--11:00 Dinner\n `+ event\n `= tasks dinner.plumb\n").unwrap();
-    assert!(!report(&disk, true).complete, "explicit tasks still requires a task");
+    disk.insert_disk(
+        "/notes/day.plumb",
+        1,
+        "`- 2026-09-22T10:00:00Z--11:00 Dinner\n `+ event\n `= tasks dinner.plumb\n",
+    )
+    .unwrap();
+    assert!(
+        !report(&disk, true).complete,
+        "explicit tasks still requires a task"
+    );
+}
+
+fn continuity(w: &Workspace) -> plumb_workspace::TimelineCheckReport {
+    w.check_event_timeline(Path::new("/notes"), dt(START))
+        .unwrap()
+}
+
+#[test]
+fn continuity_has_no_external_boundaries_and_points_do_not_extend_coverage() {
+    let mut w = Workspace::new();
+    assert!(continuity(&w).passed());
+    w.insert(
+        "/notes/points.plumb",
+        0,
+        "`- 2020-01-01T00:00:00Z Before\n `+ event\n`- 2030-01-01T00:00:00Z After\n `+ event\n",
+    );
+    assert!(continuity(&w).passed());
+    w.insert(
+        "/notes/a.plumb",
+        0,
+        "`- 2026-09-22T10:00:00Z--11:00 One\n `+ event\n",
+    );
+    assert!(continuity(&w).passed());
+    // Adjacent instants with different offsets join across documents.
+    w.insert(
+        "/notes/b.plumb",
+        0,
+        "`- 2026-09-22T19:00:00+08:00--20:00 Two\n `+ event\n",
+    );
+    assert!(continuity(&w).passed());
+    w.insert(
+        "/notes/c.plumb",
+        0,
+        "`- 2026-09-23T10:00:00Z--11:00 Next\n `+ event\n",
+    );
+    let r = continuity(&w);
+    assert!(r.complete);
+    assert!(!r.passed());
+    assert_eq!(r.gaps.len(), 1);
+    assert_eq!(r.gaps[0].start, dt("2026-09-22T12:00:00Z"));
+    assert_eq!(r.gaps[0].end, dt("2026-09-23T10:00:00Z"));
+    assert_eq!(
+        r.gaps[0]
+            .events
+            .iter()
+            .map(|e| e.path.as_path())
+            .collect::<Vec<_>>(),
+        [Path::new("/notes/b.plumb"), Path::new("/notes/c.plumb")]
+    );
+}
+
+#[test]
+fn continuity_sweep_handles_nested_and_duplicate_intervals_without_false_gaps() {
+    let mut w = Workspace::new();
+    w.insert("/notes/day.plumb", 0, "`= date 2026-09-22\n`= timezone +00:00\n`- 09:00--12:00 Outer\n `+ event\n`- 10:00--11:00 Inner\n `+ event\n`- 10:00--11:00 Duplicate\n `+ event\n`- 12:00--13:00 Tail\n `+ event\n");
+    let r = continuity(&w);
+    assert!(r.complete);
+    assert!(r.gaps.is_empty());
+    assert_eq!(r.overlaps.len(), 1);
+    assert_eq!(r.overlaps[0].events.len(), 3);
+    assert_eq!(r.overlaps[0].start, dt(START));
+    assert_eq!(r.overlaps[0].end, dt(END));
+}
+
+#[test]
+fn continuity_is_independent_of_references_but_invalid_and_open_times_are_incomplete() {
+    let mut w = Workspace::new();
+    w.insert("/notes/day.plumb", 0, EVENT);
+    assert!(continuity(&w).passed());
+    for source in [
+        "`- tomorrow Invalid\n `+ event\n",
+        "`- 2026-09-22T10:00:00Z-- Open\n `+ event\n",
+        "`- 2026-09-22T10:00:00Z--2026-09-22T09:00:00Z Reversed\n `+ event\n",
+        "`broken{",
+    ] {
+        w.insert("/notes/bad.plumb", 1, source);
+        let r = continuity(&w);
+        assert!(!r.complete, "{source}");
+        assert!(!r.passed());
+        assert!(!r.issues.is_empty());
+    }
+}
+
+#[test]
+fn continuity_matches_persistent_and_overlay_revisions() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap();
+    let mut disk = Workspace::with_sqlite_store(store);
+    let mut memory = Workspace::new();
+    let source = "`= date 2026-09-22\n`= timezone +00:00\n`- 09:00--10:00 First\n `+ event\n`- 11:00--12:00 Second\n `+ event\n";
+    disk.insert_disk("/notes/day.plumb", 0, source).unwrap();
+    memory.insert("/notes/day.plumb", 0, source);
+    assert_eq!(
+        serde_json::to_value(continuity(&disk)).unwrap(),
+        serde_json::to_value(continuity(&memory)).unwrap()
+    );
+    disk.open_document("/notes/day.plumb", 1, source.replace("11:00--", "10:00--"));
+    assert!(continuity(&disk).passed());
+    disk.close_document("/notes/day.plumb");
+    assert_eq!(continuity(&disk).gaps.len(), 1);
+    disk.open_document("/notes/day.plumb", 2, "`broken{");
+    assert!(!continuity(&disk).complete);
+    assert!(
+        continuity(&disk).gaps.is_empty(),
+        "last-valid intervals cannot stand in for invalid current source"
+    );
 }

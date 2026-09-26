@@ -1023,7 +1023,7 @@ fn cached_check_keeps_errors_locations_and_exit_status_and_reports_corruption() 
     );
     std::fs::write(root.join("bad.plumb"), [0xff]).unwrap();
     let unreadable = run(false);
-    assert_eq!(unreadable.status.code(), Some(1));
+    assert_eq!(unreadable.status.code(), Some(2));
     assert!(unreadable.stdout.is_empty());
     assert!(String::from_utf8_lossy(&unreadable.stderr).contains("cannot read"));
     std::fs::remove_dir_all(root).unwrap();
@@ -1068,76 +1068,278 @@ fn concurrent_cli_commands_share_cache_without_mixing_outputs() {
 }
 
 #[test]
-fn agenda_cli_projects_shared_allocations_and_coverage_exit_status() {
+fn agenda_summary_keeps_explicit_window_and_accounting() {
     let dir = unique_temp_dir();
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.as_path().join("day.plumb"), "`= date 2026-09-22\n`= timezone +00:00\n`- 10:00--11:00 Work\n `+ event\n `= event-category work\n").unwrap();
-    let run = |command: &str, end: &str| plumb_command().args(["event", command, "--root"]).arg(dir.as_path())
-        .args(["--from", "2026-09-22T10:00:00Z", "--to", end, "--json"]).output().unwrap();
-    let summary = run("summary", "2026-09-22T11:00:00Z");
-    assert!(summary.status.success(), "{}", String::from_utf8_lossy(&summary.stderr));
+    std::fs::write(dir.join("day.plumb"), "`= date 2026-09-22\n`= timezone +00:00\n`- 10:00--11:00 Work\n `+ event\n `= event-category work\n").unwrap();
+    let run = |end: &str| {
+        plumb_command()
+            .args(["event", "summary", "--root"])
+            .arg(&dir)
+            .args(["--from", "2026-09-22T10:00:00Z", "--to", end, "--json"])
+            .output()
+            .unwrap()
+    };
+    let summary = run("2026-09-22T12:00:00Z");
+    assert!(
+        summary.status.success(),
+        "{}",
+        String::from_utf8_lossy(&summary.stderr)
+    );
     let json: serde_json::Value = serde_json::from_slice(&summary.stdout).unwrap();
     assert_eq!(json["categories"][0]["category"], "work");
     assert_eq!(json["categories"][0]["seconds"], 3600.0);
-    assert!(run("check-timeline", "2026-09-22T11:00:00Z").status.success());
-    let gap = run("check-timeline", "2026-09-22T12:00:00Z");
-    assert_eq!(gap.status.code(), Some(1));
-    let json: serde_json::Value = serde_json::from_slice(&gap.stdout).unwrap();
     assert_eq!(json["gaps"].as_array().unwrap().len(), 1);
-    assert_eq!(run("check-timeline", "2026-09-22T09:00:00Z").status.code(), Some(2));
-    std::fs::write(dir.as_path().join("bad.plumb"), "`- tomorrow Bad\n `+ event\n").unwrap();
-    assert_eq!(run("check-timeline", "2026-09-22T11:00:00Z").status.code(), Some(2));
+    assert_eq!(run("2026-09-22T09:00:00Z").status.code(), Some(2));
+    std::fs::write(dir.join("bad.plumb"), "`- tomorrow Bad\n `+ event\n").unwrap();
+    assert_eq!(run("2026-09-22T11:00:00Z").status.code(), Some(2));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
-fn category_check_has_no_time_window_and_reports_missing_and_invalid() {
+fn check_rules_default_off_and_config_overrides_apply_on_warm_cache() {
+    let dir = unique_temp_dir();
+    std::fs::create_dir_all(dir.join(".plumb")).unwrap();
+    std::fs::write(dir.join("day.plumb"), "`= date 2026-09-22\n`= timezone +00:00\n`- 10:00--11:00 First\n `+ event\n`- 12:00--13:00 Second\n `+ event\n").unwrap();
+    let run = |extra: &[&str]| {
+        plumb_command()
+            .args(["check", "--root"])
+            .arg(&dir)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let out = run(&["--no-cache"]);
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    let config = dir.join(".plumb/config.toml");
+    std::fs::write(
+        &config,
+        "[check.event-category]\nenabled=true\n[check.event-timeline]\nenabled=true\n",
+    )
+    .unwrap();
+    let cold = run(&[]);
+    let warm = run(&[]);
+    let uncached = run(&["--no-cache"]);
+    for out in [&cold, &warm, &uncached] {
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(text.contains("error[check.event-category.missing]"));
+        assert!(text.contains("error[check.event-timeline.gap]"));
+        assert!(text.contains("note[check.event-timeline.gap.related]"));
+    }
+    assert_eq!(cold.stdout, warm.stdout);
+    assert_eq!(cold.stdout, uncached.stdout);
+    let out = run(&[
+        "--config",
+        "check.event-category.enabled=false",
+        "--config",
+        "check.event-timeline.enabled=false",
+    ]);
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    let out = run(&[
+        "--config",
+        "check.event-category.enabled=false",
+        "--config",
+        "check.event-timeline.enabled=false",
+        "--config",
+        "check.event-timeline.enabled=true",
+        "--level",
+        "error",
+    ]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("check.event-category"));
+    std::fs::write(&config, "").unwrap();
+    assert!(
+        run(&[]).status.success(),
+        "config changes must not reuse cached check results"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn category_check_uses_effective_categories_and_reports_missing_and_invalid() {
     let dir = unique_temp_dir();
     std::fs::create_dir_all(&dir).unwrap();
-    let run = || plumb_command().args(["event", "check-category", "--root"]).arg(dir.as_path()).args(["--explicit", "--json"]).output().unwrap();
-    let path = dir.as_path().join("day.plumb");
-    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category phd misc\n").unwrap();
+    let run = || {
+        plumb_command()
+            .args(["check", "--root"])
+            .arg(&dir)
+            .args(["--config", "check.event-category.enabled=true"])
+            .output()
+            .unwrap()
+    };
+    std::fs::write(dir.join("topic.plumb"), "`= event-category work\n").unwrap();
+    let path = dir.join("day.plumb");
+    std::fs::write(
+        &path,
+        "`- 2020-01-01T10:00:00Z `->{topic.plumb}\n `+ event\n",
+    )
+    .unwrap();
     let out = run();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["checked"], 1);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stdout.is_empty());
     std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n").unwrap();
     let out = run();
     assert_eq!(out.status.code(), Some(1));
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["missing"].as_array().unwrap().len(), 1);
-    std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category\n").unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains("check.event-category.missing"));
+    std::fs::write(
+        &path,
+        "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category\n",
+    )
+    .unwrap();
+    let out = run();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("check.incomplete"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn category_check_terminal_uses_relative_one_based_unicode_positions() {
+    let dir = unique_temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = "`= title 中文\r\n`- 2020-01-01T10:00:00Z 中文😀\r\n 继续\r\n `+ event\r\n";
+    std::fs::write(dir.join("day.plumb"), source).unwrap();
+    for extra in [&[][..], &[][..], &["--no-cache"][..]] {
+        let out = plumb_command()
+            .args(["check", "--root"])
+            .arg(&dir)
+            .args(["--config", "check.event-category.enabled=true"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(String::from_utf8(out.stdout).unwrap(),
+            "day.plumb:2:25..3:4: error[check.event-category.missing]: event has an uncategorized accounting share\n");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn timeline_check_reports_overlap_and_incomplete_without_time_arguments() {
+    let dir = unique_temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let run = || {
+        plumb_command()
+            .args(["check", "--root"])
+            .arg(&dir)
+            .args(["--config", "check.event-timeline.enabled=true"])
+            .output()
+            .unwrap()
+    };
+    assert!(run().status.success());
+    let path = dir.join("day.plumb");
+    std::fs::write(&path, "`- 2026-09-22T10:00:00Z--11:00 One\n `+ event\n").unwrap();
+    assert!(run().status.success());
+    std::fs::write(&path, "`- 2026-09-22T10:00:00Z--11:00 One\n `+ event\n`- 2026-09-22T10:30:00Z--12:00 Two\n `+ event\n").unwrap();
+    let out = run();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("check.event-timeline.overlap"));
+    std::fs::write(dir.join("bad.plumb"), "`- tomorrow Invalid\n `+ event\n").unwrap();
+    let out = run();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("check.incomplete"));
+    std::fs::write(dir.join("bad.plumb"), "`broken{").unwrap();
     assert_eq!(run().status.code(), Some(2));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
-fn category_check_terminal_uses_one_based_unicode_positions_and_json_keeps_bytes() {
+fn check_rejects_invalid_config_and_removed_event_check_commands() {
     let dir = unique_temp_dir();
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("day.plumb");
-    let source = "`= title 中文\r\n`- 2020-01-01T10:00:00Z 中文😀\r\n 继续\r\n `+ event\r\n";
-    std::fs::write(&path, source).unwrap();
+    std::fs::create_dir_all(dir.join(".plumb")).unwrap();
     let run = |extra: &[&str]| {
         plumb_command()
-            .args(["event", "check-category", "--root"])
+            .args(["check", "--root"])
             .arg(&dir)
-            .arg("--explicit")
             .args(extra)
             .output()
             .unwrap()
     };
-    // Cold, warm, and uncached projections must use the same source positions.
-    for extra in [&[][..], &[][..], &["--no-cache"][..]] {
-        let out = run(extra);
-        assert_eq!(out.status.code(), Some(1), "{}", String::from_utf8_lossy(&out.stderr));
-        assert_eq!(String::from_utf8(out.stdout).unwrap(), format!(
-            "checked: 1; missing: 1\nmissing-category\t{}:2:25..3:4\n", path.display()
-        ));
+    for value in [
+        "check.event-category.explicit=true",
+        "check.event-timeline.from='now'",
+        "check.event-category.enabled='true'",
+        "check.event-category.enabled",
+        "unknown=true",
+    ] {
+        let out = run(&["--config", value]);
+        assert_eq!(out.status.code(), Some(2));
+        assert!(out.stdout.is_empty());
+        assert!(!out.stderr.is_empty());
     }
-    let out = run(&["--json"]);
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["missing"][0]["range"]["start"], source.find("中文😀").unwrap());
-    assert_eq!(json["missing"][0]["range"]["end"], source.find("继续").unwrap() + "继续".len());
+    for source in [
+        "[check.event-timeline]\nenabled='true'",
+        "unknown=true",
+        "invalid[",
+    ] {
+        std::fs::write(dir.join(".plumb/config.toml"), source).unwrap();
+        assert_eq!(
+            run(&["--config", "check.event-timeline.enabled=false"])
+                .status
+                .code(),
+            Some(2)
+        );
+    }
+    for command in ["check-timeline", "check-category"] {
+        let out = plumb_command()
+            .args(["event", command, "--root"])
+            .arg(&dir)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&out.stderr).contains("unrecognized subcommand"));
+    }
+    let help = plumb_command().args(["event", "--help"]).output().unwrap();
+    assert!(!String::from_utf8_lossy(&help.stdout).contains("check-"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn check_configuration_uses_discovered_workspace_root() {
+    let dir = unique_temp_dir();
+    std::fs::create_dir_all(dir.join(".plumb")).unwrap();
+    std::fs::create_dir_all(dir.join("nested")).unwrap();
+    std::fs::write(
+        dir.join(".plumb/config.toml"),
+        "[check.event-category]\nenabled=true",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("day.plumb"),
+        "`- 2020-01-01T10:00:00Z Point\n `+ event\n",
+    )
+    .unwrap();
+    let out = plumb_command()
+        .current_dir(dir.join("nested"))
+        .arg("check")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("day.plumb:"));
+    let out = plumb_command()
+        .current_dir(dir.join("nested"))
+        .args(["check", "--root", "."])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "explicit root must not merge ancestor configuration"
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

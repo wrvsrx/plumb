@@ -227,15 +227,28 @@ impl Workspace {
                         .map(|r| location(&target_path, r.clone()));
                 }
                 ResolvedTarget::Document { path: target_path } => {
-                    is_task = self.tasks_for_path(&target_path).map_err(|e| e.to_string())?
-                        .iter().any(|t| t.owner == TaskOwner::Document);
+                    is_task = self
+                        .tasks_for_path(&target_path)
+                        .map_err(|e| e.to_string())?
+                        .iter()
+                        .any(|t| t.owner == TaskOwner::Document);
                     valid = !event.tasks_override || is_task;
                     category = if self.documents.contains_key(&target_path) {
-                        self.current_output(&target_path).map(|o| o.document_category()).unwrap_or_default()
+                        self.current_output(&target_path)
+                            .map(|o| o.document_category())
+                            .unwrap_or_default()
                     } else if let Some(store) = &self.disk_store {
-                        store.document_category(&target_path).map_err(|e| e.to_string())?.unwrap_or_default()
-                    } else { Category::default() };
-                    category_source = category.declarations.first().map(|r| location(&target_path, r.clone()));
+                        store
+                            .document_category(&target_path)
+                            .map_err(|e| e.to_string())?
+                            .unwrap_or_default()
+                    } else {
+                        Category::default()
+                    };
+                    category_source = category
+                        .declarations
+                        .first()
+                        .map(|r| location(&target_path, r.clone()));
                 }
                 _ => {}
             }
@@ -510,15 +523,33 @@ pub struct CategoryCheckReport {
     pub missing: Vec<AgendaLocation>,
     pub issues: Vec<AgendaIssue>,
 }
+#[derive(Debug, Clone, Serialize)]
+pub struct TimelineCheckReport {
+    pub complete: bool,
+    pub checked: usize,
+    pub gaps: Vec<TimelineSegment>,
+    pub overlaps: Vec<TimelineSegment>,
+    pub issues: Vec<AgendaIssue>,
+}
+impl TimelineCheckReport {
+    pub fn passed(&self) -> bool {
+        self.complete && self.gaps.is_empty() && self.overlaps.is_empty()
+    }
+}
+
+struct SelectedEvents {
+    complete: bool,
+    events: Vec<(PathBuf, EventRecord)>,
+    issues: Vec<AgendaIssue>,
+}
+
 impl Workspace {
-    /// Check selected event categories without imposing a time window.
-    pub fn check_event_categories(
+    fn selected_check_events(
         &self,
         root: &Path,
         now: DateTime<FixedOffset>,
         filter: Option<&str>,
-        explicit: bool,
-    ) -> Result<CategoryCheckReport, String> {
+    ) -> Result<SelectedEvents, String> {
         let selected = self
             .search_records_filtered(
                 root,
@@ -529,13 +560,31 @@ impl Workspace {
                 filter,
             )
             .map_err(|e| e.to_string())?;
-        let mut report = CategoryCheckReport {
+        let mut result = SelectedEvents {
             complete: selected.completeness == QueryCompleteness::Complete
                 && selected.value.complete,
-            checked: 0,
-            missing: Vec::new(),
+            events: Vec::new(),
             issues: Vec::new(),
         };
+        for entry in self.documents.values().filter(|e| e.current.is_none()) {
+            result.issues.push(issue(
+                "agenda.invalid-document",
+                "document has no current valid semantic output",
+                location(&entry.path, 0..0),
+            ));
+        }
+        if let Some(store) = &self.disk_store {
+            for doc in store.documents().map_err(|e| e.to_string())? {
+                if !doc.valid && !self.documents.contains_key(&doc.path) {
+                    result.issues.push(issue(
+                        "agenda.invalid-document",
+                        "document has no valid semantic output",
+                        location(&doc.path, 0..0),
+                    ));
+                }
+            }
+        }
+        result.issues.sort_by(|a, b| a.source.cmp(&b.source));
         let mut by_path = BTreeMap::<PathBuf, BTreeSet<usize>>::new();
         for record in selected.value.items {
             by_path
@@ -553,30 +602,119 @@ impl Workspace {
             } else {
                 Vec::new()
             };
-            for event in events
-                .into_iter()
-                .filter(|e| starts.contains(&e.selection_range.start))
-            {
-                report.checked += 1;
-                let source = location(&path, event.selection_range.clone());
-                let missing = if explicit {
-                    if event.category.invalid {
-                        report.issues.push(issue(
-                            "agenda.invalid-category",
-                            "invalid event category",
-                            source.clone(),
-                        ));
-                    }
-                    event.category.values.is_empty() || event.category.invalid
-                } else {
-                    let (shares, issues) = self.event_accounting(&path, &event, 0.0)?;
-                    report.issues.extend(issues);
-                    shares.iter().any(|s| s.category.is_none())
-                };
-                if missing {
-                    report.missing.push(source);
+            result.events.extend(
+                events
+                    .into_iter()
+                    .filter(|e| starts.contains(&e.selection_range.start))
+                    .map(|event| (path.clone(), event)),
+            );
+        }
+        result.complete &= result.issues.is_empty();
+        Ok(result)
+    }
+
+    /// Check effective categories of every share, including inherited categories and points.
+    pub fn check_event_categories(
+        &self,
+        root: &Path,
+        now: DateTime<FixedOffset>,
+        filter: Option<&str>,
+    ) -> Result<CategoryCheckReport, String> {
+        let selected = self.selected_check_events(root, now, filter)?;
+        let mut report = CategoryCheckReport {
+            complete: selected.complete,
+            checked: selected.events.len(),
+            missing: Vec::new(),
+            issues: selected.issues,
+        };
+        for (path, event) in selected.events {
+            let (shares, issues) = self.event_accounting(&path, &event, 0.0)?;
+            report.issues.extend(issues);
+            if shares.iter().any(|s| s.category.is_none()) {
+                report
+                    .missing
+                    .push(location(&path, event.selection_range.clone()));
+            }
+        }
+        report.complete &= report.issues.is_empty();
+        Ok(report)
+    }
+
+    /// Check continuity across all workspace intervals, without an external time window.
+    /// Points do not contribute boundaries; categories and references do not affect coverage.
+    pub fn check_event_timeline(
+        &self,
+        root: &Path,
+        now: DateTime<FixedOffset>,
+    ) -> Result<TimelineCheckReport, String> {
+        let selected = self.selected_check_events(root, now, None)?;
+        let mut report = TimelineCheckReport {
+            complete: selected.complete,
+            checked: selected.events.len(),
+            gaps: Vec::new(),
+            overlaps: Vec::new(),
+            issues: selected.issues,
+        };
+        let mut sources = Vec::new();
+        let mut boundaries = BTreeMap::<DateTime<FixedOffset>, (Vec<usize>, Vec<usize>)>::new();
+        for (path, event) in selected.events {
+            if event.at_datetime().is_some() {
+                continue;
+            }
+            let source = location(&path, event.selection_range.clone());
+            let (Some(start), Some(end)) = (event.start_datetime(), event.end_datetime()) else {
+                report.issues.push(issue(
+                    "agenda.invalid-time",
+                    "event has no valid finite interval",
+                    source,
+                ));
+                continue;
+            };
+            if end <= start {
+                report.issues.push(issue(
+                    "agenda.invalid-time",
+                    "event end must follow start",
+                    source,
+                ));
+                continue;
+            }
+            let index = sources.len();
+            sources.push(source);
+            boundaries.entry(start).or_default().0.push(index);
+            boundaries.entry(end).or_default().1.push(index);
+        }
+        let mut active = BTreeSet::new();
+        let mut previous = None;
+        let mut previous_ending = Vec::new();
+        for (instant, (starting, ending)) in boundaries {
+            if let Some(start) = previous {
+                if active.is_empty() {
+                    // An internal gap is bounded by at least one ending and one starting event.
+                    let events = previous_ending
+                        .iter()
+                        .chain(&starting)
+                        .map(|&i: &usize| sources[i].clone())
+                        .collect();
+                    report.gaps.push(TimelineSegment {
+                        start,
+                        end: instant,
+                        events,
+                    });
+                } else if active.len() > 1 {
+                    let events = active.iter().map(|&i: &usize| sources[i].clone()).collect();
+                    report.overlaps.push(TimelineSegment {
+                        start,
+                        end: instant,
+                        events,
+                    });
                 }
             }
+            for index in &ending {
+                active.remove(index);
+            }
+            active.extend(starting);
+            previous = Some(instant);
+            previous_ending = ending;
         }
         report.complete &= report.issues.is_empty();
         Ok(report)

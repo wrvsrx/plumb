@@ -9,8 +9,9 @@ use plumb_workspace::{
     workspace_cache_path, DiskWorkspace, SearchRecordKind,
 };
 
-mod events;
 mod agenda;
+mod checks;
+mod events;
 mod interactive;
 mod tasks;
 
@@ -25,7 +26,12 @@ pub fn run_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
             return ExitCode::from(error.exit_code() as u8);
         }
     };
-    let agenda_query = matches!(&config.command, Command::Event(EventConfig { command: Some(EventCommand::Summary(_) | EventCommand::CheckTimeline(_) | EventCommand::CheckCategory(_)) }));
+    let agenda_query = matches!(
+        &config.command,
+        Command::Event(EventConfig {
+            command: Some(EventCommand::Summary(_))
+        })
+    );
     match run(config) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
@@ -45,21 +51,22 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     };
     let result = (|| {
         let root = resolve_workspace_root(config.root.as_deref())?;
+        let settings = plumb_workspace::WorkspaceConfig::load(&root, &config.overrides)?;
         let loaded = load_command_workspace(&root, config.no_cache, config.cache_stats)?;
-        render_workspace_diagnostics(&root, &loaded, config.level, config.cache_stats)
+        let (mut output, has_failures) =
+            render_workspace_diagnostics(&root, &loaded, config.level, config.cache_stats)?;
+        let (rule_output, rule_status) = checks::render(&loaded, &settings.check)?;
+        output.push_str(&rule_output);
+        Ok::<_, String>((output, rule_status.max(u8::from(has_failures))))
     })();
     match result {
-        Ok((output, has_failures)) => {
+        Ok((output, status)) => {
             print!("{output}");
-            if has_failures {
-                ExitCode::FAILURE
-            } else {
-                ExitCode::SUCCESS
-            }
+            ExitCode::from(status)
         }
         Err(error) => {
             eprintln!("plumb: {error}");
-            ExitCode::FAILURE
+            ExitCode::from(2)
         }
     }
 }
@@ -115,9 +122,9 @@ fn run(config: Config) -> Result<u8, String> {
             )?,
         },
         Command::Event(event) => match event.command {
-            Some(EventCommand::Summary(options)) => return agenda::run(&loaded, config.query.as_deref(), &options, true),
-            Some(EventCommand::CheckCategory(options)) => return agenda::check_category(&loaded, config.query.as_deref(), &options),
-            Some(EventCommand::CheckTimeline(options)) => return agenda::run(&loaded, config.query.as_deref(), &options, false),
+            Some(EventCommand::Summary(options)) => {
+                return agenda::run(&loaded, config.query.as_deref(), &options)
+            }
             Some(EventCommand::ExportVdir(export)) => {
                 if config.query.is_some() {
                     return Err("event export-vdir does not support --query".to_string());
@@ -182,6 +189,10 @@ struct Config {
 #[derive(Debug, Parser)]
 #[command(name = "plumb check", about = "Check a plumb workspace")]
 struct CheckConfig {
+    /// Override a workspace configuration field with a TOML value (repeatable).
+    #[arg(long = "config", value_name = "KEY=VALUE")]
+    overrides: Vec<String>,
+
     /// Workspace root. Defaults to the nearest ancestor containing .plumb/.
     #[arg(long, value_name = "DIR")]
     root: Option<PathBuf>,
@@ -226,21 +237,8 @@ struct EventConfig {
 enum EventCommand {
     /// Summarize clipped event time by category, item, or task.
     Summary(AgendaConfig),
-    /// Check categories of all selected events, without a time window.
-    CheckCategory(CategoryCheckConfig),
-    /// Require complete, non-overlapping coverage of a time window.
-    CheckTimeline(AgendaConfig),
     /// Generate a managed read-only vdir calendar.
     ExportVdir(EventExportConfig),
-}
-
-#[derive(Debug, Args)]
-struct CategoryCheckConfig {
-    /// Check only the category declared on each event, without resolving references.
-    #[arg(long)]
-    explicit: bool,
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -259,7 +257,11 @@ struct AgendaConfig {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-enum AgendaGroup { Category, Item, Task }
+enum AgendaGroup {
+    Category,
+    Item,
+    Task,
+}
 
 #[derive(Debug, Args)]
 struct EventExportConfig {
@@ -337,9 +339,7 @@ fn load_command_workspace(
     if stats {
         eprintln!(
             "plumb cache: documents={} hits={} parsed={}",
-            loaded.indexed,
-            loaded.cache_hits,
-            loaded.parsed_documents
+            loaded.indexed, loaded.cache_hits, loaded.parsed_documents
         );
         eprintln!(
             "plumb cache timings: scan={:?} read={:?} hash={:?} analysis={:?} publication={:?} snapshot={:?}",
