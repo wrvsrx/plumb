@@ -99,6 +99,7 @@ try {
     await wait(() => row('recur'));
     if (Math.abs(listPane.scrollTop - pageScroll) > 1) throw new Error('Load more pulled the viewport back to the old selection');
     const loaded = rows().length;
+    row('recur').scrollIntoView({ block: 'center' });
     select('recur');
     document.querySelector('.complete-task').click();
     await wait(() => !row('recur') && document.querySelector('.task-detail h1')?.textContent === 'Neighbor');
@@ -109,19 +110,35 @@ try {
     const bounds = row('neighbor').getBoundingClientRect();
     const pane = document.querySelector('.task-list-pane').getBoundingClientRect();
     if (bounds.top < pane.top - 1 || bounds.bottom > pane.bottom + 1) throw new Error('mapped focus not visible ' + JSON.stringify({ row: bounds.toJSON(), pane: pane.toJSON(), scroll: document.querySelector('.task-list-pane').scrollTop }));
-    // Inserting focus groups must not fold the previously browsable frontier.
+    // Keep an unchanged neighboring document on screen as the selected tree moves.
+    row('task-121').scrollIntoView({ block: 'start' });
+    const neighborTop = () => row('task-121').getBoundingClientRect().top;
+    const readingTop = neighborTop();
     document.querySelector('.focus-task').click();
     await wait(() => row('neighbor').classList.contains('focused'));
     if (rows().length < after) throw new Error('focus groups swallowed the old frontier');
+    if (Math.abs(neighborTop() - readingTop) > 1) throw new Error('Focus moved the reading context ' + readingTop + ' -> ' + neighborTop());
+    select('parent');
+    const jump = [...document.querySelectorAll('.task-children button')].find(button => button.textContent.includes('Neighbor'));
+    if (!jump) throw new Error('missing child navigation');
+    jump.click();
+    const targetBounds = row('neighbor').getBoundingClientRect();
+    const targetPane = listPane.getBoundingClientRect();
+    if (targetBounds.top < targetPane.top - 1 || targetBounds.bottom > targetPane.bottom + 1) throw new Error('explicit navigation did not reveal target');
+    row('task-121').scrollIntoView({ block: 'start' });
     document.querySelector('.focus-task').click();
     await wait(() => !row('neighbor').classList.contains('focused'));
+    if (Math.abs(neighborTop() - readingTop) > 1) throw new Error('Unfocus moved the reading context');
     // Reorder this document beyond the old prefix; retention must cover its new position.
+    row('task-151').scrollIntoView({ block: 'start' });
+    const priorityTop = row('task-151').getBoundingClientRect().top;
     select('task-150');
     document.querySelector('.task-property-value[data-property="priority"]').click();
     const form = document.querySelector('.task-property-editor');
     form.elements.value.value = '-100'; form.requestSubmit();
     await wait(() => document.querySelector('.task-property-value[data-property="priority"]')?.textContent === '-100');
     if (!row('task-150') || rows().length < 260) throw new Error('reordered selection was paged away ' + JSON.stringify({ count: rows().length, present: !!row('task-150'), summary: document.querySelector('#task-summary').textContent, selected: document.querySelector('.task-detail h1')?.textContent, notice: document.querySelector('#notification').textContent }));
+    if (Math.abs(row('task-151').getBoundingClientRect().top - priorityTop) > 1) throw new Error('Priority edit moved the reading context');
     return { loaded, after, selected: document.querySelector('.task-detail h1').textContent };
   })()`);
   assert.equal(result.selected, 'Task 150');

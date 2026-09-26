@@ -105,3 +105,14 @@ test('continuation uses the limit bound into the refreshed cursor signature', as
   assert.equal(calls, 1);
   assert.equal(next.tasks.tasks.length, 251);
 });
+
+test('viewport context stays with neighbors when focus or priority moves selection', async () => {
+  const { reconcileTaskViewport } = await import('./task-context.js');
+  const old = [task('selected'), task('sibling'), task('neighbor', { path: 'b.plumb' })];
+  const observations = old.map((task, index) => ({ key: task.key, offset: index * 60 }));
+  for (const next of [[task('selected', { focused: true }), old[1], old[2]], [old[2], old[1], old[0]]]) {
+    assert.deepEqual(reconcileTaskViewport(old, next, observations, 'selected', 'selected'), observations[2]);
+  }
+  assert.deepEqual(reconcileTaskViewport(old, [old[1]], observations, 'selected', null), observations[1]);
+  assert.equal(reconcileTaskViewport(old, [], observations, 'selected', null), null);
+});

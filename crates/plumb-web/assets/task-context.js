@@ -91,3 +91,19 @@ export async function queryTaskContext(request, snapshot, append, execute) {
   // A stale page is not a deletion. Rebuild one coherent prefix at the new revision.
   return refresh(request.limit);
 }
+
+// Viewport observations are ephemeral; selection is deliberately not the
+// reading anchor when a neighboring task can carry the browsing context.
+export function reconcileTaskViewport(previous, tasks, observations, selected, operation) {
+  const old = new Map(previous.map((task) => [task.key, task]));
+  const current = new Map(tasks.map((task) => [task.key, task]));
+  const active = old.get(operation || selected);
+  const candidates = observations.filter(({ key }) => {
+    const before = old.get(key), after = current.get(key);
+    return before && after && identity(before) === identity(after)
+      && before.parentKey === after.parentKey && Boolean(before.focused) === Boolean(after.focused);
+  });
+  return candidates.find(({ key }) => key !== selected && old.get(key).path !== active?.path)
+    || candidates.find(({ key }) => key !== selected && key !== operation)
+    || candidates[0] || null;
+}

@@ -139,7 +139,9 @@ shared task page 在分页前按 subtree focused 优先排序；Web 只投影该
 
 展开状态按身份延续；显式 id 的任务暂时被筛选排除不清除其手动折叠状态，恢复筛选后继续使用该状态。仍可识别的旧可见任务若因 focused 分组重建而被隐藏，应展开其新分组路径，但不展开用户此前折叠的子树。selection 映射改变或其路径改变时展开新 selection 路径。普通刷新不推翻用户手动折叠。详情与 URL 使用同一映射后的 selection；未在当前筛选结果中的任务不能误报为已从 workspace 删除。
 
-DOM adapter 只将映射后的任务行保持可见，已经可见时不滚动；同一 revision 的 Load more 仅追加结果，不拉回旧 selection。 不承诺像素级位置稳定，不持续监听窗口尺寸计算偏移。mutation、外部 revision 与排序刷新使用同一协调器。自动化验证覆盖分页后 recur close、删除回退、排序越过原页边界、分组变化、无 id 的 revision 边界和异步响应竞态。
+数据刷新与主动导航分别处理。Focus、Unfocus、完成、属性修改、外部 revision 和排序刷新保持浏览上下文，不因 selection 移位滚动到它。DOM adapter 在安装结果前读取当前视口内任务及临时相对偏移；协调器优先选择非 selection、非当前操作文档中仍存活的节点作为阅读锚点，再回退到同文档节点；身份、父级或业务 focused 状态改变的节点不能作稳定锚点。没有锚点时保留原 scrollTop 并由浏览器限制在有效范围。读取与恢复在同一同步安装中完成，不保存长期坐标、不监听窗口尺寸补偿；请求期间用户滚动以安装时位置为准。加载范围继续保留原文档，不围绕 selection 换页。
+
+主动点击详情中的任务跳转或恢复 URL 中已加载的 selection 会展开目标路径，并仅在目标不可见时滚动；点击列表中已可见任务只更新 selection/detail。同一 revision 的 Load more 仅追加结果，不拉回旧 selection。mutation、外部 revision 与排序刷新使用同一协调器。自动化验证覆盖分页后 recur close、Focus/Unfocus 与属性重排不抢浏览位置、删除回退、分组变化、无 id revision 边界和异步响应竞态。
 
 `# 7. Tree-sitter boundary
 

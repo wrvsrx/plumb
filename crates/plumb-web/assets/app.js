@@ -17,7 +17,7 @@ import {
 } from './agenda-state.js';
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
 import { revealTask, taskListItems } from './task-tree.js';
-import { captureTaskContext, reconcileTaskContext, taskQueryScope, queryTaskContext } from './task-context.js';
+import { captureTaskContext, reconcileTaskContext, reconcileTaskViewport, taskQueryScope, queryTaskContext } from './task-context.js';
 import {
   focusAge,
   focusBadge,
@@ -62,6 +62,7 @@ import {
     tasks: null,
     selectedTask: null,
     taskLoadRevision: 0,
+    taskNavigation: null,
     taskScope: null,
     collapsed: { documents: new Set(), tasks: new Set(), expandedGroups: new Set() },
     presets: { graph: [], tasks: ['ready', 'blocked'], agenda: [] },
@@ -277,7 +278,10 @@ import {
     state.sortsSpecified[state.view] = query.sortsSpecified;
     state.current = query.current || config.current || null;
     state.local = Boolean(query.current);
-    if (state.view === 'tasks') state.selectedTask = query.selected;
+    if (state.view === 'tasks') {
+      state.selectedTask = query.selected;
+      state.taskNavigation = query.selected;
+    }
     if (state.view === 'agenda') state.selectedEvent = query.selected;
     state.selectedGraph = state.view === 'graph' ? query.selected : state.selectedGraph;
     if (state.view === 'graph') {
@@ -1091,6 +1095,16 @@ import {
       if (generation !== state.taskLoadRevision) return;
       // Capture at installation, so selection/folding changed during the request wins.
       const context = captureTaskContext(state.tasks?.tasks || [], state.selectedTask, state.collapsed);
+      const pane = taskList.parentElement;
+      const paneTop = pane.getBoundingClientRect().top;
+      const scrollTop = pane.scrollTop;
+      const observations = Array.from(taskList.querySelectorAll('[data-task-key]')).flatMap((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom > paneTop && rect.top < paneTop + pane.clientHeight
+          ? [{ key: row.dataset.taskKey, offset: rect.top - paneTop }] : [];
+      });
+      const anchor = snapshot && reconcileTaskViewport(context.tasks, result.tasks.tasks,
+        observations, state.selectedTask, state.pendingTask);
       const mapped = reconcileTaskContext(context, result.tasks.tasks);
       state.tasks = result.tasks;
       state.taskScope = scope;
@@ -1101,16 +1115,20 @@ import {
       renderTasks();
       if (!state.selectedTask && context.selected) clearTaskDetail('No task selected', 'The selected task is no longer in the current results.');
       updateUrl();
-      const treeChanged = !cursor || result.tasks.revision !== snapshot?.revision;
-      if (treeChanged && state.view === 'tasks' && !state.narrow && state.selectedTask) {
-        const row = Array.from(taskList.querySelectorAll('[data-task-key]'))
-          .find((element) => element.dataset.taskKey === state.selectedTask);
-        if (row) {
-          const bounds = row.getBoundingClientRect();
-          const pane = taskList.parentElement.getBoundingClientRect();
-          if (bounds.top < pane.top || bounds.bottom > pane.bottom) row.scrollIntoView({ block: 'nearest' });
-        }
+      if (snapshot) {
+        const row = anchor && Array.from(taskList.querySelectorAll('[data-task-key]'))
+          .find((element) => element.dataset.taskKey === anchor.key);
+        pane.scrollTop = row
+          ? pane.scrollTop + row.getBoundingClientRect().top - pane.getBoundingClientRect().top - anchor.offset
+          : scrollTop;
       }
+      if (state.taskNavigation) {
+        const target = state.taskNavigation === state.selectedTask
+          && state.tasks.tasks.find((task) => task.key === state.taskNavigation);
+        state.taskNavigation = null;
+        if (target) selectTask(target, { navigate: true });
+      }
+
     } catch (error) {
       if (generation !== state.taskLoadRevision) return;
       setQueryError('tasks', error);
@@ -1713,13 +1731,23 @@ import {
     }
   }
 
-  function selectTask(task, { history = 'replace' } = {}) {
+  function selectTask(task, { history = 'replace', navigate = false } = {}) {
+    state.taskNavigation = null;
     revealTask(state.collapsed, state.tasks.tasks, task);
     state.selectedTask = task.key;
     updateUrl(history);
     renderTasks();
     renderTaskDetail(task);
     syncDetail();
+    if (navigate && !state.narrow) {
+      const row = Array.from(taskList.querySelectorAll('[data-task-key]'))
+        .find((element) => element.dataset.taskKey === task.key);
+      if (row) {
+        const rect = row.getBoundingClientRect();
+        const pane = taskList.parentElement.getBoundingClientRect();
+        if (rect.top < pane.top || rect.bottom > pane.bottom) row.scrollIntoView({ block: 'nearest' });
+      }
+    }
   }
 
   function clearTaskDetail(title, message) {
@@ -1862,7 +1890,7 @@ import {
         const button = document.createElement('button');
         button.type = 'button';
         button.textContent = `${taskStateLabel(child)}  ${child.title || '(untitled task)'}`;
-        button.addEventListener('click', () => selectTask(child, { history: state.narrow ? 'push' : 'replace' }));
+        button.addEventListener('click', () => selectTask(child, { history: state.narrow ? 'push' : 'replace', navigate: true }));
         list.append(button);
       });
     }
