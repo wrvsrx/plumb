@@ -2286,6 +2286,11 @@ impl LanguageServer for ServerState {
                     },
                 )));
             }
+            if let Some(context) = plumb_semantics::green_event_category_completion_context(green, offset) {
+                let candidates = self.complete_query(self.workspace.complete_event_category(&context))
+                    .map_err(workspace_query_response_error)?;
+                return Ok(Some(completion_items(source, candidates, CompletionItemKind::VALUE)));
+            }
             if let Some(context) = event_title_completion_context(green, offset) {
                 let candidates = self
                     .complete_query(self.workspace.complete_event_title(&context))

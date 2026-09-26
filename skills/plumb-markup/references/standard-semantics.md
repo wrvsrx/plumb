@@ -304,3 +304,5 @@ The accounting declaration is `event-category`; a generic `category` property do
 participate. Whole-document links inherit root event-category; item links do not
 fall back to their document. Ordinary documents do not become tasks. CLI command
 names and report JSON fields are unchanged.
+
+Editor event-category value completion reuses all valid category sets declared by workspace documents and list items, including items without ids. Both scalar values and direct category-list items support prefix completion; multiword values remain a single category.

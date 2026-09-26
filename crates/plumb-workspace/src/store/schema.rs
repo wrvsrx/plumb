@@ -142,3 +142,10 @@ diesel::table! {
         record -> Binary,
     }
 }
+
+diesel::table! {
+    category_values (path, value) {
+        path -> Binary,
+        value -> Text,
+    }
+}

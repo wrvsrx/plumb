@@ -1,3 +1,4 @@
+use schema::category_values;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::ops::Range;
@@ -130,7 +131,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 21;
+const SCHEMA_VERSION: i64 = 22;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -1297,6 +1298,35 @@ impl SqliteSemanticStore {
         Ok(records)
     }
 
+    pub fn event_category_values(
+        &self,
+        prefix: &str,
+        excluded: &[PathBuf],
+    ) -> StoreResult<Vec<String>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let excluded = excluded
+            .iter()
+            .map(|path| path_bytes(&normalize(path)))
+            .collect::<Vec<_>>();
+        category_values::table
+            .filter(not(category_values::path.eq_any(excluded)))
+            .filter(
+                sql::<Bool>("substr(CAST(category_values.value AS BLOB), 1, length(CAST(")
+                    .bind::<Text, _>(prefix)
+                    .sql(" AS BLOB))) = CAST(")
+                    .bind::<Text, _>(prefix)
+                    .sql(" AS BLOB)"),
+            )
+            .select(category_values::value)
+            .distinct()
+            .order(category_values::value)
+            .load(&mut *connection)
+            .map_err(Into::into)
+    }
+
     pub fn event_title_counts(
         &self,
         prefix: &str,
@@ -1745,6 +1775,11 @@ fn insert_output(
     output: &DocumentOutput,
 ) -> StoreResult<()> {
     let encoded_path = path_bytes(path);
+    for value in output.event_category_values() {
+        diesel::insert_into(category_values::table)
+            .values((category_values::path.eq(&encoded_path), category_values::value.eq(value)))
+            .execute(connection)?;
+    }
     for anchor in output.anchors() {
         diesel::insert_into(anchors::table)
             .values((
@@ -1983,6 +2018,7 @@ fn task_reference(source_path: &Path, reference: &TaskDependency) -> Option<Stor
 
 fn delete_document_rows(connection: &mut SqliteConnection, path: &Path) -> StoreResult<()> {
     let path = path_bytes(path);
+    diesel::delete(category_values::table.filter(category_values::path.eq(&path))).execute(connection)?;
     diesel::delete(anchors::table.filter(anchors::path.eq(&path))).execute(connection)?;
     diesel::delete(links::table.filter(links::path.eq(&path))).execute(connection)?;
     diesel::delete(semantic_references::table.filter(semantic_references::source_path.eq(&path)))
@@ -2002,6 +2038,7 @@ fn delete_document_rows(connection: &mut SqliteConnection, path: &Path) -> Store
 }
 
 fn clear_records(connection: &mut SqliteConnection) -> StoreResult<()> {
+    diesel::delete(category_values::table).execute(connection)?;
     diesel::delete(anchors::table).execute(connection)?;
     diesel::delete(links::table).execute(connection)?;
     diesel::delete(semantic_references::table).execute(connection)?;

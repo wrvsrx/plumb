@@ -550,6 +550,39 @@ impl DocumentOutput {
         crate::Category::from_green_document(self.syntax().valid_syntax().expect("semantic output is syntax-valid"))
     }
 
+    /// Distinct valid categories declared by the document and every list item.
+    pub fn event_category_values(&self) -> Vec<String> {
+        fn collect(
+            blocks: &[plumb_syntax::Block],
+            values: &mut std::collections::BTreeSet<String>,
+        ) {
+            for block in blocks {
+                if let plumb_syntax::Block::Parsed(block) = block {
+                    if block
+                        .mark
+                        .as_ref()
+                        .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."))
+                    {
+                        let category = crate::Category::from_blocks(&block.children);
+                        if !category.invalid {
+                            values.extend(category.values);
+                        }
+                    }
+                    collect(&block.children, values);
+                }
+            }
+        }
+        let mut values = std::collections::BTreeSet::new();
+        let category = self.document_category();
+        if !category.invalid {
+            values.extend(category.values);
+        }
+        for shard in self.syntax().shards() {
+            collect(&shard.shard().parsed().syntax.blocks, &mut values);
+        }
+        values.into_iter().collect()
+    }
+
     pub fn syntax(&self) -> &plumb_syntax::GreenDocument {
         &self.root.tree.syntax
     }

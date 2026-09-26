@@ -6629,3 +6629,75 @@ fn event_authoring_round_trips_open_interval_and_closure() {
         assert_eq!(event.end.is_some(), end.is_some());
     }
 }
+
+#[test]
+fn category_value_completion_collects_all_sets_and_overlays_disk() {
+    let mut workspace =
+        Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap());
+    workspace.insert_disk("vocabulary.plumb", 1, "`= event-category research\n\n`- No id\n `= event-category\n  `- work\n  `- phd misc\n  `- work\n\n`. Another\n `= event-category `\"{literal ` value}\"\n").unwrap();
+    workspace
+        .insert_disk("overlay.plumb", 1, "`= event-category stale\n")
+        .unwrap();
+    workspace.open_document("overlay.plumb", 2, "`= event-category current\n");
+    let context = plumb_semantics::EventCategoryCompletionContext {
+        query: String::new(),
+        replace: 10..12,
+    };
+    let candidates = workspace.complete_event_category(&context).unwrap().value;
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|c| c.label.as_str())
+            .collect::<Vec<_>>(),
+        ["current", "literal ` value", "phd misc", "research", "work"]
+    );
+    for candidate in candidates {
+        assert_eq!(candidate.replace, 10..12);
+        let mut rendered = Workspace::new();
+        rendered.insert(
+            "test.plumb",
+            1,
+            format!("`= event-category {}\n", candidate.new_text),
+        );
+        let values = rendered.complete_event_category(&context).unwrap().value;
+        assert_eq!(values[0].label, candidate.label);
+    }
+    workspace.open_document("overlay.plumb", 3, "`= event-category {broken\n");
+    assert!(workspace
+        .complete_event_category(&context)
+        .unwrap()
+        .value
+        .iter()
+        .any(|c| c.label == "current"));
+    workspace
+        .insert_disk("vocabulary.plumb", 2, "`= event-category replacement\n")
+        .unwrap();
+    assert!(!workspace
+        .complete_event_category(&context)
+        .unwrap()
+        .value
+        .iter()
+        .any(|c| c.label == "work"));
+    workspace
+        .insert_disk("literal.plumb", 1, "`= event-category ph* misc\n")
+        .unwrap();
+    let context = plumb_semantics::EventCategoryCompletionContext {
+        query: "ph*".into(),
+        replace: 0..2,
+    };
+    assert_eq!(
+        workspace.complete_event_category(&context).unwrap().value[0].label,
+        "ph* misc"
+    );
+    workspace
+        .insert_disk("vocabulary.plumb", 3, "`= event-category phd misc\n")
+        .unwrap();
+    let context = plumb_semantics::EventCategoryCompletionContext {
+        query: "phd".into(),
+        replace: 0..2,
+    };
+    assert_eq!(
+        workspace.complete_event_category(&context).unwrap().value[0].label,
+        "phd misc"
+    );
+}

@@ -1859,3 +1859,141 @@ mod tests {
         (source, offset)
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventCategoryCompletionContext {
+    pub replace: Range<usize>,
+    pub query: String,
+}
+
+pub fn event_category_completion_context(
+    document: &ParsedDocument,
+    offset: usize,
+) -> Option<EventCategoryCompletionContext> {
+    fn value(
+        content: &InlineContent,
+        source: &str,
+        start: usize,
+        offset: usize,
+    ) -> Option<EventCategoryCompletionContext> {
+        let end = content.range.end.max(start);
+        if offset < start || offset > end || !source.is_char_boundary(offset) {
+            return None;
+        }
+        let prefix = source.get(start..offset)?;
+        let start = start + prefix.len() - prefix.trim_start_matches(' ').len();
+        let prefix = source.get(start..offset)?;
+        if prefix.contains(['\n', '\r']) {
+            return None;
+        }
+        Some(EventCategoryCompletionContext {
+            replace: start..end,
+            query: prefix.to_owned(),
+        })
+    }
+    fn visit(
+        blocks: &[Block],
+        source: &str,
+        offset: usize,
+        eligible: bool,
+    ) -> Option<EventCategoryCompletionContext> {
+        for block in blocks {
+            let Block::Parsed(block) = block else {
+                continue;
+            };
+            if eligible
+                && block.mark.as_ref().is_some_and(|m| m.marker == "=")
+                && crate::owner_semantic_view(&block.content)
+                    .positional
+                    .first()
+                    .is_some_and(|e| e.plain_text() == "event-category")
+            {
+                if block.children.is_empty() {
+                    let first =
+                        block.content.items.iter().find(|i| {
+                            !matches!(i, Inline::Space { .. } | Inline::SoftBreak { .. })
+                        })?;
+                    let key_end = inline_range(first).end;
+                    let Some(tail) = source.get(key_end..offset) else {
+                        continue;
+                    };
+                    if tail.starts_with(' ') {
+                        let start = key_end + tail.len() - tail.trim_start_matches(' ').len();
+                        if let Some(context) = value(&block.content, source, start, offset) {
+                            return Some(context);
+                        }
+                    }
+                } else {
+                    for child in &block.children {
+                        if let Block::Parsed(item) = child {
+                            if item.mark.as_ref().is_some_and(|m| m.marker == "-")
+                                && item.children.is_empty()
+                            {
+                                if let Some(context) =
+                                    value(&item.content, source, item.content.range.start, offset)
+                                {
+                                    return Some(context);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let eligible = block
+                .mark
+                .as_ref()
+                .is_some_and(|m| matches!(m.marker.as_str(), "-" | "."));
+            if let Some(context) = visit(&block.children, source, offset, eligible) {
+                return Some(context);
+            }
+        }
+        None
+    }
+    visit(&document.syntax.blocks, &document.source, offset, true)
+}
+
+pub fn green_event_category_completion_context(
+    document: &GreenDocument,
+    offset: usize,
+) -> Option<EventCategoryCompletionContext> {
+    green_completion_context(
+        document,
+        offset,
+        event_category_completion_context,
+        |context, delta| shift_range(&mut context.replace, delta),
+    )
+}
+
+#[cfg(test)]
+mod category_value_tests {
+    use super::*;
+    #[test]
+    fn category_values_replace_whole_scalar_or_list_value_in_supported_owners() {
+        for input in [
+            "`= event-category wo|rk",
+            "`= event-category |",
+            "`- Item\n `= event-category wo|rk",
+            "`. Item\n `= event-category\n  `- wo|rk",
+            "`# Heading\n\n`= event-category wo|rk",
+        ] {
+            let offset = input.find('|').unwrap();
+            let source = input.replace('|', "");
+            let parsed = plumb_syntax::parse(&source);
+            let context = event_category_completion_context(&parsed, offset).unwrap();
+            assert_eq!(context.query, if input.contains("wo|") { "wo" } else { "" });
+            assert_eq!(
+                &source[context.replace.clone()],
+                if input.contains("wo|") { "work" } else { "" }
+            );
+            let green = GreenDocument::parse(&source);
+            assert_eq!(
+                green_event_category_completion_context(&green, offset),
+                Some(context)
+            );
+        }
+        let source = "`box Item\n `= event-category wo";
+        assert!(
+            event_category_completion_context(&plumb_syntax::parse(source), source.len()).is_none()
+        );
+    }
+}

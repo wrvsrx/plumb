@@ -1207,3 +1207,40 @@ fn completes_event_category_at_document_and_list_item_levels() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn completes_category_values_from_workspace_sets() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("vocabulary.plumb"),
+        "`- Item\n `= event-category\n  `- phd misc\n  `- work\n",
+    )
+    .unwrap();
+    let path = root.join("current.plumb");
+    let source = "`= event-category ph\n\n`- Item\n `= event-category\n  `- wo\n";
+    std::fs::write(&path, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let uri = lsp_types::Url::from_file_path(&path).unwrap();
+    let messages = [
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":root_uri,"capabilities":{}}}),
+        json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":source}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":uri},"position":{"line":0,"character":20}}}),
+        json!({"jsonrpc":"2.0","id":3,"method":"textDocument/completion","params":{"textDocument":{"uri":uri},"position":{"line":4,"character":7}}}),
+        json!({"jsonrpc":"2.0","id":4,"method":"shutdown","params":null}),
+        json!({"jsonrpc":"2.0","method":"exit","params":null}),
+    ];
+    let output = run_server_after_initial_index(&messages);
+    for (id, label, line, start, end) in [(2, "phd misc", 0, 18, 20), (3, "work", 4, 5, 7)] {
+        let result = response(&output, id);
+        let items = result["result"].as_array().unwrap();
+        assert_eq!(items.len(), 1, "{result}");
+        assert_eq!(items[0]["label"], label);
+        assert_eq!(
+            items[0]["textEdit"]["range"],
+            json!({"start":{"line":line,"character":start},"end":{"line":line,"character":end}})
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

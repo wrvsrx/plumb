@@ -261,3 +261,5 @@ Note preview 对 `"cite" 运行 Pandoc citeproc。Bibliography relative path 从
 文档任务完成或取消时，仅对 title 或 task facet 的选择范围提供状态高亮，不覆盖正文或子任务；文档任务不生成整文件的列表折叠标签，现有结构折叠继续使用原有边界。
 
 文档任务的新增声明按光标所在 metadata 区域插入：连续 properties 及其后 facets 构成一区域，空行不拆组。新增属性放在本组 properties 末尾、facets 前，新增 facet 放在 facets 末尾。已有字段原位更新，其他区域不重排；metadata 空白行不提供区域操作。CLI/Web 默认使用文件开头的第一区域，没有头部 metadata 时在文件开头创建。
+
+在 event-category 的标量值或分类列表项中触发补全，可选择工作区所有文档、列表项已声明的有效分类。候选按输入前缀筛选、去重排序；多词分类保留为一个完整值，特殊字符自动转义。

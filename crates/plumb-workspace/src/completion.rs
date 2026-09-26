@@ -10,6 +10,36 @@ use crate::{
 const EVENT_TITLE_COMPLETION_LIMIT: usize = 50;
 
 impl Workspace {
+    pub fn complete_event_category(
+        &self,
+        context: &plumb_semantics::EventCategoryCompletionContext,
+    ) -> Result<QueryResult<Vec<CompletionCandidate>>, WorkspaceQueryError> {
+        let mut values = std::collections::BTreeSet::new();
+        for entry in self.documents.values() {
+            if let Some(versioned) = entry.current.as_ref().or(entry.last_valid.as_ref()) {
+                values.extend(versioned.output.event_category_values());
+            }
+        }
+        if let Some(store) = &self.disk_store {
+            values.extend(store.event_category_values(
+                &context.query,
+                &self.documents.keys().cloned().collect::<Vec<_>>(),
+            )?);
+        }
+        Ok(self.query_result(
+            values
+                .into_iter()
+                .filter(|value| value.starts_with(&context.query) && value != &context.query)
+                .map(|value| CompletionCandidate {
+                    new_text: plumb_edit::render_authored_text_arguments(&[value.as_str()]),
+                    label: value,
+                    detail: "event category".to_owned(),
+                    replace: context.replace.clone(),
+                })
+                .collect(),
+        ))
+    }
+
     pub fn complete_event_title(
         &self,
         context: &EventTitleCompletionContext,

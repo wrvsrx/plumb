@@ -303,6 +303,7 @@ pub use metadata::{
     MetadataOutput, MetadataValue,
 };
 pub use queries::{
+    event_category_completion_context, green_event_category_completion_context, EventCategoryCompletionContext,
     attribute_completion_context, citation_completion_context, construct_completion_context,
     embed_completion_context, event_title_completion_context, green_attribute_completion_context,
     green_citation_completion_context, green_construct_completion_context,
