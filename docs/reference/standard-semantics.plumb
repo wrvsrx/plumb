@@ -389,8 +389,8 @@ table-consumed rows/cells 不产生 ordinary list/task/event records。export/im
 
 generic marked block/group 分别 lower Div/Span，VerbatimBlock/inline Verbatim 分别 CodeBlock/Code，anonymous parsed
 block lower Para。plumb export 直接产生 Pandoc JSON，只把 Pandoc 当 writer；plumb import 对 supported official
-profile 生成 current strict syntax，无法表示的 figure/raw HTML/footnote/complex citation 等必须 reject，不 silent
-drop。
+ profile 生成 current strict syntax。无属性 figure 可展开为其内容块，并将单段 caption 追加为普通段落；带属性
+ figure、raw HTML/footnote/complex citation 等无法表示的结构必须 reject，不 silent drop。
 
 `# 14. Version boundary
 

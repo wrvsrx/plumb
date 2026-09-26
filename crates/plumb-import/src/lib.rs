@@ -210,7 +210,39 @@ fn render_block(block: &Block) -> Result<Option<String>, String> {
         Block::RawBlock(_, _) => Err("RawBlock has no standard plumb representation".into()),
         Block::HorizontalRule => Err("HorizontalRule has no standard plumb representation".into()),
         Block::Table(table) => Ok(Some(render_table(table)?)),
-        Block::Figure(_, _, _) => Err("Figure has no standard plumb representation".into()),
+        Block::Figure(attrs, caption, blocks) => {
+            if !attrs.identifier.is_empty()
+                || !attrs.classes.is_empty()
+                || !attrs.attributes.is_empty()
+            {
+                return Err("Figure attributes have no standard plumb representation".into());
+            }
+            let mut rendered = Vec::new();
+            for block in blocks {
+                if let Some(block) = render_block(block)? {
+                    rendered.push(block);
+                }
+            }
+            if let Some(caption) = render_figure_caption(caption)? {
+                rendered.push(caption);
+            }
+            Ok(Some(rendered.join("\n\n")))
+        }
+    }
+}
+
+fn render_figure_caption(caption: &Caption) -> Result<Option<String>, String> {
+    if let Some(short) = &caption.short {
+        if caption.long.is_empty() {
+            return Ok(Some(render_inlines(short, false)?));
+        }
+    }
+    match caption.long.as_slice() {
+        [] => Ok(None),
+        [Block::Plain(inlines) | Block::Para(inlines)] => {
+            Ok(Some(render_inlines(inlines, false)?))
+        }
+        _ => Err("figure caption must be representable as one inline paragraph".into()),
     }
 }
 
@@ -1063,6 +1095,29 @@ mod tests {
             meta: HashMap::new(),
         };
         assert!(import(&document).unwrap_err().contains("HorizontalRule"));
+    }
+
+    #[test]
+    fn imports_unattributed_figures_by_expanding_content_and_caption() {
+        let document = Pandoc {
+            blocks: vec![Block::Figure(
+                Attr::default(),
+                Caption {
+                    short: None,
+                    long: vec![Block::Plain(vec![Inline::Str("A caption".into())])],
+                },
+                vec![Block::Para(vec![Inline::Image(
+                    Attr::default(),
+                    vec![Inline::Str("alt".into())],
+                    pandoc_types::definition::Target { url: "image.png".into(), title: "".into() },
+                )])],
+            )],
+            meta: HashMap::new(),
+        };
+        let source = import(&document).unwrap();
+        assert!(source.contains("image.png"));
+        assert!(source.contains("A caption"));
+        assert!(plumb_syntax::parse(&source).is_valid());
     }
 
     #[test]
