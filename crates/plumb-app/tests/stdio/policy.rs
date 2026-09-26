@@ -230,3 +230,40 @@ fn policy_invalid_startup_configuration_rejects_initialize() {
     s.finish();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn policy_event_categories_follow_document_and_ancestor_edits() {
+    let root = unique_temp_dir();
+    configure(&root, "[diagnostics.event-category]\nenabled=true");
+    let path = root.join("day.plumb");
+    let bare = "`- 2026-09-22T10:00:00Z Work\n `+ event\n";
+    std::fs::write(&path, bare).unwrap();
+    let mut s = start(&[&root], &[]);
+    open(&mut s, &path, bare);
+    s.wait_for_next(|m| publication(m, &path) && has(m, "event-category.missing"));
+    let sources = [
+        format!("`= event-category work\n{bare}"),
+        format!(
+            "`= event-category work\n{}",
+            bare.replace(" `+ event", " `+ event\n `= event-category")
+        ),
+        "`# Section\n `= event-category work\n `- 2026-09-22T10:00:00Z Work\n  `+ event\n"
+            .to_owned(),
+        format!("`# Sibling\n `= event-category work\n{bare}"),
+    ];
+    for (index, source) in sources.iter().enumerate() {
+        let version = index as i32 + 2;
+        change(&mut s, &path, version, source);
+        s.wait_for_next(|m| {
+            publication(m, &path)
+                && m["params"]["version"] == version
+                && match index {
+                    1 => has(m, "agenda.invalid-category"),
+                    3 => has(m, "event-category.missing"),
+                    _ => !has(m, "event-category.missing") && !has(m, "agenda.invalid-category"),
+                }
+        });
+    }
+    stop(s);
+    std::fs::remove_dir_all(root).unwrap();
+}

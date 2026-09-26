@@ -1201,6 +1201,17 @@ fn category_check_uses_effective_categories_and_reports_missing_and_invalid() {
     let out = run();
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stdout).contains("diagnostics.incomplete"));
+    for source in [
+        "`= event-category work\n`- 2020-01-01T10:00:00Z Point\n `+ event\n",
+        "`# Section\n `= event-category work\n `- 2020-01-01T10:00:00Z Point\n  `+ event\n",
+    ] {
+        std::fs::write(&path, source).unwrap();
+        for _ in 0..2 {
+            let out = run();
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+            assert!(out.stdout.is_empty());
+        }
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 

@@ -234,7 +234,11 @@ property or facet. Explicit `tasks` takes precedence over title links; details a
 nested inline links do not participate in accounting. Distinct targets split time
 equally before event-category aggregation. Duplicate references count once. Missing
 categories remain unclassified; unresolved references make the result incomplete.
-An event's own `event-category` overrides event-category attribution without changing the split.
+An event's own `event-category` takes precedence, followed by the nearest structural
+ancestor declaration and then the document root default. Only when all are absent
+does accounting use linked item categories. Indentation defines ancestry; a preceding
+sibling heading does not supply defaults. Category lists replace rather than merge.
+Invalid or empty declarations block fallback. Overrides do not change item shares.
 Categories accept nonempty plain text, anonymous grouping and unmarked verbatim,
 but not rich values or duplicate declarations. Scalar properties split first : rest, so
 `= event-category phd misc` is one event-category. Multiple categories use direct leaf `-`
