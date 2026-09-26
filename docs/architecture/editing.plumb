@@ -187,3 +187,5 @@ Event authoring 接受 start 存在而 end 缺省的开放区间，使用 compac
 属性名补全在普通、task、event 的 bullet/ordered list item 直接 property 和 document 根层 metadata 中提供 event-category；不要求 task/event facet 或 explicit id。支持空 key 和前缀，生成普通 direct property 与待填值，value 内不触发属性名补全。相同 owner 已有其他 event-category 声明（scalar 或 child list）时不重复建议；document 判重跨全部 green shards，不能因正文分隔漏判，也不把 nested item 声明当根层声明。无关 generic owner 不提供该项。ParsedDocument 与 green recovered 查询必须返回相同 byte replacement，LSP 只投影 UTF-16 range 和 snippet。
 
 分类值补全适用于 document 根层及普通、task、event list item 的 event-category scalar value 和直接分类列表项。候选来自 workspace 当前有效语义快照中所有这些 owner 的有效分类集合，包括无 id 的条目；打开文档覆盖磁盘快照，语法无效时沿用 last-valid。去重后按字典序排列，按大小写敏感的 literal prefix 筛选，不限制候选数量。替换完整当前值，保留多词分类为一个值，并由 plumb-edit 转义特殊字符；不建议与当前值完全相同的候选。持久层独立投影分类词汇，不为补全加载全部 task/event records。
+
+Add explicit id code action 在属性 = 的位置仍定位其父 marked owner，并把 @ id 插入该 owner 的直接 declarations；不会把 id 插入 property 的 children。文档根层 metadata 没有可锚定父 owner，因此不提供该 action。

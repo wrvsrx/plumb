@@ -6701,3 +6701,20 @@ fn category_value_completion_collects_all_sets_and_overlays_disk() {
         "phd misc"
     );
 }
+
+#[test]
+fn explicit_id_on_property_targets_its_owner() {
+    let source = "`- Work\n `= event-category\n  `- research\n";
+    let mut workspace = Workspace::new();
+    workspace.insert("work.plumb", 1, source);
+    for offset in [source.find("event-category").unwrap(), source.find("research").unwrap()] {
+        let edit = workspace.add_explicit_id("work.plumb", offset).unwrap();
+        let result = apply_single_edit(source, &edit);
+        assert!(result.contains(" `@ work\n"), "{result}");
+        assert!(!result.contains("  `@"), "{result}");
+    }
+    workspace.insert("work.plumb", 2, "`= title Work\n");
+    assert_eq!(workspace.add_explicit_id("work.plumb", 5), Err(ExplicitIdError::BlockNotFound));
+    workspace.insert("work.plumb", 3, "`- Work\n `@ work\n `= key value\n");
+    assert_eq!(workspace.add_explicit_id("work.plumb", 23), Err(ExplicitIdError::IdAlreadyExists));
+}

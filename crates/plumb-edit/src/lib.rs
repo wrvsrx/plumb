@@ -1709,6 +1709,8 @@ pub fn green_block_attribute_target(
         }
         if let Block::Parsed(block) = block {
             if let Some(mark) = &block.mark {
+                // A property belongs to its enclosing owner, including its value subtree.
+                if mark.marker == "=" { continue; }
                 if result.is_none() || (depth, block.range.start) > result_position {
                     let title = block.content.plain_text();
                     result = Some(GreenBlockAttributeTarget {
