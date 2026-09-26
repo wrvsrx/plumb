@@ -307,6 +307,13 @@ impl Workspace {
                     is_task = context.is_task(self, &target_path, Some(&id))?;
                     valid = !event.tasks_override || is_task;
                     category = anchor.category;
+                    if category.declarations.is_empty() {
+                        // A list item without a local declaration inherits the
+                        // target document's root category. This matters when
+                        // the target anchor is projected from an independent
+                        // syntax shard.
+                        category = self.agenda_document_category(&target_path)?;
+                    }
                     category_source = category
                         .declarations
                         .first()

@@ -40,6 +40,20 @@ fn deduplicates_then_splits_by_item_before_category_and_task_aggregation() {
     assert_eq!(r.tasks.len(), 2);
     assert!(r.items.iter().all(|i| i.seconds == 1200.0));
 }
+
+#[test]
+fn referenced_list_item_inherits_document_category() {
+    let mut w = Workspace::new();
+    w.insert("/notes/items.plumb", 0, "`= event-category work\n`- A\n `@ a\n");
+    w.insert(
+        "/notes/day.plumb",
+        0,
+        "`- 2026-09-22T10:00:00Z--11:00 `->{items.plumb#a}\n `+ event\n",
+    );
+    let r = report(&w, true);
+    assert!(r.complete, "{:?}", r.issues);
+    assert_eq!(r.categories[0].category.as_deref(), Some("work"));
+}
 #[test]
 fn unresolved_references_keep_their_share_and_timeline_is_independent() {
     let mut w = Workspace::new();
