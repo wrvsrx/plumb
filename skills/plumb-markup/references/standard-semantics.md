@@ -241,14 +241,14 @@ but not rich values or duplicate declarations. Scalar properties split first : r
 children under `= event-category`, one full plain value per item. Duplicate values count
 once; each item share is divided equally among its categories.
 
-`plumb check` always runs workspace diagnostics. Its optional event checks are disabled
+`plumb check` and `plumb lsp` share workspace diagnostics. Optional event rules are disabled
 by default. Enable them in the workspace root's `.plumb/config.toml`:
 
 ```toml
-[check.event-category]
+[diagnostics.event-category]
 enabled = true
 
-[check.event-timeline]
+[diagnostics.event-timeline]
 enabled = true
 ```
 
@@ -256,10 +256,20 @@ Each rule has only an `enabled` boolean. Repeated `--config KEY=VALUE` arguments
 file settings for this invocation, with the last value for a key winning:
 
 ```sh
-plumb check --config check.event-category.enabled=true
+plumb check --config diagnostics.event-category.enabled=true
+plumb lsp --config diagnostics.event-category.enabled=true
 ```
 
 Values use TOML syntax; unknown keys, invalid types and malformed configuration fail.
+LSP reads each workspace root's configuration and reloads it on config file changes or
+`workspace/didChangeConfiguration`. CLI overrides retain precedence after reload.
+Open buffers override disk content; category inheritance and timeline diagnostics refresh
+across files. Disabling a rule clears its diagnostics. Each workspace root has a separate
+timeline, with nested roots owning their subtrees. Invalid startup configuration rejects
+initialization; invalid runtime configuration clears that root's optional diagnostics and
+reports an error until repaired. Incomplete queries are reported explicitly. Background
+results are revision-guarded; LSP publishes UTF-16 locations and cross-file related locations.
+
 Category checking includes all events and every effective inherited accounting share,
 including point events. There is no explicit-only mode.
 Timeline checking finds internal gaps and overlaps across all workspace intervals,

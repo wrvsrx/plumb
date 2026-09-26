@@ -270,7 +270,7 @@ SpaceRun boundaries，连续 properties可按 Unicode width对齐。trailing `"-
 Web Agenda 提供在线创建、编辑和删除；Calendar/khal 只读取 projection。首版不支持 recurrence、全天 event、reminder、外部 iCalendar 回写或 CalDAV client。
 
 `## 分类与用时
-event-category 也可放在普通文档根层，供引用整个文档的 event 继承；不需要为文档添加 task 或 activity。文档没有分类时显示未分类，引用具体条目不继承所属文档分类。旧 category 不再用于事件核算；分类完整性通过 plumb check 的 event-category 规则检查，统计 JSON 字段名保持不变。
+event-category 也可放在普通文档根层，供引用整个文档的 event 继承；不需要为文档添加 task 或 activity。文档没有分类时显示未分类，引用具体条目不继承所属文档分类。旧 category 不再用于事件核算；分类完整性通过 check 与 LSP 共享的 diagnostics.event-category 规则检查，统计 JSON 字段名保持不变。
 
 用 event-category 记录核算类别。事项可以是 task，也可以是带 explicit id 的普通 list item；事件直接引用它：
 
