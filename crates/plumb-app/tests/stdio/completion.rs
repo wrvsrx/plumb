@@ -1168,3 +1168,42 @@ fn completes_document_task_paths_from_root_sequence_declarations() {
     }));
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn completes_event_category_at_document_and_list_item_levels() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let document = root.join("category.plumb");
+    let source = "`= event-c\n\n`- 普通事项\n `= event-c\n";
+    std::fs::write(&document, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let uri = lsp_types::Url::from_file_path(&document).unwrap();
+    let messages = [
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+            "processId":null,"rootUri":root_uri,
+            "capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":true}}}}
+        }}),
+        json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{
+            "uri":uri,"languageId":"plumb","version":1,"text":source
+        }}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{
+            "textDocument":{"uri":uri},"position":{"line":0,"character":10}
+        }}),
+        json!({"jsonrpc":"2.0","id":3,"method":"textDocument/completion","params":{
+            "textDocument":{"uri":uri},"position":{"line":3,"character":11}
+        }}),
+        json!({"jsonrpc":"2.0","id":4,"method":"shutdown","params":null}),
+        json!({"jsonrpc":"2.0","method":"exit","params":null}),
+    ];
+    let output = run_server(&messages);
+    for (id, line, start) in [(2, 0, 0), (3, 3, 1)] {
+        let result = response(&output, id);
+        let item = result["result"].as_array().unwrap().iter()
+            .find(|item| item["label"] == "event-category").unwrap();
+        assert_eq!(item["textEdit"]["newText"], "`= event-category ${1}");
+        assert_eq!(item["textEdit"]["range"]["start"], json!({"line":line,"character":start}));
+        assert_eq!(item["insertTextFormat"], 2);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

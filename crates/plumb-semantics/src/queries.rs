@@ -126,21 +126,63 @@ pub fn attribute_completion_context(
     if offset > document.source.len() || !document.source.is_char_boundary(offset) {
         return None;
     }
-    attribute_context_in_blocks(&document.syntax.blocks, &document.source, offset)
+    root_category_context(&document.syntax.blocks, &document.source, offset)
+        .or_else(|| attribute_context_in_blocks(&document.syntax.blocks, &document.source, offset))
 }
 
 pub fn green_attribute_completion_context(
     document: &GreenDocument,
     offset: usize,
 ) -> Option<AttributeCompletionContext> {
-    green_completion_context(
+    let mut context = green_completion_context(
         document,
         offset,
         attribute_completion_context,
-        |context, delta| {
-            shift_range(&mut context.replace, delta);
-        },
-    )
+        |context, delta| shift_range(&mut context.replace, delta),
+    )?;
+    let shard = document.shard_at(offset)?;
+    let local = offset.checked_sub(shard.offset())?;
+    if root_category_context(&shard.shard().parsed().syntax.blocks,
+        &shard.shard().parsed().source, local).is_some()
+    {
+        let duplicate = document.shards().any(|view| {
+            view.shard().parsed().syntax.blocks.iter().any(|block| {
+                category_declaration(block) && match block {
+                    Block::Parsed(block) => block.range.start + view.offset() != context.replace.start,
+                    _ => false,
+                }
+            })
+        });
+        if duplicate { context.completions.retain(|item| item.label != "event-category"); }
+    }
+    Some(context)
+}
+
+fn category_declaration(block: &Block) -> bool {
+    let Block::Parsed(block) = block else { return false; };
+    block.mark.as_ref().is_some_and(|mark| mark.marker == "=")
+        && crate::owner_semantic_view(&block.content).positional.first()
+            .is_some_and(|element| element.plain_text() == "event-category")
+}
+
+fn root_category_context(blocks: &[Block], source: &str, offset: usize) -> Option<AttributeCompletionContext> {
+    for block in blocks {
+        let Block::Parsed(declaration) = block else { continue; };
+        if declaration.mark.as_ref().is_none_or(|mark| mark.marker != "=")
+            || !declaration.children.is_empty() || offset < declaration.range.start
+            || offset > declaration.content.range.end { continue; }
+        let view = crate::owner_semantic_view(&declaration.content);
+        if view.positional.len() > 1 { continue; }
+        let start = view.positional.first().map_or(declaration.content.range.end, |item| item.range.start);
+        let query = source.get(start..offset)?;
+        if query.chars().any(char::is_whitespace) { continue; }
+        let duplicate = blocks.iter().any(|other| !std::ptr::eq(other, block) && category_declaration(other));
+        let mut completions = Vec::new();
+        push_block_pair_completion(&mut completions, !duplicate && "event-category".starts_with(query),
+            "event-category", "agenda accounting category");
+        return Some(AttributeCompletionContext { replace: declaration.range.start..offset, completions });
+    }
+    None
 }
 
 fn attribute_context_in_blocks(
@@ -228,6 +270,16 @@ fn direct_block_attribute_context(
                         .iter()
                         .any(|item| matches!(item, AttrItem::Pair { key: existing, .. } if existing == key))
                 };
+                if matches!(owner_mark.marker.as_str(), "-" | ".") {
+                    let duplicate = owner.children.iter().any(|child| {
+                        category_declaration(child) && match child {
+                            Block::Parsed(block) => block.range.start != declaration.range.start,
+                            _ => false,
+                        }
+                    });
+                    push_block_pair_completion(&mut completions, !duplicate,
+                        "event-category", "agenda accounting category");
+                }
                 match crate::list_item_facet(owner) {
                     crate::ListItemFacet::Task => {
                         for (key, detail) in task_attribute_pairs() {
@@ -311,7 +363,7 @@ fn push_block_pair_completion(
     }
     let value = match key {
         "created" | "due" | "wait" | "recur" | "prev" | "depends" | "date" | "timezone"
-        | "tasks" | "language" => "",
+        | "tasks" | "language" | "event-category" => "",
         "priority" => "0",
         _ => return,
     };
@@ -1369,6 +1421,42 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn category_key_completion_supports_document_and_all_list_owners() {
+        for prefix in ["", "event-c"] {
+            for owner in ["", "`- Ordinary\n ", "`. Ordered\n ", "`- Task\n `+ task\n ", "`- 08:00 Event\n `+ event\n "] {
+                let (source, cursor) = strip_cursor(&format!("Prelude\n\n{owner}`= {prefix}|\n"));
+                let context = attribute_completion_context(&parse(&source), cursor).unwrap();
+                assert_eq!(Some(context.clone()), green_attribute_completion_context(&GreenDocument::parse(&source), cursor));
+                let item = context.completions.iter().find(|item| item.label == "event-category").unwrap();
+                assert_eq!(item.new_text, "`= event-category ");
+                let mut applied = source.clone();
+                applied.replace_range(context.replace, &format!("{}work", item.new_text));
+                assert!(parse(&applied).valid_syntax().is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn category_completion_suppresses_duplicates_across_root_shards_but_not_nested_owners() {
+        for marked in [
+            "`= event-category work\n\nBody\n\n`= event-c|\n",
+            "`= event-c|\n\nBody\n\n`= event-category\n `- work\n",
+            "`- Item\n `= event-category\n  `- work\n `= event-c|\n",
+            "`- Item\n `= event-category work\n `= event-c|\n",
+            "`node Generic\n `= event-c|\n",
+            "`= event-category wo|rk\n",
+        ] {
+            let (source, cursor) = strip_cursor(marked);
+            let context = attribute_completion_context(&parse(&source), cursor);
+            assert_eq!(context, green_attribute_completion_context(&GreenDocument::parse(&source), cursor));
+            assert!(!context.is_some_and(|context| context.completions.iter().any(|item| item.label == "event-category")), "{source}");
+        }
+        let (source, cursor) = strip_cursor("`- Item\n `= event-category work\n\n`= event-c|\n");
+        let context = green_attribute_completion_context(&GreenDocument::parse(&source), cursor).unwrap();
+        assert!(context.completions.iter().any(|item| item.label == "event-category"));
     }
 
     #[test]

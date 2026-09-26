@@ -146,6 +146,8 @@ LSP semantic tokens 将 done task 的完整 block 标为 `"task + completed"，�
     vim.lsp.buf.format({ name = 'plumb' })
   end)
 
+在 list item 的直接 property 或 document 根层 metadata 中输入 `"`= " 或 `"`= event-c"，属性名补全会提供 `"event-category"，并把光标留在待填值处。普通列表项、task/event 列表项和普通文档都支持；同一 owner 已有该声明时不重复建议，文档根层判重不受正文分隔影响。
+
 construct completion 按 marker prefix 与 syntax owner 触发：bare introducer 不提供候选；line-start `"-" 提供
 Task/Event/Link，ordinary inline `"-"/`"->" 只提供 canonical parsed Link。`"->{" 保持 parsed Link template；
 `"->\"" 提供同名 compact verbatim Link。完成后 one-element/two-or-more-element forms分别使用 derived/explicit
