@@ -78,6 +78,18 @@ impl ServerState {
         }
     }
 
+    fn policy_incomplete(&mut self, message: String) {
+        if self.policy.last_status.as_ref() != Some(&message) {
+            let _ = self.client.notify::<lsp_types::notification::LogMessage>(
+                lsp_types::LogMessageParams {
+                    typ: lsp_types::MessageType::WARNING,
+                    message: message.clone(),
+                },
+            );
+            self.policy.last_status = Some(message);
+        }
+    }
+
     pub(super) fn schedule_policy_diagnostics(&mut self) {
         self.policy.generation = self.policy.generation.wrapping_add(1);
         self.policy.dirty = true;
@@ -104,8 +116,10 @@ impl ServerState {
             return;
         }
         if !self.index_complete {
-            self.policy_status(
-                lsp_types::MessageType::WARNING,
+            if self.index_pending {
+                return;
+            }
+            self.policy_incomplete(
                 "diagnostics.incomplete: workspace index is not complete".into(),
             );
             return;
@@ -153,19 +167,13 @@ impl ServerState {
                 if publication.incomplete.is_empty() {
                     self.policy.last_status = None;
                 } else {
-                    self.policy_status(
-                        lsp_types::MessageType::WARNING,
-                        format!(
-                            "diagnostics.incomplete: {}",
-                            publication.incomplete.join("; ")
-                        ),
-                    );
+                    self.policy_incomplete(format!(
+                        "diagnostics.incomplete: {}",
+                        publication.incomplete.join("; ")
+                    ));
                 }
             }
-            Err(error) => self.policy_status(
-                lsp_types::MessageType::ERROR,
-                format!("diagnostics.incomplete: {error}"),
-            ),
+            Err(error) => self.policy_incomplete(format!("diagnostics.incomplete: {error}")),
         }
         self.publish_all_open_diagnostics_reusing_context();
         ControlFlow::Continue(())
@@ -222,11 +230,7 @@ fn compute(
                 .or_default()
                 .push(LspDiagnostic {
                     range,
-                    severity: Some(match diagnostic.severity {
-                        plumb_syntax::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
-                        plumb_syntax::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
-                        plumb_syntax::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
-                    }),
+                    severity: Some(DiagnosticSeverity::WARNING),
                     code: Some(NumberOrString::String(diagnostic.code)),
                     source: Some("plumb".into()),
                     message: diagnostic.message,
@@ -260,6 +264,32 @@ fn project_location(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_index_is_silent_but_a_finished_incomplete_index_is_logged() {
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        let mut settings = DiagnosticSettings::default();
+        settings.event_category.enabled = true;
+        state
+            .policy
+            .settings
+            .insert(PathBuf::from("/notes"), settings);
+        state.schedule_policy_diagnostics();
+        assert!(state.policy.dirty);
+        assert!(!state.policy.running);
+        assert!(state.policy.last_status.is_none());
+        state.index_pending = false;
+        state.schedule_policy_diagnostics();
+        assert!(state
+            .policy
+            .last_status
+            .as_ref()
+            .unwrap()
+            .contains("workspace index"));
+        assert!(!state.policy.running);
+    }
 
     #[test]
     fn stale_background_generation_cannot_install_diagnostics_or_error_status() {

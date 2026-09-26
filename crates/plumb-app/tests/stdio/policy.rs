@@ -71,7 +71,7 @@ fn policy_timeline_refreshes_other_files_and_projects_utf16_related_locations() 
         .iter()
         .find(|d| d["code"] == "event-timeline.gap")
         .unwrap();
-    assert_eq!(gap["severity"], 1);
+    assert_eq!(gap["severity"], 2);
     assert_eq!(
         gap["relatedInformation"][0]["location"]["uri"],
         uri(&b).as_str()
@@ -98,7 +98,11 @@ fn policy_timeline_refreshes_other_files_and_projects_utf16_related_locations() 
     // Closing restores the saved interval and the cross-file gap.
     s.send(&json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":uri(&b)}}}));
     s.wait_for_next(|m| publication(m, &a) && has(m, "event-timeline.gap"));
-    stop(s);
+    let messages = stop(s);
+    assert!(!messages.iter().any(|m| m["method"] == "window/showMessage"
+        && m["params"]["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("diagnostics.incomplete"))));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -147,7 +151,11 @@ fn policy_categories_follow_unsaved_and_saved_inheritance_and_configuration_relo
     std::fs::remove_file(&config).unwrap();
     watched(&mut s, &config, 3);
     s.wait_for_next(|m| publication(m, &event) && !has(m, "event-category.missing"));
-    stop(s);
+    let messages = stop(s);
+    assert!(!messages.iter().any(|m| m["method"] == "window/showMessage"
+        && m["params"]["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("diagnostics.incomplete"))));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -167,22 +175,36 @@ fn policy_cli_override_survives_reload_and_invalid_source_reports_incompleteness
     watched(&mut s, &root.join(".plumb/config.toml"), 2);
     s.wait_for_next(|m| publication(m, &event) && has(m, "event-category.missing"));
     change(&mut s, &event, 2, "`broken{");
-    s.wait_for_next(|m| {
+    let syntax = s.wait_for_next(|m| {
         publication(m, &event)
             && has(m, "syntax.unclosed-inline-group")
             && !has(m, "event-category.missing")
     });
-    s.wait_for_next(|m| {
-        m["method"] == "window/showMessage"
+    assert_eq!(
+        syntax["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["code"] == "syntax.unclosed-inline-group")
+            .unwrap()["severity"],
+        1
+    );
+    let warning = s.wait_for_next(|m| {
+        m["method"] == "window/logMessage"
             && m["params"]["message"]
                 .as_str()
                 .is_some_and(|s| s.contains("diagnostics.incomplete"))
     });
+    assert_eq!(warning["params"]["type"], 2);
     change(&mut s, &event, 3, text);
     s.wait_for_next(|m| {
         publication(m, &event) && m["params"]["version"] == 3 && has(m, "event-category.missing")
     });
-    stop(s);
+    let messages = stop(s);
+    assert!(!messages.iter().any(|m| m["method"] == "window/showMessage"
+        && m["params"]["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("diagnostics.incomplete"))));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -264,6 +286,82 @@ fn policy_event_categories_follow_document_and_ancestor_edits() {
                 }
         });
     }
-    stop(s);
+    let messages = stop(s);
+    assert!(!messages.iter().any(|m| m["method"] == "window/showMessage"
+        && m["params"]["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("diagnostics.incomplete"))));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn policy_startup_waits_without_warning_and_survives_unavailable_cache() {
+    for unavailable_cache in [false, true] {
+        let root = unique_temp_dir();
+        configure(&root, "[diagnostics.event-category]\nenabled=true");
+        let path = root.join("day.plumb");
+        let source = "`- 2026-09-22T10:00:00Z Work\n `+ event\n";
+        std::fs::write(&path, source).unwrap();
+        let mut s = LspTestSession::new();
+        if unavailable_cache {
+            // A directory at the database path reliably rejects SQLite open on all hosts.
+            let database = plumb_workspace::workspace_cache_path(
+                s.cache_dir(),
+                env!("CARGO_PKG_VERSION"),
+                &[root.clone()],
+            );
+            std::fs::create_dir_all(database).unwrap();
+        }
+        s.send(&json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":uri(&root),"capabilities":{}}}));
+        assert!(s.wait_for_response(&json!(1)).get("error").is_none());
+        s.send(&json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+        open(&mut s, &path, source);
+        let publication =
+            s.wait_for_next(|m| publication(m, &path) && has(m, "event-category.missing"));
+        let diagnostic = publication["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["code"] == "event-category.missing")
+            .unwrap();
+        assert_eq!(diagnostic["severity"], 2);
+        let messages = stop(s);
+        assert!(
+            !messages.iter().any(|m| m["method"] == "window/showMessage"
+                && m["params"]["message"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("diagnostics.incomplete"))),
+            "{messages:?}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn policy_failed_index_logs_without_popup_and_recovers_after_a_watched_file_is_fixed() {
+    let root = unique_temp_dir();
+    configure(&root, "[diagnostics.event-category]\nenabled=true");
+    let bad = root.join("bad.plumb");
+    std::fs::write(&bad, [0xff]).unwrap();
+    let path = root.join("day.plumb");
+    let source = "`- 2026-09-22T10:00:00Z Work\n `+ event\n";
+    std::fs::write(&path, source).unwrap();
+    let mut s = start(&[&root], &[]);
+    let warning = s.wait_for(|m| {
+        m["method"] == "window/logMessage"
+            && m["params"]["message"]
+                .as_str()
+                .is_some_and(|text| text.contains("workspace index"))
+    });
+    assert_eq!(warning["params"]["type"], 2);
+    open(&mut s, &path, source);
+    std::fs::write(&bad, "Fixed\n").unwrap();
+    watched(&mut s, &bad, 2);
+    s.wait_for_next(|m| publication(m, &path) && has(m, "event-category.missing"));
+    let messages = stop(s);
+    assert!(!messages.iter().any(|m| m["method"] == "window/showMessage"
+        && m["params"]["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("diagnostics.incomplete"))));
     std::fs::remove_dir_all(root).unwrap();
 }

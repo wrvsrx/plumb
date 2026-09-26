@@ -271,8 +271,11 @@ Open buffers override disk content; category inheritance and timeline diagnostic
 across files. Disabling a rule clears its diagnostics. Each workspace root has a separate
 timeline, with nested roots owning their subtrees. Invalid startup configuration rejects
 initialization; invalid runtime configuration clears that root's optional diagnostics and
-reports an error until repaired. Incomplete queries are reported explicitly. Background
-results are revision-guarded; LSP publishes UTF-16 locations and cross-file related locations.
+reports an error until repaired. Optional LSP rule diagnostics have Warning severity;
+CLI exit rules are unchanged. Initial indexing waits silently. Incomplete checks and query
+failures are logged without popup notifications. A successful in-memory cache fallback
+allows checks to proceed; file changes retry failed indexing. Background results are
+revision-guarded; LSP publishes UTF-16 locations and cross-file related locations.
 
 Category checking includes all events and every effective inherited accounting share,
 including point events. There is no explicit-only mode.

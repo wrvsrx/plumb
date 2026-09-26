@@ -103,6 +103,10 @@ impl LspTestSession {
         }
     }
 
+    pub fn cache_dir(&self) -> &std::path::Path {
+        self._cache.path()
+    }
+
     pub fn send(&mut self, message: &Value) {
         if message.get("method").is_some() && message["method"] != "shutdown" {
             if let Some(id) = message.get("id") {

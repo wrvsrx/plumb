@@ -435,7 +435,7 @@ plumb-workspace 提供一次 workspace round 的统一规则结果：complete、
 稳定排序的 diagnostics，每条包含 code、Error severity、message、UTF-8 byte location 与跨文件 related locations。
 code 为 event-category.missing、event-timeline.gap、event-timeline.overlap；查询 issues 保留 agenda codes。
 空档两侧及重叠中的每个事件都收到一条诊断，其余参与位置进入 related locations，避免只打开另一端时看不到问题。
-CLI 与 LSP 仅投影同一结果，不各自推导分类、连续性、code 或 message。
+CLI 与 LSP 仅投影同一结果，不各自推导分类、连续性、code 或 message。LSP 将全部可选规则诊断（包括 agenda issues）呈现为 Warning；CLI 继续以 error 标记启用规则的违反，保留 0/1/2 退出码。基础 syntax/semantic diagnostics 的级别不变。
 
 LSP 每个 initialize workspace root 加载自己的 .plumb/config.toml；无 root 时从启动目录 discovery。
 自动发现 root 不改变已有无 root navigation 的 lazy target loading 与初始索引期间的可用性。
@@ -449,8 +449,8 @@ initialize 时错误配置返回 InvalidParams；运行中错误配置通过 win
 open/change/close、后台语义完成、磁盘 watched-file 变化、初始索引完成与配置变化都触发可选规则 round。
 规则计算在后台使用 detached readonly workspace snapshot，连续请求合并，旧 generation 结果不得覆盖新状态。
 同一 round 只计算一次全工作区结果，不按每个打开文件重复计算；关闭规则立即清空旧诊断。
-未完成索引或存在 pending semantic revision 时不发布可选语义结论；已有可选结果清除，完成后重新计算。
-syntax-invalid 当前文档不使用 last-valid events；结果不完整时明确报告 diagnostics.incomplete 状态，不能冒充通过。
+未完成索引或存在 pending semantic revision 时不发布可选语义结论；已有可选结果清除，完成后重新计算。初始索引未开始／进行中是正常等待，不发送 diagnostics.incomplete；已结束但仍不完整的索引、规则查询失败与不完整状态只通过 window/logMessage Warning 记录，不发送弹窗提示；运行中配置错误仍使用 window/showMessage Error。索引失败后的 watched-file 变化触发完整重扫，成功后恢复规则诊断，不能通过累积 false 永久停用规则。
+syntax-invalid 当前文档不使用 last-valid events；结果不完整时在日志中记录 diagnostics.incomplete 状态，不能冒充通过。
 LSP 对打开的 plumb 文档发布规则诊断，保留基础 diagnostics，并投影为 UTF-16 ranges 与跨文件 relatedInformation。
 closed related source 读取时验证与 snapshot content hash 一致，失败不可使用错误坐标；下一次有效 round 可恢复。
 

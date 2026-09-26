@@ -108,6 +108,7 @@ pub(crate) struct ServerState {
     supports_folding_collapsed_text: bool,
     line_folding_only: bool,
     index_complete: bool,
+    index_pending: bool,
     index_generation: u64,
     pending_path_renames: Vec<PendingPathRename>,
     document_analysis_tokens: DocumentAnalysisTokens,
@@ -199,6 +200,7 @@ impl ServerState {
             supports_folding_collapsed_text: false,
             line_folding_only: false,
             index_complete: false,
+            index_pending: true,
             index_generation: 0,
             pending_path_renames: Vec::new(),
             document_analysis_tokens: DocumentAnalysisTokens::default(),
@@ -588,6 +590,7 @@ impl ServerState {
         self.notify_index_progress(WorkDoneProgress::End(WorkDoneProgressEnd {
             message: Some(format!("Indexed {indexed} plumb files")),
         }));
+        self.index_pending = false;
         (indexed, complete)
     }
 
@@ -596,6 +599,8 @@ impl ServerState {
     }
 
     fn start_initial_index(&mut self) {
+        self.index_pending = true;
+        self.index_complete = false;
         self.index_generation = self.index_generation.wrapping_add(1);
         let generation = self.index_generation;
         let roots = self.roots.clone();
@@ -628,6 +633,7 @@ impl ServerState {
         for entry in open {
             self.workspace.overlay_document_entry(entry);
         }
+        self.index_pending = false;
         self.index_complete = result.complete;
         self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
             cancellable: Some(false),
@@ -1560,9 +1566,10 @@ impl LanguageServer for ServerState {
                 return ControlFlow::Continue(());
             }
         }
-        if changes
-            .iter()
-            .any(|(path, _)| path.file_name().is_some_and(|name| name == ".ignore"))
+        if (!self.index_pending && !self.index_complete)
+            || changes
+                .iter()
+                .any(|(path, _)| path.file_name().is_some_and(|name| name == ".ignore"))
         {
             self.index_generation = self.index_generation.wrapping_add(1);
             let (_, complete) = self.index_roots();
@@ -3075,16 +3082,14 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
     let (files, mut complete) = scanned_files(roots);
     let cache_path = semantic_cache_path(roots);
     if let Some(parent) = cache_path.parent() {
-        complete &= fs::create_dir_all(parent).is_ok();
+        if let Err(error) = fs::create_dir_all(parent) {
+            tracing::warn!(%error, "cannot create workspace cache directory; using uncached index if needed");
+        }
     }
-    let store = SqliteSemanticStore::open(&cache_path).or_else(|_| {
-        complete = false;
-        SqliteSemanticStore::open_in_memory()
-    });
-    let mut workspace = match store {
+    let mut workspace = match SqliteSemanticStore::open(&cache_path) {
         Ok(store) => Workspace::with_sqlite_store(store),
-        Err(_) => {
-            complete = false;
+        Err(error) => {
+            tracing::warn!(%error, "cannot open workspace cache; using uncached index");
             Workspace::new()
         }
     };
@@ -3102,13 +3107,19 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
             complete &= batch.is_complete();
             (batch.documents.len(), batch.cache_hits())
         }
-        Err(_) => {
-            complete = false;
+        Err(error) => {
+            tracing::warn!(%error, "workspace cache indexing failed; rebuilding uncached index");
             workspace = Workspace::new();
             match workspace.index_disk_files(&files, BatchIndexOptions::default(), |_| 0, || false)
             {
-                Ok(batch) => (batch.documents.len(), 0),
-                Err(_) => (0, 0),
+                Ok(batch) => {
+                    complete &= batch.is_complete();
+                    (batch.documents.len(), 0)
+                }
+                Err(_) => {
+                    complete = false;
+                    (0, 0)
+                }
             }
         }
     };
