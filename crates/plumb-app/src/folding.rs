@@ -281,7 +281,7 @@ const SECONDS_PER_DAY: i64 = 24 * 60 * 60;
 /// `start--end`, where `end` keeps only `HH:MM` while it is within 24 hours of
 /// `start` (the cutoff beyond which a bare end time would point to the wrong
 /// day) and expands to the full datetime once it spans further; a `start`-only
-/// event renders `start-running`. Events without a usable time yield `None`.
+/// event renders `start--now`. Events without a usable time yield `None`.
 fn event_time_label(event: EventRecordView<'_>) -> Option<String> {
     if let Some(at) = event.at_datetime() {
         return Some(format_datetime(&at));
@@ -297,7 +297,7 @@ fn event_time_label(event: EventRecordView<'_>) -> Option<String> {
             };
             format!("{start_label}--{end_label}")
         }
-        None => format!("{start_label}-running"),
+        None => format!("{start_label}--now"),
     })
 }
 
