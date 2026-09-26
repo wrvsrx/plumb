@@ -745,3 +745,109 @@ fn document_category_defaults_follow_unsaved_overlay_and_close() {
         Some("saved")
     );
 }
+
+#[test]
+fn invalid_document_diagnostics_match_memory_and_persistent_category_checks() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut disk = Workspace::with_sqlite_store(
+        SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap(),
+    );
+    let mut memory = Workspace::new();
+    let bad = "`- {unclosed\n";
+    memory.insert("/notes/invalid.plumb", 0, bad);
+    disk.insert_disk("/notes/invalid.plumb", 0, bad).unwrap();
+    memory.insert("/notes/day.plumb", 0, EVENT);
+    disk.insert_disk("/notes/day.plumb", 0, EVENT).unwrap();
+    for workspace in [&memory, &disk] {
+        let check = workspace
+            .check_event_categories(Path::new("/notes"), dt(START), None)
+            .unwrap();
+        assert!(!check.complete);
+        assert!(check
+            .issues
+            .iter()
+            .any(|issue| issue.code == "agenda.invalid-document"));
+    }
+    assert_eq!(
+        serde_json::to_value(
+            memory
+                .check_event_categories(Path::new("/notes"), dt(START), None)
+                .unwrap()
+        )
+        .unwrap(),
+        serde_json::to_value(
+            disk.check_event_categories(Path::new("/notes"), dt(START), None)
+                .unwrap()
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        serde_json::to_value(report(&memory, true)).unwrap(),
+        serde_json::to_value(report(&disk, true)).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(continuity(&memory)).unwrap(),
+        serde_json::to_value(continuity(&disk)).unwrap()
+    );
+}
+
+#[test]
+fn accounting_reuse_preserves_each_reference_policy_location_and_overlay_revision() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut w = Workspace::with_sqlite_store(
+        SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap(),
+    );
+    let items = "`- Activity\n `@ a\n `= event-category work\n";
+    let source = concat!(
+        "`- 2026-09-22T10:00:00Z `->{items.plumb#a}\n `+ event\n",
+        "`- 2026-09-22T10:01:00Z Task only\n `+ event\n `= tasks items.plumb#a\n",
+        "`- 2026-09-22T10:02:00Z `->{items.plumb#missing}\n `+ event\n",
+        "`- 2026-09-22T10:03:00Z `->{./items.plumb#missing}\n `+ event\n",
+    );
+    w.insert_disk("/notes/items.plumb", 0, items).unwrap();
+    w.insert_disk("/notes/day.plumb", 0, source).unwrap();
+    // Same source spelling in a different directory must resolve independently.
+    w.insert_disk("/notes/sub/items.plumb", 0, "`- Local\n `@ a\n")
+        .unwrap();
+    w.insert_disk(
+        "/notes/sub/day.plumb",
+        0,
+        "`- 2026-09-22T10:04:00Z `->{items.plumb#a}\n `+ event\n",
+    )
+    .unwrap();
+    let check = |w: &Workspace| {
+        w.check_event_categories(Path::new("/notes"), dt(START), None)
+            .unwrap()
+    };
+    let first = check(&w);
+    assert_eq!(first.checked, 5);
+    assert_eq!(first.missing.len(), 4);
+    let issues = first
+        .issues
+        .iter()
+        .filter(|issue| issue.code == "agenda.invalid-item")
+        .collect::<Vec<_>>();
+    assert_eq!(issues.len(), 3);
+    assert!(issues
+        .windows(2)
+        .all(|pair| pair[0].source.range.start < pair[1].source.range.start));
+    assert!(issues[2].message.contains("./items.plumb#missing"));
+    w.open_document(
+        "/notes/items.plumb",
+        1,
+        format!(
+            "{}\n`- Found\n `@ missing\n `= event-category fixed\n",
+            items.replace(" `@ a", " `+ task\n `@ a")
+        ),
+    );
+    let changed = check(&w);
+    assert!(changed.complete);
+    assert!(changed.issues.is_empty());
+    assert_eq!(changed.missing.len(), 1);
+    assert_eq!(changed.missing[0].path, Path::new("/notes/sub/day.plumb"));
+    w.close_document("/notes/items.plumb");
+    assert_eq!(
+        serde_json::to_value(first).unwrap(),
+        serde_json::to_value(check(&w)).unwrap()
+    );
+}

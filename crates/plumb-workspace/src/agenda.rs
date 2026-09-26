@@ -116,6 +116,51 @@ fn issue(code: &str, message: impl Into<String>, source: AgendaLocation) -> Agen
         source,
     }
 }
+#[derive(Default)]
+struct AccountingContext {
+    categories: BTreeMap<PathBuf, Category>,
+    targets: BTreeMap<AgendaItem, ResolvedTarget>,
+    tasks: BTreeMap<PathBuf, BTreeSet<Option<String>>>,
+}
+
+impl AccountingContext {
+    fn document_category(
+        &mut self,
+        workspace: &Workspace,
+        path: &Path,
+    ) -> Result<Category, String> {
+        if let Some(category) = self.categories.get(path) {
+            return Ok(category.clone());
+        }
+        let category = workspace.agenda_document_category(path)?;
+        self.categories.insert(path.to_owned(), category.clone());
+        Ok(category)
+    }
+
+    fn is_task(
+        &mut self,
+        workspace: &Workspace,
+        path: &Path,
+        id: Option<&str>,
+    ) -> Result<bool, String> {
+        if !self.tasks.contains_key(path) {
+            let tasks = workspace.tasks_for_path(path).map_err(|e| e.to_string())?;
+            let identities = tasks
+                .into_iter()
+                .filter_map(|task| {
+                    if task.owner == TaskOwner::Document {
+                        Some(None)
+                    } else {
+                        task.id.map(|field| Some(field.value))
+                    }
+                })
+                .collect();
+            self.tasks.insert(path.to_owned(), identities);
+        }
+        Ok(self.tasks[path].contains(&id.map(str::to_owned)))
+    }
+}
+
 impl Workspace {
     fn agenda_document_category(&self, path: &Path) -> Result<Category, String> {
         if self.documents.contains_key(path) {
@@ -141,10 +186,25 @@ impl Workspace {
         event: &EventRecord,
         duration_seconds: f64,
     ) -> Result<(Vec<AgendaShare>, Vec<AgendaIssue>), String> {
+        self.event_accounting_with_context(
+            path,
+            event,
+            duration_seconds,
+            &mut AccountingContext::default(),
+        )
+    }
+
+    fn event_accounting_with_context(
+        &self,
+        path: &Path,
+        event: &EventRecord,
+        duration_seconds: f64,
+        context: &mut AccountingContext,
+    ) -> Result<(Vec<AgendaShare>, Vec<AgendaIssue>), String> {
         let path = normalize(path);
         let source = location(&path, event.selection_range.clone());
         let event_category = if event.category.declarations.is_empty() {
-            self.agenda_document_category(&path)?
+            context.document_category(self, &path)?
         } else {
             event.category.clone()
         };
@@ -226,20 +286,25 @@ impl Workspace {
             let mut category_source = None;
             let mut is_task = false;
             let mut valid = false;
-            let resolved = self
-                .resolve_task_reference_target(&path, &target)
-                .map_err(|e| e.to_string())?;
+            let resolved =
+                if let Some(cached) = identity.as_ref().and_then(|key| context.targets.get(key)) {
+                    cached.clone()
+                } else {
+                    let resolved = self
+                        .resolve_task_reference_target(&path, &target)
+                        .map_err(|e| e.to_string())?;
+                    if let Some(identity) = &identity {
+                        context.targets.insert(identity.clone(), resolved.clone());
+                    }
+                    resolved
+                };
             match resolved {
                 ResolvedTarget::Anchor {
                     path: target_path,
                     id,
                     anchor,
                 } if anchor.list_item => {
-                    is_task = self
-                        .tasks_for_path(&target_path)
-                        .map_err(|e| e.to_string())?
-                        .iter()
-                        .any(|t| t.id.as_ref().is_some_and(|f| f.value == id));
+                    is_task = context.is_task(self, &target_path, Some(&id))?;
                     valid = !event.tasks_override || is_task;
                     category = anchor.category;
                     category_source = category
@@ -248,13 +313,9 @@ impl Workspace {
                         .map(|r| location(&target_path, r.clone()));
                 }
                 ResolvedTarget::Document { path: target_path } => {
-                    is_task = self
-                        .tasks_for_path(&target_path)
-                        .map_err(|e| e.to_string())?
-                        .iter()
-                        .any(|t| t.owner == TaskOwner::Document);
+                    is_task = context.is_task(self, &target_path, None)?;
                     valid = !event.tasks_override || is_task;
-                    category = self.agenda_document_category(&target_path)?;
+                    category = context.document_category(self, &target_path)?;
                     category_source = category
                         .declarations
                         .first()
@@ -383,7 +444,7 @@ impl Workspace {
         for entry in self.documents.values().filter(|e| e.current.is_none()) {
             report.issues.push(issue(
                 "agenda.invalid-document",
-                "document has no current valid semantic output",
+                "document has no valid semantic output",
                 location(&entry.path, 0..0),
             ));
         }
@@ -408,6 +469,7 @@ impl Workspace {
         let mut boundaries = BTreeMap::<DateTime<FixedOffset>, (Vec<usize>, Vec<usize>)>::new();
         boundaries.entry(from).or_default();
         boundaries.entry(to).or_default();
+        let mut accounting_context = AccountingContext::default();
         for (path, starts) in by_path {
             let events = if self.documents.contains_key(&path) {
                 self.current_output(&path)
@@ -453,7 +515,12 @@ impl Workspace {
                 let end = end.min(to);
                 let duration = seconds(start, end);
                 let (shares, issues) = if accounting {
-                    self.event_accounting(&path, &event, duration)?
+                    self.event_accounting_with_context(
+                        &path,
+                        &event,
+                        duration,
+                        &mut accounting_context,
+                    )?
                 } else {
                     (Vec::new(), Vec::new())
                 };
@@ -593,7 +660,7 @@ impl Workspace {
         {
             result.issues.push(issue(
                 "agenda.invalid-document",
-                "document has no current valid semantic output",
+                "document has no valid semantic output",
                 location(&entry.path, 0..0),
             ));
         }
@@ -666,8 +733,10 @@ impl Workspace {
             missing: Vec::new(),
             issues: selected.issues,
         };
+        let mut context = AccountingContext::default();
         for (path, event) in selected.events {
-            let (shares, issues) = self.event_accounting(&path, &event, 0.0)?;
+            let (shares, issues) =
+                self.event_accounting_with_context(&path, &event, 0.0, &mut context)?;
             report.issues.extend(issues);
             if shares.iter().any(|s| s.category.is_none()) {
                 report

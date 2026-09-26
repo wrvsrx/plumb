@@ -1216,6 +1216,39 @@ fn category_check_uses_effective_categories_and_reports_missing_and_invalid() {
 }
 
 #[test]
+fn category_check_cache_modes_preserve_invalid_document_diagnostics() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("bad.plumb"), "中文 {unclosed\n").unwrap();
+    std::fs::write(
+        root.join("event.plumb"),
+        "`- 2026-09-22T10:00:00Z Point\n `+ event\n",
+    )
+    .unwrap();
+    let mut outputs = Vec::new();
+    for no_cache in [true, false, false] {
+        let mut command = plumb_command();
+        command
+            .args(["check", "--root"])
+            .arg(&root)
+            .args(["--config", "diagnostics.event-category.enabled=true"])
+            .env("PLUMB_CACHE_DIR", root.join("cache"));
+        if no_cache {
+            command.arg("--no-cache");
+        }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(text.contains("agenda.invalid-document"));
+        assert!(text.contains("event-category.missing"));
+        outputs.push(output.stdout);
+    }
+    assert_eq!(outputs[0], outputs[1]);
+    assert_eq!(outputs[1], outputs[2]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn category_check_terminal_uses_relative_one_based_unicode_positions() {
     let dir = unique_temp_dir();
     std::fs::create_dir_all(&dir).unwrap();

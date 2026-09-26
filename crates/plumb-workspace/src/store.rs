@@ -825,14 +825,28 @@ impl SqliteSemanticStore {
             .map(|bytes| Ok(bincode::deserialize(&bytes)?))
             .collect()
     }
-    pub(crate) fn links_in_range(&self, path: &Path, range: &Range<usize>) -> StoreResult<Vec<LinkRecord>> {
-        let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
-        let rows = links::table.filter(links::path.eq(path_bytes(&normalize(path))))
-            .filter(links::start.ge(to_i64(range.start)?))
-            .filter(links::end.le(to_i64(range.end)?))
-            .select(links::record).order(links::start).load::<Vec<u8>>(&mut *connection)?;
-        rows.into_iter().map(|bytes| Ok(bincode::deserialize(&bytes)?)).collect()
+    pub(crate) fn links_in_range(
+        &self,
+        path: &Path,
+        range: &Range<usize>,
+    ) -> StoreResult<Vec<LinkRecord>> {
+        if range.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = contained_links_query(
+            path_bytes(&normalize(path)),
+            to_i64(range.start)?..to_i64(range.end)?,
+        )
+        .load::<Vec<u8>>(&mut *connection)?;
+        rows.into_iter()
+            .map(|bytes| Ok(bincode::deserialize(&bytes)?))
+            .collect()
     }
+
     pub fn events_for_path(&self, path: &Path) -> StoreResult<Vec<EventRecord>> {
         let mut connection = self
             .connection
@@ -2366,6 +2380,21 @@ fn path_from_bytes(bytes: Vec<u8>) -> StoreResult<PathBuf> {
     Ok(PathBuf::from(OsString::from_wide(&wide)))
 }
 
+// Keep the production query available to query-plan tests. Both start bounds are
+// needed: end alone cannot bound a scan through the (path, start, end) index.
+fn contained_links_query(
+    path: Vec<u8>,
+    range: Range<i64>,
+) -> links::BoxedQuery<'static, Sqlite, Binary> {
+    links::table
+        .filter(links::path.eq(path))
+        .filter(links::start.ge(range.start))
+        .filter(links::start.lt(range.end))
+        .filter(links::end.le(range.end))
+        .select(links::record)
+        .order(links::start)
+        .into_boxed()
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2910,6 +2939,129 @@ mod tests {
     struct QueryPlanRow {
         #[diesel(sql_type = Text)]
         detail: String,
+    }
+
+    #[test]
+    fn contained_links_query_bounds_both_sides_of_the_source_index() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let path = path_bytes(Path::new("archive.plumb"));
+        let query = contained_links_query(path.clone(), 10..100);
+        let sql = diesel::debug_query::<Sqlite, _>(&query).to_string();
+        let plan = diesel::sql_query(format!("EXPLAIN QUERY PLAN {sql}"))
+            .bind::<Binary, _>(path)
+            .bind::<BigInt, _>(10)
+            .bind::<BigInt, _>(100)
+            .bind::<BigInt, _>(100)
+            .load::<QueryPlanRow>(&mut *store.connection.lock().unwrap())
+            .unwrap();
+        assert!(
+            plan.iter()
+                .any(|row| row.detail.contains("links_source_range")
+                    && row.detail.contains("start>?")
+                    && row.detail.contains("start<?")),
+            "{:?}",
+            plan.iter().map(|row| &row.detail).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn contained_links_preserve_half_open_boundaries_and_decode_only_matches() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let path = Path::new("notes/archive.plumb");
+        let source = "Before `->{first.plumb} middle `->{second.plumb} after `->{third.plumb}\n";
+        let output = analyzed(source);
+        store.replace(path, 0, source, Some(&output)).unwrap();
+        store
+            .replace(Path::new("notes/other.plumb"), 0, source, Some(&output))
+            .unwrap();
+        let links = output.links().iter().collect::<Vec<_>>();
+        assert_eq!(links.len(), 3);
+        let first = &links[0].range;
+        let middle = &links[1].range;
+        let last = &links[2].range;
+        for (range, expected) in [
+            (0..source.len(), vec![0, 1, 2]),
+            (middle.clone(), vec![1]),
+            (first.start..middle.end, vec![0, 1]),
+            (first.end..middle.start, vec![]),
+            (middle.start..middle.end - 1, vec![]),
+            (middle.start + 1..middle.end, vec![]),
+            (middle.end..middle.end, vec![]),
+            (middle.end..middle.start, vec![]),
+            (last.end..source.len(), vec![]),
+        ] {
+            let actual = store
+                .links_in_range(Path::new("notes/./archive.plumb"), &range)
+                .unwrap();
+            assert_eq!(
+                actual,
+                expected
+                    .into_iter()
+                    .map(|i| links[i].clone())
+                    .collect::<Vec<_>>(),
+                "{range:?}"
+            );
+        }
+        diesel::update(
+            links::table
+                .filter(links::path.eq(path_bytes(path)))
+                .filter(links::start.ne(to_i64(middle.start).unwrap())),
+        )
+        .set(links::record.eq(vec![255_u8]))
+        .execute(&mut *store.connection.lock().unwrap())
+        .unwrap();
+        assert_eq!(
+            store.links_in_range(path, middle).unwrap(),
+            vec![links[1].clone()]
+        );
+        assert!(store.links_in_range(path, first).is_err());
+    }
+
+    #[test]
+    #[ignore = "manual low-selectivity query benchmark; run with --release --ignored --nocapture"]
+    fn profile_contained_links_full_document() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let path = Path::new("archive.plumb");
+        let source = "Link `->{target.plumb}\n\n".repeat(34_831);
+        store
+            .replace(path, 0, &source, Some(&analyzed(&source)))
+            .unwrap();
+        let mut before = Vec::new();
+        let mut after = Vec::new();
+        for sample in 0..13 {
+            for bounded in if sample % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            } {
+                let start = std::time::Instant::now();
+                let records = if bounded {
+                    store.links_in_range(path, &(0..source.len())).unwrap()
+                } else {
+                    let rows = links::table
+                        .filter(links::path.eq(path_bytes(path)))
+                        .filter(links::start.ge(0_i64))
+                        .filter(links::end.le(to_i64(source.len()).unwrap()))
+                        .select(links::record)
+                        .order(links::start)
+                        .load::<Vec<u8>>(&mut *store.connection.lock().unwrap())
+                        .unwrap();
+                    rows.into_iter()
+                        .map(|bytes| bincode::deserialize::<LinkRecord>(&bytes).unwrap())
+                        .collect()
+                };
+                let elapsed = start.elapsed().as_secs_f64();
+                assert_eq!(records.len(), 34_831);
+                if sample >= 3 {
+                    if bounded {
+                        after.push(elapsed);
+                    } else {
+                        before.push(elapsed);
+                    }
+                }
+            }
+        }
+        eprintln!("full-document 34831 links; seconds before={before:?} after={after:?}");
     }
 
     #[test]
