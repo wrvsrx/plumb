@@ -232,8 +232,10 @@ bullet 或 ordered list item 添加 direct leaf `"+ event" facet 后成为 event
    `= tasks #write-parser
 
 first positional element是 schedule，remaining head elements是 nonempty title。schedule 使用 `"HH"、`"HH:MM"、`"HH:MM:SS"
-point 或 `"START--END" interval，并继承 date/timezone context。tasks 关联文档任务路径或 explicit task ids；event/task facets
+point、`"START--END" interval 或 `"START--" 进行中事件，并继承 date/timezone context。tasks 关联文档任务路径或 explicit task ids；event/task facets
 mutually exclusive。完整边界见 standard semantics reference。
+
+例如在 date/timezone 上下文中写 `"08:00-- 工作" 并添加 event facet，表示从 08:00 开始且仍在进行；补上结束时间即可成为闭区间。进行中事件不自动推测核算时长，日历导出前需要补齐结束时间。
 
 `"date"/`"timezone" 沿 marked-block subtree 继承，最近的 override 优先，dedent 后恢复 parent context：
 

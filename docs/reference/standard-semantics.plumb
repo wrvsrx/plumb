@@ -313,7 +313,7 @@ list item 通过 direct `"+ event" facet 成为 event，与 task facet mutually 
   `= tasks #write-parser
 
 first head positional element是 nonempty plain schedule，所有 remaining head elements共同形成 nonempty title；event 不再使用
-kind-specific pipe parser。body children details。schedule 是 point START 或 half-open START--END。START 接受
+kind-specific pipe parser。body children details。schedule 是 point START、half-open START--END 或开放区间 START--。开放区间只投影 start，没有 at/end，表示进行中的事件；不自动使用当前时间或下一事件补 end。例：08:00-- 工作，继承 date/timezone，与 08:00 时间点不同。空 start、重复 -- 仍非法。START 接受
 HH/HH:MM/HH:MM:SS、YYYY-MM-DDTTIME 或 full RFC 3339；END 接受 TIME/date-time 并继承 start offset，time-only
 end 早于 start 时 rollover next day。resolved end 必须 later。
 
@@ -334,7 +334,7 @@ event 显式 tasks 声明优先定义核算事项集合，保持现有 task targ
 
 分类来自事项自身的 event-category；缺少分类的份额进入未分类。event 自身显式 event-category 覆盖整段事件的类别， 但不改变事项分摊。每个事项所得时长再按其去重分类数量均分；分类总时长不会膨胀。非法显式分类不回退。没有事项的事件仍计入 event event-category 或未分类。 查询保留 source event、target、分类来源与均分依据，内部不按显示精度舍入。 事项分类修改后历史事件动态重算；固定某次历史类别应在 event 上写显式 event-category。 分类冲突不报错：例如 60 分钟关联 work、work、learn 三项，分别分得 20 分钟，类别合计为 40 与 20 分钟。
 
-用时只来自有效 event interval，不使用 task focused history。point event 不推测时长。 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、 索引不完整均显式呈现。笔记多值 tags 与 event-category 无隐式转换。
+用时只来自有效有限 event interval，不使用 task focused history。开放区间可显示于 agenda，但未结束前不推测核算时长，核算报告标记非有限时间问题；vdir export 明确拒绝仍在进行中的事件。point event 不推测时长。 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、 索引不完整均显式呈现。笔记多值 tags 与 event-category 无隐式转换。
 
 vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保持原始 event-category spelling；未知份额不伪造分类。 该集合不编码权重，不能据此复原均分；精确核算消费者必须使用 summary JSON 中的 shares/categories。 无法完成分类解析时 export 明确失败，不静默丢弃分类或重新推断标题前缀。
 

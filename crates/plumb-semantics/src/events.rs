@@ -361,6 +361,7 @@ fn event_record(
     );
     let time_error = resolved.as_ref().err().copied();
     let (at, start, end) = match resolved {
+        Ok(ResolvedWhen::Running(value)) => (None, Some(resolved_field(value, &when)), None),
         Ok(ResolvedWhen::Point(value)) => (Some(resolved_field(value, &when)), None, None),
         Ok(ResolvedWhen::Interval(start, end)) => (
             None,
@@ -551,6 +552,7 @@ enum EventWhenError {
 enum ResolvedWhen {
     Point(DateTime<FixedOffset>),
     Interval(DateTime<FixedOffset>, DateTime<FixedOffset>),
+    Running(DateTime<FixedOffset>),
 }
 
 fn resolve_when(
@@ -560,7 +562,7 @@ fn resolve_when(
 ) -> Result<ResolvedWhen, EventWhenError> {
     let when = when.ok_or(EventWhenError::InvalidWhen)?;
     let (start, end) = match when.value.split_once("--") {
-        Some((start, end)) if !start.is_empty() && !end.is_empty() && !end.contains("--") => {
+        Some((start, end)) if !start.is_empty() && !end.contains("--") => {
             (start, Some(end))
         }
         Some(_) => return Err(EventWhenError::InvalidWhen),
@@ -570,6 +572,9 @@ fn resolve_when(
     let Some(end) = end else {
         return Ok(ResolvedWhen::Point(start));
     };
+    if end.is_empty() {
+        return Ok(ResolvedWhen::Running(start));
+    }
     let end = if let Some((date, time)) = end.split_once('T') {
         let date = parse_date(date)?;
         let time = parse_time(time)?;
@@ -711,6 +716,26 @@ mod tests {
             .expect("semantic analysis requires valid syntax");
         let metadata = crate::analyze_metadata(valid);
         analyze_events(valid, &metadata)
+    }
+
+    #[test]
+    fn open_schedule_resolves_start_without_inventing_end() {
+        for time in ["08", "08:00", "08:00:30", "2026-07-30T08:00", "2026-07-30T08:00:00+08:00"] {
+            let source = format!("`= date 2026-07-30\n`= timezone +08:00\n\n`- {time}-- Working\n `+ event\n");
+            let output = analyze(&source);
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            let event = output.events.get(0).unwrap();
+            assert!(event.is_running());
+            assert!(!event.is_point());
+            assert!(event.start_datetime().is_some());
+            assert!(event.end.is_none());
+        }
+        for schedule in ["--", "--09:00", "08:00----", "25:00--"] {
+            let output = analyze(&format!("`= date 2026-07-30\n`= timezone +08:00\n`- {schedule} Bad\n `+ event\n"));
+            assert!(!output.diagnostics.is_empty(), "{schedule}");
+        }
+        let output = analyze("`- 08:00-- Missing context\n `+ event\n");
+        assert!(!output.diagnostics.is_empty());
     }
 
     #[test]

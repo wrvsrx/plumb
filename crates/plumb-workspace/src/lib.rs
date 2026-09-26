@@ -3336,8 +3336,6 @@ fn validate_event_input(input: &EventInput) -> Result<(), EventEditError> {
         if end.offset() != start.offset() {
             return Err(EventEditError::InvalidInterval);
         }
-    } else if start.is_some() {
-        return Err(EventEditError::InvalidTimeShape);
     }
     Ok(())
 }
@@ -3657,12 +3655,9 @@ fn compact_event_schedule(input: &EventInput) -> Result<(String, String, String)
             .ok_or(EventEditError::InvalidTimeShape)?;
         let start =
             DateTime::parse_from_rfc3339(start).map_err(|_| EventEditError::InvalidDatetime)?;
-        let end = input
-            .end
-            .as_deref()
-            .ok_or(EventEditError::InvalidTimeShape)?;
-        let end = DateTime::parse_from_rfc3339(end).map_err(|_| EventEditError::InvalidDatetime)?;
-        (start, Some(end))
+        let end = input.end.as_deref().map(DateTime::parse_from_rfc3339)
+            .transpose().map_err(|_| EventEditError::InvalidDatetime)?;
+        (start, end)
     };
     let time = |value: DateTime<FixedOffset>| {
         if value.second() == 0 {
@@ -3672,7 +3667,7 @@ fn compact_event_schedule(input: &EventInput) -> Result<(String, String, String)
         }
     };
     let when = end.map_or_else(
-        || time(start),
+        || if input.start.is_some() { format!("{}--", time(start)) } else { time(start) },
         |end| {
             let next_day_rollover = start.date_naive().succ_opt() == Some(end.date_naive())
                 && end.time() < start.time();

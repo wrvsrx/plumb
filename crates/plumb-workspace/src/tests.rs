@@ -6604,3 +6604,28 @@ fn task_tree_refresh_retains_documents_beyond_soft_limit_and_continues_without_g
         assert!(all.next_cursor.is_none());
     }
 }
+
+#[test]
+fn event_authoring_round_trips_open_interval_and_closure() {
+    let mut workspace = Workspace::new();
+    let mut source = String::new();
+    workspace.insert("day.plumb", 1, &source);
+    let mut input = EventInput {
+        title: "Working".into(), at: None,
+        start: Some("2026-09-26T08:00:00+08:00".into()), end: None, tasks: Vec::new(),
+    };
+    let edit = workspace.create_event("day.plumb", &input).unwrap();
+    source = apply_document_edit(source, "day.plumb", 1, edit).unwrap();
+    assert!(source.contains("08:00-- Working"));
+    for (revision, end) in [(2, Some("2026-09-26T09:00:00+08:00")), (3, None)] {
+        workspace.insert("day.plumb", revision, &source);
+        let event = workspace.get("day.plumb").unwrap().current.as_ref().unwrap().output.events().events.get(0).unwrap();
+        input.end = end.map(str::to_string);
+        let edit = workspace.update_event("day.plumb", event.range.clone(), &input).unwrap();
+        source = apply_document_edit(source, "day.plumb", revision, edit).unwrap();
+        workspace.insert("day.plumb", revision + 1, &source);
+        let event = workspace.get("day.plumb").unwrap().current.as_ref().unwrap().output.events().events.get(0).unwrap();
+        assert_eq!(event.is_running(), end.is_none());
+        assert_eq!(event.end.is_some(), end.is_some());
+    }
+}

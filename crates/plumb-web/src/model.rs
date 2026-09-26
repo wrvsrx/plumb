@@ -2324,6 +2324,21 @@ mod tests {
     }
 
     #[test]
+    fn agenda_page_projects_open_schedule_as_running() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("day.plumb"), "`= date 2026-09-26\n`= timezone +08:00\n\n`- 08:00-- Working\n `+ event\n").unwrap();
+        let workspace = WebWorkspace::load(&root).unwrap();
+        let page = workspace.event_page(None, None).unwrap();
+        assert_eq!(page.events.len(), 1);
+        let event = &page.events[0];
+        assert_eq!(event.start.as_deref(), Some("2026-09-26T08:00:00+08:00"));
+        assert!(event.at.is_none());
+        assert!(event.end.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn event_snapshots_sort_rfc3339_values_by_instant() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();

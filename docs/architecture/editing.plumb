@@ -181,3 +181,5 @@ Document task 的显式操作按 document owner 定位，不转成任意 list of
 
 根层声明按连续 properties 组及紧随的 facets 组划分区域；空行不打断组，正文打断区域，facet 后的 property 开始下一区域。光标落在声明或子结构内时选择所属区域，空白行不匹配。新增 property 追加在本区域 properties 后、facets 前；新增 facet 追加在 facets 后。已有字段全局原位更新，不搬动或合并区域，不重排已有声明。
 无光标时选择文件开头的第一区域；开头没有声明时创建区域。无 metadata 的文件允许在 offset 0 创建区域。LSP 将 cursor byte offset 传入共享编辑层，CLI/Web 使用默认区域。formatter 负责本区域分隔与缩进，区域外源码保留，支持 LF/CRLF。
+
+Event authoring 接受 start 存在而 end 缺省的开放区间，使用 compact START-- 并写入 date/timezone；更新 end 后变成闭区间，移除 end 恢复开放区间。at 与 start/end 互斥。已有 shorthand conversion 的下一 sibling end 推断规则不变，不能把 source event 的开放区间解析与快捷转换混为一谈。

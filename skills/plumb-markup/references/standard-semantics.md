@@ -225,7 +225,7 @@ titles need no group.
  `= tasks #write-parser
 ```
 
-Schedules accept a point or `START--END`; document/ancestor `date` and
+Schedules accept a point, `START--END`, or a running `START--` interval; document/ancestor `date` and
 `timezone` provide context. Task and event facets conflict on one item.
 
 Events can inherit `event-category` values from directly linked list items or whole plumb

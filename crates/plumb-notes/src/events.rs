@@ -379,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn exports_point_events_and_rejects_missing_times() {
+    fn exports_point_events_and_rejects_running_intervals() {
         let root = std::env::temp_dir().join(format!(
             "plumb-event-time-shape-test-{}-{}",
             std::process::id(),
@@ -410,12 +410,12 @@ mod tests {
             &mut workspace,
             root.join("running.plumb"),
             1,
-            "`= date 2026-07-30\n`= timezone +08:00\n\n`- Work\n\n `+ event\n",
+            "`= date 2026-07-30\n`= timezone +08:00\n\n`- 08:00-- Work\n\n `+ event\n",
         );
         let loaded = LoadedWorkspace::from_memory(root.clone(), workspace);
         assert!(export_vdir(&loaded, &root.join("running-calendar"))
             .unwrap_err()
-            .contains("has no valid time"));
+            .contains("is still running"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
