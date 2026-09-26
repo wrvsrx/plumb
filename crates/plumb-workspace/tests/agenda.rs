@@ -446,3 +446,134 @@ fn continuity_matches_persistent_and_overlay_revisions() {
         "last-valid intervals cannot stand in for invalid current source"
     );
 }
+
+#[test]
+fn policy_diagnostics_share_codes_locations_and_related_events_across_consumers() {
+    let mut w = Workspace::new();
+    let first = "`- 2026-09-22T10:00:00Z--11:00 中文😀\n `+ event\n";
+    w.insert("/notes/a.plumb", 1, first);
+    w.insert(
+        "/notes/b.plumb",
+        1,
+        "`- 2026-09-22T12:00:00Z--13:00 Next\n `+ event\n `= event-category work\n",
+    );
+    let settings = plumb_workspace::WorkspaceConfig::parse(
+        "[diagnostics.event-category]\nenabled=true\n[diagnostics.event-timeline]\nenabled=true",
+        &[],
+    )
+    .unwrap()
+    .diagnostics;
+    let report = w
+        .policy_diagnostics(Path::new("/notes"), &[], dt(START), &settings)
+        .unwrap();
+    assert!(report.complete());
+    assert_eq!(report.diagnostics.len(), 3);
+    let missing = report
+        .diagnostics
+        .iter()
+        .find(|d| d.code == "event-category.missing")
+        .unwrap();
+    assert_eq!(missing.source.range.start, first.find("中文😀").unwrap());
+    assert_eq!(
+        missing.source.range.end,
+        first.find("中文😀").unwrap() + "中文😀".len()
+    );
+    assert!(missing.related.is_empty());
+    let gaps = report
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "event-timeline.gap")
+        .collect::<Vec<_>>();
+    assert_eq!(gaps.len(), 2);
+    assert_eq!(gaps[0].source, gaps[1].related[0]);
+    assert_eq!(gaps[1].source, gaps[0].related[0]);
+    assert_eq!(gaps[0].message, gaps[1].message);
+}
+
+#[test]
+fn policy_scopes_exclude_other_and_nested_roots_but_resolve_cross_root_categories() {
+    let mut w = Workspace::new();
+    w.insert(
+        "/notes/a.plumb",
+        1,
+        "`- 2026-09-22T10:00:00Z--11:00 `->{../other/topic.plumb}\n `+ event\n",
+    );
+    w.insert(
+        "/notes/nested/b.plumb",
+        1,
+        "`- 2026-09-22T12:00:00Z--13:00 Next\n `+ event\n",
+    );
+    w.insert("/other/topic.plumb", 1, "`= event-category work\n");
+    w.insert("/other/bad.plumb", 1, "`broken{");
+    let settings = plumb_workspace::WorkspaceConfig::parse(
+        "[diagnostics.event-category]\nenabled=true\n[diagnostics.event-timeline]\nenabled=true",
+        &[],
+    )
+    .unwrap()
+    .diagnostics;
+    let report = w
+        .policy_diagnostics(
+            Path::new("/notes"),
+            &["/notes/nested".into()],
+            dt(START),
+            &settings,
+        )
+        .unwrap();
+    assert!(report.complete());
+    assert!(report.diagnostics.is_empty());
+    w.insert("/notes/a.plumb", 2, "`broken{");
+    let report = w
+        .policy_diagnostics(
+            Path::new("/notes"),
+            &["/notes/nested".into()],
+            dt(START),
+            &settings,
+        )
+        .unwrap();
+    assert!(!report.complete());
+    assert_eq!(
+        report.incomplete_rules,
+        ["event-category", "event-timeline"]
+    );
+    assert_eq!(
+        report.diagnostics.len(),
+        1,
+        "identical query issues should be deduplicated"
+    );
+}
+
+#[test]
+fn diagnostic_snapshot_is_detached_and_rejects_changed_closed_source_positions() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap();
+    let mut w = Workspace::with_sqlite_store(store);
+    let path = temp.path().join("a.plumb");
+    let first = "`- 2026-09-22T10:00:00Z Point\n `+ event\n";
+    std::fs::write(&path, first).unwrap();
+    w.insert_disk(&path, 1, first).unwrap();
+    let snapshot = w.readonly_diagnostic_snapshot().unwrap();
+    assert_eq!(snapshot.diagnostic_source(&path).unwrap(), first);
+    let second = format!("{first} `= event-category work\n");
+    std::fs::write(&path, &second).unwrap();
+    w.insert_disk(&path, 2, &second).unwrap();
+    assert!(snapshot.diagnostic_source(&path).is_err());
+    assert_eq!(
+        snapshot
+            .check_event_categories(temp.path(), dt(START), None)
+            .unwrap()
+            .missing
+            .len(),
+        1
+    );
+    assert!(w
+        .check_event_categories(temp.path(), dt(START), None)
+        .unwrap()
+        .missing
+        .is_empty());
+    w.open_document(&path, 3, first);
+    assert_eq!(
+        w.diagnostic_source(&path).unwrap(),
+        first,
+        "open bytes override saved source"
+    );
+}

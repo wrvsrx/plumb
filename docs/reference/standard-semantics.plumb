@@ -340,7 +340,7 @@ vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保�
 
 `## 11.2 分类完整性检查
 
-可选 check.event-category 规则检查全部 events，不要求时间窗口，检查有效继承分类的每个份额。无分类给出 event 位置；非法 event-category 或无法完整查询返回不完整。point events 同样检查。不提供仅检查显式分类的模式。配置契约见 semantic-analysis 的 Workspace check configuration。
+可选 diagnostics.event-category 规则检查全部 events，不要求时间窗口，检查有效继承分类的每个份额。无分类给出 event 位置；非法 event-category 或无法完整查询返回不完整。point events 同样检查。不提供仅检查显式分类的模式。配置契约见 semantic-analysis 的 Workspace diagnostic configuration。
 
 
 `# 12. Tables

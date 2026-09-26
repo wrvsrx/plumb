@@ -83,7 +83,7 @@ semantic diagnostic 指向最小 source-backed field；cross-document problem �
 
 `# 7. Optional workspace checks
 
-plumb check 的 event-category 与 event-timeline 是默认禁用的 workspace policy queries，不改变 syntax
-validity，不自动发布为 LSP document diagnostics。配置和结果契约见 semantic-analysis 的 Workspace check
+check 与 LSP 共享的 event-category 与 event-timeline 是默认禁用的 workspace policy queries，不改变 syntax
+validity，启用后发布为 LSP document diagnostics。配置和结果契约见 semantic-analysis 的 Workspace diagnostic
 configuration。启用后的缺分类、内部空档或重叠导致 CLI exit 1；配置/加载/查询失败或不完整导致 exit 2。
 基础 diagnostics 的 Warning/Hint 不导致失败；规则结果的 source locations 来自同一 workspace snapshot。

@@ -55,7 +55,7 @@ pub fn run_check_cli(args: impl IntoIterator<Item = OsString>) -> ExitCode {
         let loaded = load_command_workspace(&root, config.no_cache, config.cache_stats)?;
         let (mut output, has_failures) =
             render_workspace_diagnostics(&root, &loaded, config.level, config.cache_stats)?;
-        let (rule_output, rule_status) = checks::render(&loaded, &settings.check)?;
+        let (rule_output, rule_status) = checks::render(&loaded, &settings.diagnostics)?;
         output.push_str(&rule_output);
         Ok::<_, String>((output, rule_status.max(u8::from(has_failures))))
     })();

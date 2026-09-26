@@ -549,10 +549,15 @@ impl Workspace {
         root: &Path,
         now: DateTime<FixedOffset>,
         filter: Option<&str>,
+        excluded_roots: &[PathBuf],
     ) -> Result<SelectedEvents, String> {
+        let root = normalize(root);
+        let in_scope = |path: &Path| {
+            path.starts_with(&root) && !excluded_roots.iter().any(|r| path.starts_with(r))
+        };
         let selected = self
             .search_records_filtered(
-                root,
+                &root,
                 Some(SearchRecordKind::Event),
                 "",
                 usize::MAX,
@@ -560,13 +565,18 @@ impl Workspace {
                 filter,
             )
             .map_err(|e| e.to_string())?;
+        // Search completeness covers every indexed root. Recompute it for this policy scope,
+        // so an invalid document in a different workspace does not poison this round.
         let mut result = SelectedEvents {
-            complete: selected.completeness == QueryCompleteness::Complete
-                && selected.value.complete,
+            complete: true,
             events: Vec::new(),
             issues: Vec::new(),
         };
-        for entry in self.documents.values().filter(|e| e.current.is_none()) {
+        for entry in self
+            .documents
+            .values()
+            .filter(|e| e.current.is_none() && in_scope(&e.path))
+        {
             result.issues.push(issue(
                 "agenda.invalid-document",
                 "document has no current valid semantic output",
@@ -575,7 +585,7 @@ impl Workspace {
         }
         if let Some(store) = &self.disk_store {
             for doc in store.documents().map_err(|e| e.to_string())? {
-                if !doc.valid && !self.documents.contains_key(&doc.path) {
+                if in_scope(&doc.path) && !doc.valid && !self.documents.contains_key(&doc.path) {
                     result.issues.push(issue(
                         "agenda.invalid-document",
                         "document has no valid semantic output",
@@ -586,7 +596,12 @@ impl Workspace {
         }
         result.issues.sort_by(|a, b| a.source.cmp(&b.source));
         let mut by_path = BTreeMap::<PathBuf, BTreeSet<usize>>::new();
-        for record in selected.value.items {
+        for record in selected
+            .value
+            .items
+            .into_iter()
+            .filter(|r| in_scope(&r.path))
+        {
             by_path
                 .entry(record.path)
                 .or_default()
@@ -620,7 +635,17 @@ impl Workspace {
         now: DateTime<FixedOffset>,
         filter: Option<&str>,
     ) -> Result<CategoryCheckReport, String> {
-        let selected = self.selected_check_events(root, now, filter)?;
+        self.check_event_categories_in_scope(root, now, filter, &[])
+    }
+
+    pub(crate) fn check_event_categories_in_scope(
+        &self,
+        root: &Path,
+        now: DateTime<FixedOffset>,
+        filter: Option<&str>,
+        excluded_roots: &[PathBuf],
+    ) -> Result<CategoryCheckReport, String> {
+        let selected = self.selected_check_events(root, now, filter, excluded_roots)?;
         let mut report = CategoryCheckReport {
             complete: selected.complete,
             checked: selected.events.len(),
@@ -647,7 +672,16 @@ impl Workspace {
         root: &Path,
         now: DateTime<FixedOffset>,
     ) -> Result<TimelineCheckReport, String> {
-        let selected = self.selected_check_events(root, now, None)?;
+        self.check_event_timeline_in_scope(root, now, &[])
+    }
+
+    pub(crate) fn check_event_timeline_in_scope(
+        &self,
+        root: &Path,
+        now: DateTime<FixedOffset>,
+        excluded_roots: &[PathBuf],
+    ) -> Result<TimelineCheckReport, String> {
+        let selected = self.selected_check_events(root, now, None, excluded_roots)?;
         let mut report = TimelineCheckReport {
             complete: selected.complete,
             checked: selected.events.len(),

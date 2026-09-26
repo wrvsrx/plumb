@@ -5,19 +5,19 @@ use std::{io::ErrorKind, path::Path};
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WorkspaceConfig {
-    pub check: CheckSettings,
+    pub diagnostics: DiagnosticSettings,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
-pub struct CheckSettings {
-    pub event_category: CheckRuleSettings,
-    pub event_timeline: CheckRuleSettings,
+pub struct DiagnosticSettings {
+    pub event_category: DiagnosticRuleSettings,
+    pub event_timeline: DiagnosticRuleSettings,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct CheckRuleSettings {
+pub struct DiagnosticRuleSettings {
     pub enabled: bool,
 }
 
@@ -41,8 +41,12 @@ impl WorkspaceConfig {
                 .ok_or_else(|| format!("invalid --config {assignment:?}: expected KEY=VALUE"))?;
             let key = key.trim();
             let target = match key {
-                "check.event-category.enabled" => &mut config.check.event_category.enabled,
-                "check.event-timeline.enabled" => &mut config.check.event_timeline.enabled,
+                "diagnostics.event-category.enabled" => {
+                    &mut config.diagnostics.event_category.enabled
+                }
+                "diagnostics.event-timeline.enabled" => {
+                    &mut config.diagnostics.event_timeline.enabled
+                }
                 _ => return Err(format!("unknown configuration key {key:?}")),
             };
             // Deserialize exactly one TOML value, never a document assembled from user text.
@@ -65,30 +69,36 @@ mod tests {
     #[test]
     fn defaults_and_ordered_overrides_preserve_other_rules() {
         let config = WorkspaceConfig::parse("", &[]).unwrap();
-        assert!(!config.check.event_category.enabled && !config.check.event_timeline.enabled);
+        assert!(
+            !config.diagnostics.event_category.enabled
+                && !config.diagnostics.event_timeline.enabled
+        );
         let config = WorkspaceConfig::parse(
-            "[check.event-category]\nenabled = true\n",
+            "[diagnostics.event-category]\nenabled = true\n",
             &[
-                "check.event-category.enabled=false".into(),
-                "check.event-timeline.enabled=true".into(),
-                "check.event-category.enabled=true".into(),
+                "diagnostics.event-category.enabled=false".into(),
+                "diagnostics.event-timeline.enabled=true".into(),
+                "diagnostics.event-category.enabled=true".into(),
             ],
         )
         .unwrap();
-        assert!(config.check.event_category.enabled && config.check.event_timeline.enabled);
+        assert!(
+            config.diagnostics.event_category.enabled && config.diagnostics.event_timeline.enabled
+        );
     }
 
     #[test]
     fn rejects_unknown_keys_types_and_additional_declarations() {
         for source in [
             "unknown = true",
-            "[check.unknown]",
-            "[check.event-category]\nexplicit = true",
-            "[check.event-timeline]\nenabled = 'true'",
-            "[check.event-timeline]\nfrom = 'now'",
+            "[check.event-category]\nenabled = true",
+            "[diagnostics.unknown]",
+            "[diagnostics.event-category]\nexplicit = true",
+            "[diagnostics.event-timeline]\nenabled = 'true'",
+            "[diagnostics.event-timeline]\nfrom = 'now'",
         ] {
             assert!(
-                WorkspaceConfig::parse(source, &["check.event-timeline.enabled=true".into()])
+                WorkspaceConfig::parse(source, &["diagnostics.event-timeline.enabled=true".into()])
                     .is_err(),
                 "{source}"
             );
@@ -103,15 +113,19 @@ mod tests {
             "",
         ] {
             assert!(
-                WorkspaceConfig::parse("", &[format!("check.event-timeline.enabled={value}")])
-                    .is_err(),
+                WorkspaceConfig::parse(
+                    "",
+                    &[format!("diagnostics.event-timeline.enabled={value}")]
+                )
+                .is_err(),
                 "{value}"
             );
         }
         for assignment in [
-            "check.event-category",
-            "check.event-category.explicit=true",
-            "check.event-timeline.from='now'",
+            "check.event-category.enabled=true",
+            "diagnostics.event-category",
+            "diagnostics.event-category.explicit=true",
+            "diagnostics.event-timeline.from='now'",
         ] {
             assert!(WorkspaceConfig::parse("", &[assignment.into()]).is_err());
         }
@@ -123,7 +137,7 @@ mod tests {
         assert!(
             !WorkspaceConfig::load(dir.path(), &[])
                 .unwrap()
-                .check
+                .diagnostics
                 .event_category
                 .enabled
         );
@@ -131,13 +145,13 @@ mod tests {
         std::fs::create_dir(dir.path().join(".plumb")).unwrap();
         std::fs::write(
             dir.path().join(".plumb/config.toml"),
-            "[check.event-category]\nenabled=true",
+            "[diagnostics.event-category]\nenabled=true",
         )
         .unwrap();
         assert!(
             WorkspaceConfig::load(dir.path(), &[])
                 .unwrap()
-                .check
+                .diagnostics
                 .event_category
                 .enabled
         );
@@ -146,7 +160,7 @@ mod tests {
         assert!(
             !WorkspaceConfig::load(&child, &[])
                 .unwrap()
-                .check
+                .diagnostics
                 .event_category
                 .enabled
         );

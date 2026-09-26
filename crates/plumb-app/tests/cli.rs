@@ -1115,7 +1115,7 @@ fn check_rules_default_off_and_config_overrides_apply_on_warm_cache() {
     let config = dir.join(".plumb/config.toml");
     std::fs::write(
         &config,
-        "[check.event-category]\nenabled=true\n[check.event-timeline]\nenabled=true\n",
+        "[diagnostics.event-category]\nenabled=true\n[diagnostics.event-timeline]\nenabled=true\n",
     )
     .unwrap();
     let cold = run(&[]);
@@ -1129,32 +1129,32 @@ fn check_rules_default_off_and_config_overrides_apply_on_warm_cache() {
             String::from_utf8_lossy(&out.stderr)
         );
         let text = String::from_utf8_lossy(&out.stdout);
-        assert!(text.contains("error[check.event-category.missing]"));
-        assert!(text.contains("error[check.event-timeline.gap]"));
-        assert!(text.contains("note[check.event-timeline.gap.related]"));
+        assert!(text.contains("error[event-category.missing]"));
+        assert!(text.contains("error[event-timeline.gap]"));
+        assert!(text.contains("note[event-timeline.gap.related]"));
     }
     assert_eq!(cold.stdout, warm.stdout);
     assert_eq!(cold.stdout, uncached.stdout);
     let out = run(&[
         "--config",
-        "check.event-category.enabled=false",
+        "diagnostics.event-category.enabled=false",
         "--config",
-        "check.event-timeline.enabled=false",
+        "diagnostics.event-timeline.enabled=false",
     ]);
     assert!(out.status.success());
     assert!(out.stdout.is_empty());
     let out = run(&[
         "--config",
-        "check.event-category.enabled=false",
+        "diagnostics.event-category.enabled=false",
         "--config",
-        "check.event-timeline.enabled=false",
+        "diagnostics.event-timeline.enabled=false",
         "--config",
-        "check.event-timeline.enabled=true",
+        "diagnostics.event-timeline.enabled=true",
         "--level",
         "error",
     ]);
     assert_eq!(out.status.code(), Some(1));
-    assert!(!String::from_utf8_lossy(&out.stdout).contains("check.event-category"));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("event-category"));
     std::fs::write(&config, "").unwrap();
     assert!(
         run(&[]).status.success(),
@@ -1171,7 +1171,7 @@ fn category_check_uses_effective_categories_and_reports_missing_and_invalid() {
         plumb_command()
             .args(["check", "--root"])
             .arg(&dir)
-            .args(["--config", "check.event-category.enabled=true"])
+            .args(["--config", "diagnostics.event-category.enabled=true"])
             .output()
             .unwrap()
     };
@@ -1192,7 +1192,7 @@ fn category_check_uses_effective_categories_and_reports_missing_and_invalid() {
     std::fs::write(&path, "`- 2020-01-01T10:00:00Z Point\n `+ event\n").unwrap();
     let out = run();
     assert_eq!(out.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&out.stdout).contains("check.event-category.missing"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("event-category.missing"));
     std::fs::write(
         &path,
         "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category\n",
@@ -1200,7 +1200,7 @@ fn category_check_uses_effective_categories_and_reports_missing_and_invalid() {
     .unwrap();
     let out = run();
     assert_eq!(out.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&out.stdout).contains("check.incomplete"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("diagnostics.incomplete"));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -1214,7 +1214,7 @@ fn category_check_terminal_uses_relative_one_based_unicode_positions() {
         let out = plumb_command()
             .args(["check", "--root"])
             .arg(&dir)
-            .args(["--config", "check.event-category.enabled=true"])
+            .args(["--config", "diagnostics.event-category.enabled=true"])
             .args(extra)
             .output()
             .unwrap();
@@ -1225,7 +1225,7 @@ fn category_check_terminal_uses_relative_one_based_unicode_positions() {
             String::from_utf8_lossy(&out.stderr)
         );
         assert_eq!(String::from_utf8(out.stdout).unwrap(),
-            "day.plumb:2:25..3:4: error[check.event-category.missing]: event has an uncategorized accounting share\n");
+            "day.plumb:2:25..3:4: error[event-category.missing]: event has an uncategorized accounting share\n");
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -1238,7 +1238,7 @@ fn timeline_check_reports_overlap_and_incomplete_without_time_arguments() {
         plumb_command()
             .args(["check", "--root"])
             .arg(&dir)
-            .args(["--config", "check.event-timeline.enabled=true"])
+            .args(["--config", "diagnostics.event-timeline.enabled=true"])
             .output()
             .unwrap()
     };
@@ -1249,11 +1249,11 @@ fn timeline_check_reports_overlap_and_incomplete_without_time_arguments() {
     std::fs::write(&path, "`- 2026-09-22T10:00:00Z--11:00 One\n `+ event\n`- 2026-09-22T10:30:00Z--12:00 Two\n `+ event\n").unwrap();
     let out = run();
     assert_eq!(out.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&out.stdout).contains("check.event-timeline.overlap"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("event-timeline.overlap"));
     std::fs::write(dir.join("bad.plumb"), "`- tomorrow Invalid\n `+ event\n").unwrap();
     let out = run();
     assert_eq!(out.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&out.stdout).contains("check.incomplete"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("diagnostics.incomplete"));
     std::fs::write(dir.join("bad.plumb"), "`broken{").unwrap();
     assert_eq!(run().status.code(), Some(2));
     std::fs::remove_dir_all(dir).unwrap();
@@ -1272,10 +1272,10 @@ fn check_rejects_invalid_config_and_removed_event_check_commands() {
             .unwrap()
     };
     for value in [
-        "check.event-category.explicit=true",
-        "check.event-timeline.from='now'",
-        "check.event-category.enabled='true'",
-        "check.event-category.enabled",
+        "diagnostics.event-category.explicit=true",
+        "diagnostics.event-timeline.from='now'",
+        "diagnostics.event-category.enabled='true'",
+        "diagnostics.event-category.enabled",
         "unknown=true",
     ] {
         let out = run(&["--config", value]);
@@ -1284,13 +1284,13 @@ fn check_rejects_invalid_config_and_removed_event_check_commands() {
         assert!(!out.stderr.is_empty());
     }
     for source in [
-        "[check.event-timeline]\nenabled='true'",
+        "[diagnostics.event-timeline]\nenabled='true'",
         "unknown=true",
         "invalid[",
     ] {
         std::fs::write(dir.join(".plumb/config.toml"), source).unwrap();
         assert_eq!(
-            run(&["--config", "check.event-timeline.enabled=false"])
+            run(&["--config", "diagnostics.event-timeline.enabled=false"])
                 .status
                 .code(),
             Some(2)
@@ -1317,7 +1317,7 @@ fn check_configuration_uses_discovered_workspace_root() {
     std::fs::create_dir_all(dir.join("nested")).unwrap();
     std::fs::write(
         dir.join(".plumb/config.toml"),
-        "[check.event-category]\nenabled=true",
+        "[diagnostics.event-category]\nenabled=true",
     )
     .unwrap();
     std::fs::write(
