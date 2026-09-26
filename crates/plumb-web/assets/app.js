@@ -1268,7 +1268,7 @@ import {
     const start = new Date(value);
     const startLabel = start.toLocaleTimeString([], EVENT_TIME_OPTIONS);
     if (event.at) return startLabel;
-    if (!event.end) return `${startLabel}-running`;
+    if (!event.end) return `${startLabel}--now`;
     const end = new Date(event.end);
     return `${startLabel}-${end.toLocaleTimeString([], EVENT_TIME_OPTIONS)}`;
   }
