@@ -52,6 +52,9 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
   每组5次warmup、30个samples，normal/profile交替成对执行；完整pipeline包含相同阶段和生命周期，旧revision初次
   build及next source clone在计时外。Weak生命周期探针只用于独立correctness tests，不进入timed samples。
 
+`- `"scripts/benchmark-event-category.py"：固定 34,831-event 单文档归档的 release CLI 分类检查；重复引用普通事项，包含多分类、未分类、无法解析引用、非法分类及独立 syntax-invalid document。通过 --binary、--label before/after 与同一 --work-dir 对比完整冷／热／无缓存路径，保存 fixture 与 stdout SHA-256、退出码、cache stats、wall time 和 peak RSS；每组默认 3 samples，warm 单独预热一次，cold 使用新 application cache，不清 OS page cache。计时外验证固定 event count、invalid document count 与全部输出一致性。
+`- `"profile_contained_links_full_document"：低选择性反例，一次请求包含全部 34,831 Links；对比旧单边与新双边索引查询，两者均加载并解码完整结果，3 次 warmup 后交替采样 10 对。不设置 wall-clock CI 阈值，使用 release ignored unit test 手动运行。
+
 `# Measurement contract
 
 每次发布结果必须记录 commit、host、kernel、rustc、profile、fixture identity、warmup、measurement duration、 sample count 和 interval midpoint。报告 absolute value 与相对 baseline；wall-clock observation 不是跨机器 SLA， 不能进入普通 correctness CI 的硬阈值。

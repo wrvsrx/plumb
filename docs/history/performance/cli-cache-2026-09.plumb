@@ -36,3 +36,48 @@ fixture 是真实迁移后的 notebook，共 269 个可索引文件；迁移任�
 一个热缓存 sample 的阶段耗时：scan 16.9 ms、read 9.8 ms、hash 54.8 ms、analysis 约 0 ms、publication 0.034 ms、snapshot 136.8 ms、全局 context 150.2 ms、diagnostics 148.6 ms。阶段内部计时不包含全部启动、输出和析构成本，不应直接相加冒充端到端时间。
 
 该机器上热缓存相对旧版中位数约快 38 倍，peak RSS 约少 75%。冷缓存需要写库，比新版无缓存慢，peak RSS 仍接近 1 GiB；本次没有解决大文件首次解析的峰值内存。一个小文件变化不代表修改 6 MB 迁移文件的成本：缓存失效粒度仍是文档。热路径剩余主要成本是 SQLite detached snapshot 与全局关系/诊断检查；后续优化应先保持查询隔离和结果一致性，再测量减少全库快照复制、重复 records 解码或诊断查询次数的收益。
+
+`# Event category check 验收 2026-09-27
+ `@ event-category-2026-09-27
+
+本节冻结 optimize-event-category-cache-query 的验收快照，不覆盖现行 `->{{workspace contract} ../../architecture/workspace.plumb}。baseline 为 47f46e1（已包含事件祖先继承与 immutable document 根分类缓存），实现为 cb54118；两者均以 cargo build --release -p plumb 构建。先前的根分类缓存没有修复 SQLite links_in_range 的单边扫描。
+
+host pba，Intel Core i9-9980XE 3 GHz，Linux 6.18.53，rustc 1.97.1（8bab26f4f，2026-07-14），0.44.1-dev release profile。
+
+固定 synthetic fixture 由 scripts/benchmark-event-category.py 生成，3 个文档、34,831 条 events、34,866 条 links；不复制个人 notebook。archive.plumb 集中全部事件，重复引用 4 个普通事项，每项有 2 个分类；每 1,000 条中加入缺分类、未解析引用、空分类及多事项／重复引用案例。独立 invalid.plumb 故意包含 syntax error，用于检查不完整结果。
+
+`text"
+ archive.plumb SHA-256 7c29f8ff170c190b7444c3542174af39a043514d2bfd97bebaf2b5b6e91c4774
+ activities.plumb SHA-256 0c91dc3a625017e9fef48a1368712a5476d1dbe998414e2cde31ec3e26e879a3
+ invalid.plumb SHA-256 0cc8b90411ec2ffb0445f98213f347e6525b9d2dcd7e78587115637bd0b77ebe
+
+每模式 3 个独立进程 samples，热缓存先完整预热一次，冷缓存每次使用新 application cache，不清 OS page cache；比较期间 fixture bytes 不变。计时覆盖完整 CLI 进程，stdout/stderr 写本机文件，RSS 为 wait4 ru_maxrss，非 steady resident。cache stats 验证冷／无缓存为 3 documents、0 hits、3 parsed，热缓存为 3 hits、0 parsed；计时外校验 persisted event count 与 invalid document count。命令等价于 plumb check --root FIXTURE --config diagnostics.event-category.enabled=true --cache-stats，无缓存另加 --no-cache。
+
+baseline 观测窗口约 439.4 秒，UTC midpoint 2026-09-26T17:28:53+00:00；该窗口包含诊断文字差异调查与构建间隔，表中仅使用各进程实际 wall time。最终观测窗口 18.4 秒，UTC midpoint 2026-09-26T17:35:25+00:00；未与编译或其它 benchmark 同时运行。
+
+`table
+ `- 版本 模式 {wall samples 秒} {wall 中位数 秒} {peak RSS 中位数 MiB}
+  `+ header
+ `- 修改前 冷缓存 {39.124 / 39.264 / 37.934} 39.124 416.8
+ `- 修改前 热缓存 {36.426 / 36.146 / 36.371} 36.371 215.2
+ `- 修改前 无缓存 {1.400 / 1.404 / 1.403} 1.403 497.4
+ `- 修改后 冷缓存 {2.722 / 2.699 / 2.662} 2.699 480.4
+ `- 修改后 热缓存 {1.167 / 1.218 / 1.141} 1.167 215.0
+ `- 修改后 无缓存 {1.397 / 1.365 / 1.354} 1.365 497.6
+
+先仅补 links.start 严格上界时，热缓存中位数为 1.681 秒；在同轮查询中复用 normalized target 解析、task identities 和根分类后降至 1.167 秒，比修改前快约 31.2 倍，也低于修改后无缓存的 1.365 秒。没有改变 schema 或在 CLI 绕开缓存。最终热缓存峰值约 215 MiB，低于无缓存约 498 MiB；冷缓存仍有写库成本，峰值在 417–481 MiB 间波动，不据此声称 cold memory 改善。
+
+所有最终 samples 的退出码均为 2，这是夹具故意包含错误的预期结果；stdout 逐 byte 一致，SHA-256 为 b4327a2da9665fee3e06661e92ab2e49746a4ed4764629961921dff40906de65。修改前 cached 与 no-cache 仅 agenda.invalid-document message 相差 current 一词；本次统一为 document has no valid semantic output，并以 shared-query 与 CLI 冷／热／无缓存测试固定。脚本仅对 before 的这一已知 message 做 comparison hash 归一化，同时保存 raw hash；after 不归一化。除此之外，修改前后 code、位置、引用 spelling、多分类与缺分类结果一致。
+
+低选择性反例使用一次覆盖全部 34,831 Links 的请求，source SHA-256 为 1ab9ebf845a1a3813f74a65a930d266f10beed1f09572782b019edb6a7f56248；3 对 warmup 后交替采样 10 对，包含 SQL load 与 Bincode decode，不含 fixture build。旧单边查询中位数 16.927 ms，新双边查询 18.250 ms，额外约 1.323 ms；上界谓词对全量返回仍有小幅成本，收益来自事件的小范围查询不再反复扫描文档尾部。该次 command wall 1.276 秒，UTC midpoint 2026-09-26T17:38:20+00:00。不建立跨机器 wall-clock CI 阈值。
+
+验证包括实际 Diesel query 的双边索引 EXPLAIN plan、完整包含／边界相接／跨边界／空与反向范围、路径隔离与归一化、排除损坏 record 不 decode、命中损坏 record 明确失败；同轮复用测试覆盖普通事项与 tasks override 的独立许可、每次引用的错误位置和 spelling、不同目录同 spelling，以及 overlay 修改／关闭后的刷新。workspace library、agenda、CLI、LSP stdio、project documents 与 all-target warning gate 通过。
+
+复现入口：
+
+`sh"
+ python3 scripts/benchmark-event-category.py --binary /tmp/plumb-before --label before --work-dir /tmp/plumb-category-bench
+ python3 scripts/benchmark-event-category.py --binary target/release/plumb --label after --work-dir /tmp/plumb-category-bench
+ cargo test -p plumb-workspace --release --lib profile_contained_links_full_document -- --ignored --nocapture
+
+原始本机 samples、binary/fixture hashes、cache stats 与全部 stdout/stderr 保存在 /tmp/plumb-category-query-20260927；before.json 与 after.json 为端到端记录，index-bound-only 为仅补索引边界时的中间对照，full-document.json 为低选择性记录。临时路径不作为可移植 fixture，提交的脚本可重新生成相同输入。
