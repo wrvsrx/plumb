@@ -46,6 +46,26 @@ fn category_is_owner_local_and_preserves_invalid_declarations() {
 }
 
 #[test]
+fn list_item_category_inherits_document_and_parent_item() {
+    let source = "`= event-category work\n`- Parent\n `@ parent\n `= event-category work\n `- Child\n  `@ child\n `- Override\n  `@ override\n  `= event-category personal\n  `- Grandchild\n   `@ grandchild\n`- Sibling\n `@ sibling\n `= event-category work\n";
+    let output = analyze_document(parse(source).valid_syntax().unwrap());
+    assert_eq!(output.document_category().values, vec!["work"]);
+    let categories = output
+        .anchors()
+        .iter()
+        .filter(|anchor| anchor.list_item)
+        .map(|anchor| anchor.category.values.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(categories, vec![
+        vec!["work".to_string()],
+        vec!["work".to_string()],
+        vec!["personal".to_string()],
+        vec!["personal".to_string()],
+        vec!["work".to_string()],
+    ]);
+}
+
+#[test]
 fn accounting_links_only_include_direct_title_members() {
     let source = "`- 2026-09-22T10:00:00Z--11:00 `->{#a} `->\"#b\" `*{see `->{#c}}\n `+ event\n `= event-category override\n\n Reference `->{#d}\n";
     let parsed = parse(source);

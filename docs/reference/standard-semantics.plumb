@@ -328,7 +328,7 @@ deterministically derivation；source uid/when opaque。vdir export 是 managed 
 
 event 显式 tasks 声明优先定义核算事项集合，保持现有 task target 校验；即使为空或非法也不回退。
 否则只从 event title 中的直接 Link members 收集事项引用，details 中的链接、embedded resources 与嵌套 inline 的链接不参与核算。
-目标必须是 list item anchor 或 plumb 文档；普通文档读取根层 event-category，引用普通条目或文档不会创建 task。引用具体条目不回退到所属文档分类。
+目标必须是 list item anchor 或 plumb 文档；普通文档读取根层 event-category，引用普通条目或文档不会创建 task。list item 的 effective event-category 按 owner 作用域继承：自身显式声明优先，否则继承最近结构祖先（包括父 list item），再回退到文档根层；因此引用具体条目读取其 effective category。分类列表整体覆盖而不合并，显式空值、重复或非法声明阻止继续回退。
 同一 normalized target 去重后均分 event duration；重复引用不能增加份额。
 无法解析、歧义或非法目标必须保留问题并使结果不完整，不能删除该项再重新均分。
 

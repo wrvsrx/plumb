@@ -941,8 +941,10 @@ fn analyze_semantic_tree_observed(
                         .expect("valid green document has valid shards");
                     let local_headings = analyze_headings(local);
                     let tables = analyze_tables(local);
-                    let mut records =
-                        collect_document_records(local.source(), local.syntax(), &local_headings);
+                    let root_category = crate::Category::from_blocks(&local.syntax().blocks);
+                    let mut records = collect_document_records(
+                        local.source(), local.syntax(), &local_headings, &root_category,
+                    );
                     let record_diagnostics = std::mem::take(&mut records.diagnostics);
                     let association_diagnostics = association_arity_diagnostics(local.syntax());
                     let root_diagnostics = local_root_diagnostics(
@@ -1782,6 +1784,7 @@ fn collect_document_records(
     source: &str,
     document: &Document,
     headings: &HeadingOutput,
+    root_category: &crate::Category,
 ) -> RecordOutput {
     let mut output = RecordOutput::default();
     let mut first_ids: HashMap<String, Range<usize>> = HashMap::new();
@@ -1789,6 +1792,7 @@ fn collect_document_records(
         source,
         &document.blocks,
         headings,
+        &root_category,
         &mut first_ids,
         &mut output,
     );
@@ -1941,12 +1945,19 @@ fn collect_blocks(
     source: &str,
     blocks: &[Block],
     headings: &HeadingOutput,
+    inherited_category: &crate::Category,
     first_ids: &mut HashMap<String, Range<usize>>,
     output: &mut RecordOutput,
 ) {
     for block in blocks {
         match block {
             Block::Parsed(parsed) => {
+                let declared_category = crate::Category::from_blocks(&parsed.children);
+                let effective_category = if declared_category.declarations.is_empty() {
+                    inherited_category.clone()
+                } else {
+                    declared_category
+                };
                 if let Some(mark) = &parsed.mark {
                     let kind = if headings.heading_at_node_start(parsed.range.start).is_some() {
                         AnchorKind::Heading
@@ -1956,6 +1967,7 @@ fn collect_blocks(
                     collect_anchor(
                         source,
                         Some(parsed),
+                        &effective_category,
                         &mark.attrs,
                         kind,
                         parsed.range.clone(),
@@ -1970,6 +1982,7 @@ fn collect_blocks(
                         source,
                         std::slice::from_ref(child),
                         headings,
+                        &effective_category,
                         first_ids,
                         output,
                     );
@@ -1980,6 +1993,7 @@ fn collect_blocks(
                     collect_anchor(
                         source,
                         None,
+                        &crate::Category::default(),
                         &mark.attrs,
                         AnchorKind::VerbatimBlock,
                         block.range.clone(),
@@ -2010,10 +2024,11 @@ fn collect_inlines(
                     .first()
                     .map_or_else(|| range.clone(), |element| element.range.clone());
                 if let Some(mark) = mark {
-                    collect_anchor(
-                        source,
-                        None,
-                        &mark.attrs,
+                        collect_anchor(
+                            source,
+                            None,
+                            &crate::Category::default(),
+                            &mark.attrs,
                         AnchorKind::Inline,
                         range.clone(),
                         selection_range.clone(),
@@ -2027,6 +2042,7 @@ fn collect_inlines(
                         collect_anchor(
                             source,
                             None,
+                            &crate::Category::default(),
                             &attrs,
                             AnchorKind::Inline,
                             range.clone(),
@@ -2085,6 +2101,7 @@ fn collect_inlines(
                     collect_anchor(
                         source,
                         None,
+                        &crate::Category::default(),
                         &mark.attrs,
                         AnchorKind::Inline,
                         range.clone(),
@@ -2347,6 +2364,7 @@ fn resource_source(
 fn collect_anchor(
     source: &str,
     owner: Option<&plumb_syntax::ParsedBlock>,
+    effective_category: &crate::Category,
     attrs: &Attributes,
     kind: AnchorKind,
     range: Range<usize>,
@@ -2375,7 +2393,11 @@ fn collect_anchor(
         first_ids.insert(value.clone(), value_range.clone());
     }
     output.anchors.push(AnchorRecord {
-        category: owner.map(|o| crate::Category::from_blocks(&o.children)).unwrap_or_default(),
+        category: if owner.is_some_and(|o| o.mark.as_ref().is_some_and(|m| matches!(m.marker.as_str(), "-" | "."))) {
+            effective_category.clone()
+        } else {
+            owner.map(|o| crate::Category::from_blocks(&o.children)).unwrap_or_default()
+        },
         list_item: owner.is_some_and(|o| o.mark.as_ref().is_some_and(|m| matches!(m.marker.as_str(), "-" | "."))),
         id,
         kind,
@@ -2730,7 +2752,8 @@ mod tests {
         let tasks = crate::analyze_tasks(valid);
         let events = crate::analyze_events(valid, &metadata);
         let tables = crate::analyze_tables(valid);
-        let records = collect_document_records(valid.source(), valid.syntax(), &headings);
+        let root_category = crate::Category::from_blocks(&valid.syntax().blocks);
+        let records = collect_document_records(valid.source(), valid.syntax(), &headings, &root_category);
         let mut diagnostics = association_arity_diagnostics(valid.syntax());
         diagnostics.extend(records.diagnostics.iter().cloned());
         diagnostics.extend(tables.diagnostics.iter());
