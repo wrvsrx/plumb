@@ -2,21 +2,17 @@
 
 本页记录当前 release 的 commands、inputs、outputs 与 failure behavior。未来方向只进入 roadmap， 内部 crate/store contracts 只进入 architecture。
 
-`# Agenda 核算与完整覆盖检查
+`# Agenda 核算
 
 `sh"
  plumb event summary --root DIR --from 2026-09-22T00:00:00+08:00 --to 2026-09-23T00:00:00+08:00
  plumb event summary --root DIR --from 2026-09-22T00:00:00+08:00 --to 2026-09-23T00:00:00+08:00 --group-by task --json
- plumb event check-timeline --root DIR --from 2026-09-22T00:00:00+08:00 --to 2026-09-23T00:00:00+08:00
 
 from/to 使用带 offset 的 RFC 3339，结束必须晚于开始。summary 可按 category（默认）、item 或 task 显示秒数； JSON 同时提供各类汇总、逐事件份额、分类来源、source byte ranges、point events、空档、重叠与 completeness。 跨范围事件裁剪后计时，多事项先去重再均分；task 汇总不重新分配普通活动份额。 累计时长包含重叠，covered_seconds 只算时间轴的实际覆盖。
 
-check-timeline 要求 half-open 范围内每个时刻恰好有一个 event 覆盖，包括首尾边界。
-空集合报告整个范围缺失；point event 不提供覆盖，分类分摊不会生成额外事件。
-两种查询都支持现有 event CEL 的 --query，并在响应中标明筛选条件。
-退出码 0 表示成功，check-timeline 的 1 表示覆盖不合格，2 表示查询失败或结果不完整；
-summary 的空档与重叠不单独改变成功退出码。无效文档或无法确定时间的所选事件使检查不完整，不能假定其在范围外。
-这些检查只由主动查询执行，不改变文档语法合法性。
+summary 支持 event CEL 的 --query，并在响应中标明筛选条件。退出码 0 表示成功，2 表示查询失败或结果不完整；
+空档与重叠不单独改变 summary 的成功退出码。无效文档或无法确定时间的所选事件使报告不完整。
+事件分类与时间轴连续性检查通过下述 plumb check 的可选规则执行。
 
 `# Build and test
 
@@ -39,7 +35,44 @@ workspace discovery、ignore、note/task、graph 与 site 见 `->{{workspace 指
 
 `"plumb check --root DIR" 检查 workspace index 中的 `"..plumb" files；省略 `"--root" 时使用 `->{{workspace marker discovery} workspace.plumb}。它复用与 LSP 相同的 strict syntax、semantic 和 cross-document diagnostics。
 
-diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line:column"、severity、code 与 message。`"--level error|warning|hint" 选择最低显示 severity；默认 `"warning"，因此显示 Error 与 Warning 并省略 Hint。只有 Error 令 command 返回 nonzero，Warning 与 Hint 不改变退出状态。筛选后无 diagnostic 时不输出内容并返回成功。
+基础 diagnostics 按 relative path 和 source range 稳定排序，输出 `"path:line:column"、severity、code 与 message。
+`"--level error|warning|hint" 选择最低显示 severity；默认 warning，因此显示 Error 与 Warning 并省略 Hint。
+Warning 与 Hint 不改变退出状态；可选规则的问题不受 --level 隐藏。没有可显示问题时保持静默。
+
+工作区配置位于 resolved root 的 .plumb/config.toml。文件不存在时使用默认值，不自动创建文件，
+也不合并祖先或用户级配置。两个可选检查默认关闭，各自只有 enabled 布尔字段：
+
+`toml"
+ [check.event-category]
+ enabled = false
+
+ [check.event-timeline]
+ enabled = false
+
+修改为 true 后，plumb check 会在基础诊断之外执行对应规则。也可通过可重复的 --config 临时覆盖：
+
+`sh"
+ plumb check --root ~/notes --config check.event-category.enabled=true
+ plumb check --root ~/notes --config check.event-timeline.enabled=true
+ plumb check --config check.event-category.enabled=true --config check.event-timeline.enabled=true
+
+优先级为内置默认值、工作区配置、命令行覆盖；同键最后一个 override 生效，不写回配置文件。
+key 使用完整 dotted key，value 使用 TOML 值语法。未知字段、错误类型和无效 TOML 都报错；
+配置文件先校验，不能用 override 掩盖错误配置。
+
+分类检查覆盖所有 events，包含时间点事件，要求每个核算份额都有有效分类；允许引用继承，
+事件自身的 event-category 按标准语义覆盖继承。缺分类指向事件标题；非法分类或无法解析引用使检查不完整。
+
+连续性检查将整个工作区的有限 event intervals 合并为一条时间轴，包括跨文件与跨日期事件。
+从最早 start 到最晚 end 检查内部空档和重叠，不要求覆盖首尾之外的时间，不接受 from/to 或 query 参数。
+首尾相等视为衔接；合法时间点事件不提供覆盖或扩大边界。空集合、只有时间点或单个有效区间通过。
+开放或无效时间区间使结果不完整。分类分摊不会产生额外区间，引用和分类不参与连续性判断。
+
+可选检查的位置为 workspace-relative path:起始行:起始列..结束行:结束列，行列从 1 开始，列按 Unicode
+字符计数，结束位置不包含在范围内。空档列出左右边界事件，重叠列出相关事件。规则失败使用
+check.event-category.missing、check.event-timeline.gap 或 check.event-timeline.overlap code。
+退出码 0 表示基础诊断无 Error 且所有启用规则通过；1 表示基础 Error 或规则违反；2 表示配置、
+加载、查询失败或检查不完整。不完整报告明确显示 check.incomplete。
 
 `# Cache
 
@@ -139,14 +172,3 @@ importer 覆盖 `"plumb export" 当前产生的标准 profile，并保证受支�
 Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如带属性的 figure、raw HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal 或非 1 起始 ordered list 当前均不受支持。Figure caption 必须是单个 inline 段落。Table 的 rowspan、colspan、alignment、column widths、foot 与复杂 body grouping 也不可表示。 Pandoc attribute name 不能表示为 declaration name，或 Link/Image property 与 target tuple 冲突时也会失败。 importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
 
 项目方向与尚需验证的工作统一记录在 `->{路线图 ../project/roadmap.plumb}；可直接实施的 工作见 `->{当前任务 ../project/tasks.plumb}。本指南不复制实现进度。
-
-`## 检查事件分类
-
-`sh"
- plumb event check-category --root ~/notes --json
- plumb event check-category --root ~/notes --explicit --json
-
-检查全部选中的 events（支持全局 query），无需指定日期范围。默认考虑引用事项的分类；explicit 只检查 event 自身声明，适合迁移检查。
-报告 checked 数量、missing 位置与 issues。退出码 0 表示全部有分类，1 表示缺分类，2 表示非法分类或检查不完整。
-不带 --json 时，missing-category 后的位置显示为 path:起始行:起始列..结束行:结束列，指向事件标题。
-行列从 1 开始，列按 Unicode 字符计数，结束位置不包含在范围内；JSON 仍使用 UTF-8 字节范围。

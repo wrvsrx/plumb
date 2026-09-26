@@ -241,17 +241,38 @@ but not rich values or duplicate declarations. Scalar properties split first : r
 children under `= event-category`, one full plain value per item. Duplicate values count
 once; each item share is divided equally among its categories.
 
-`plumb event check-category --json` checks all selected events without a time window.
-`--explicit` checks only event declarations, without resolving references. Exit 0
-means all categorized, 1 means missing categories, and 2 means incomplete/invalid.
+`plumb check` always runs workspace diagnostics. Its optional event checks are disabled
+by default. Enable them in the workspace root's `.plumb/config.toml`:
 
-`plumb event summary --from RFC3339 --to RFC3339` clips events to a half-open
-window and supports `--group-by category|item|task` and `--json`.
-`plumb event check-timeline` uses the same explicit window and requires exactly
-one event covering each instant: exit 0 passes, 1 reports gaps/overlaps, and 2
-reports failure/incompleteness. Point events do not provide coverage. Task focus
-history and note tags do not define event accounting. Calendar `CATEGORIES` is
-only a set; use summary JSON for exact allocated totals.
+```toml
+[check.event-category]
+enabled = true
+
+[check.event-timeline]
+enabled = true
+```
+
+Each rule has only an `enabled` boolean. Repeated `--config KEY=VALUE` arguments override
+file settings for this invocation, with the last value for a key winning:
+
+```sh
+plumb check --config check.event-category.enabled=true
+```
+
+Values use TOML syntax; unknown keys, invalid types and malformed configuration fail.
+Category checking includes all events and every effective inherited accounting share,
+including point events. There is no explicit-only mode.
+Timeline checking finds internal gaps and overlaps across all workspace intervals,
+from their earliest start to latest end, without an external time window or filter.
+Points do not affect coverage or boundaries; empty sets and a single valid interval pass.
+Open or invalid intervals make the check incomplete. Exit 0 means no base errors and
+all enabled rules pass, 1 means errors or rule violations, and 2 means configuration,
+loading or query failure/incompleteness. The old `event check-*` subcommands are removed.
+
+`plumb event summary --from RFC3339 --to RFC3339` still clips events to a half-open
+window and supports `--group-by category|item|task` and `--json`. Gaps and overlaps do
+not fail a complete summary. Task focus history and note tags do not define event
+accounting. Calendar `CATEGORIES` is only a set; use summary JSON for exact allocated totals.
 
 ## Tables
 
@@ -302,7 +323,6 @@ writer; unsupported Pandoc import nodes are rejected rather than discarded.
 
 The accounting declaration is `event-category`; a generic `category` property does not
 participate. Whole-document links inherit root event-category; item links do not
-fall back to their document. Ordinary documents do not become tasks. CLI command
-names and report JSON fields are unchanged.
+fall back to their document. Ordinary documents do not become tasks. Summary report JSON fields are unchanged.
 
 Editor event-category value completion reuses all valid category sets declared by workspace documents and list items, including items without ids. Both scalar values and direct category-list items support prefix completion; multiword values remain a single category.

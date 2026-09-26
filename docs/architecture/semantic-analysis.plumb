@@ -389,7 +389,6 @@ agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影�
 summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 category、item、task 汇总。 返回逐事件分摊依据、汇总、覆盖时间、问题与 completeness，支持结构化 JSON。分摊保留精度到展示边界。 完整汇总可能选择同一文档数万个 events；store 按 source keys 加载记录时必须去重并分批绑定参数， 不能因 SQLite 单条语句的变量上限而失败。分批不改变 source ordering，也不解码未选中的 records。
 
 可选 event-timeline 检查不接受时间窗口或筛选条件，检查整个 workspace 的原始 event intervals。
-状态：以下配置与检查迁移待实现及验证。
 边界取所有有效有限区间的最早 start 与最晚 end；边界之外没有覆盖要求。区间采用 half-open 语义，
 要求边界内每一 instant 恰好一个 interval 覆盖。使用 interval sweep，不只比较相邻事件；返回全部内部
 空档与带 source identities 的重叠，嵌套重叠不能制造假空档。跨文件、跨日期的事件属于同一时间轴。
@@ -400,7 +399,6 @@ summary 继续接受显式 window，空 window selection 的 gap 仍是整个 wi
 
 `## 8.2 Workspace check configuration
 
-状态：以下配置与检查迁移待实现及验证。
 工作区配置唯一来源是 resolved workspace root 下的 .plumb/config.toml；不存在时使用内置默认值，
 不创建文件，不合并祖先或用户级配置。读取失败、TOML 格式错误、未知字段和类型错误均失败。
 配置由 plumb-workspace 定义和加载，不改变 syntax/semantic inputs，不参与 semantic cache identity；
@@ -409,7 +407,7 @@ summary 继续接受显式 window，空 window selection 的 gap 仍是整个 wi
 `toml"
  [check.event-category]
  enabled = false
- 
+
  [check.event-timeline]
  enabled = false
 
@@ -516,4 +514,4 @@ check-event-categories 在 workspace 层复用 event selection 与 event-categor
 
 CLI check 的缺分类终端位置使用事件 selection_range，格式为 path:start_line:start_column..end_line:end_column。
 行、列均从 1 开始，列按 Unicode scalar value 计数，不按 UTF-8 bytes、UTF-16 units 或显示宽度计数；结束位置不包含在范围内。
-两端从同一已加载 source snapshot 转换，支持跨行标题、CRLF 与空范围；不重新读取或解析文件。JSON 与 protocol-neutral report 保留 UTF-8 half-open byte ranges。
+两端从同一已加载 source snapshot 转换，支持跨行标题、CRLF 与空范围；不重新读取或解析文件。protocol-neutral report 保留 UTF-8 half-open byte ranges。
