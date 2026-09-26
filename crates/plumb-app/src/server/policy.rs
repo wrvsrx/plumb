@@ -21,7 +21,6 @@ pub(crate) struct PolicyDiagnosticsResult {
 
 struct PolicyPublication {
     diagnostics: HashMap<PathBuf, Vec<LspDiagnostic>>,
-    incomplete: Vec<String>,
 }
 
 impl ServerState {
@@ -116,12 +115,6 @@ impl ServerState {
             return;
         }
         if !self.index_complete {
-            if self.index_pending {
-                return;
-            }
-            self.policy_incomplete(
-                "diagnostics.incomplete: workspace index is not complete".into(),
-            );
             return;
         }
         if self
@@ -164,14 +157,7 @@ impl ServerState {
         match result.result {
             Ok(publication) => {
                 self.policy.diagnostics = publication.diagnostics;
-                if publication.incomplete.is_empty() {
-                    self.policy.last_status = None;
-                } else {
-                    self.policy_incomplete(format!(
-                        "diagnostics.incomplete: {}",
-                        publication.incomplete.join("; ")
-                    ));
-                }
+                self.policy.last_status = None;
             }
             Err(error) => self.policy_incomplete(format!("diagnostics.incomplete: {error}")),
         }
@@ -190,7 +176,6 @@ fn compute(
     let now = Local::now().fixed_offset();
     let mut publication = PolicyPublication {
         diagnostics: HashMap::new(),
-        incomplete: Vec::new(),
     };
     let mut positions = HashMap::<PathBuf, PositionIndex<'static>>::new();
     for (root, settings) in settings {
@@ -200,12 +185,15 @@ fn compute(
             .cloned()
             .collect::<Vec<_>>();
         let report = workspace.policy_diagnostics(&root, &excluded, now, &settings)?;
-        for rule in report.incomplete_rules {
-            publication
-                .incomplete
-                .push(format!("{}: {rule}", root.display()));
-        }
         for diagnostic in report.diagnostics {
+            // Incomplete input cannot establish a rule's negative conclusions.
+            if report
+                .incomplete_rules
+                .iter()
+                .any(|rule| diagnostic.code.starts_with(&format!("{rule}.")))
+            {
+                continue;
+            }
             if !open.contains(&diagnostic.source.path)
                 || workspace
                     .get(&diagnostic.source.path)
@@ -266,7 +254,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pending_index_is_silent_but_a_finished_incomplete_index_is_logged() {
+    fn incomplete_index_defers_policy_without_status_notifications() {
         let (_main, client) =
             async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
         let mut state = ServerState::new(client);
@@ -282,13 +270,37 @@ mod tests {
         assert!(state.policy.last_status.is_none());
         state.index_pending = false;
         state.schedule_policy_diagnostics();
-        assert!(state
-            .policy
-            .last_status
-            .as_ref()
-            .unwrap()
-            .contains("workspace index"));
+        assert!(state.policy.last_status.is_none());
         assert!(!state.policy.running);
+    }
+
+    #[test]
+    fn incomplete_rule_conclusions_are_deferred_until_syntax_is_repaired() {
+        let root = PathBuf::from("/notes");
+        let a = root.join("a.plumb");
+        let b = root.join("b.plumb");
+        let c = root.join("c.plumb");
+        let mut workspace = Workspace::new();
+        workspace.open_document(&a, 1, "`- 2026-09-22T10:00:00Z--11:00 First\n `+ event\n");
+        workspace.open_document(&b, 1, "`broken{");
+        workspace.open_document(&c, 1, "`- 2026-09-22T12:00:00Z--13:00 Last\n `+ event\n");
+        let mut settings = DiagnosticSettings::default();
+        settings.event_timeline.enabled = true;
+        let settings = BTreeMap::from([(root.clone(), settings)]);
+        let open = HashSet::from([a.clone(), b.clone(), c]);
+        let incomplete = compute(
+            workspace.clone(),
+            settings.clone(),
+            vec![root.clone()],
+            open.clone(),
+        )
+        .unwrap();
+        assert!(incomplete.diagnostics.is_empty());
+        workspace.open_document(&b, 2, "Fixed\n");
+        let complete = compute(workspace, settings, vec![root], open).unwrap();
+        assert!(complete.diagnostics[&a]
+            .iter()
+            .any(|d| d.code == Some(NumberOrString::String("event-timeline.gap".into()))));
     }
 
     #[test]
@@ -305,7 +317,6 @@ mod tests {
                     PathBuf::from("/notes/a.plumb"),
                     vec![LspDiagnostic::default()],
                 )]),
-                incomplete: vec!["old state".into()],
             }),
         };
         let _ = state.finish_policy_diagnostics(stale);

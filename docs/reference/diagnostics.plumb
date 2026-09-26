@@ -15,6 +15,10 @@ revision semantic diagnostics。last-valid semantic outputs 可以继续服务 c
 current diagnostics。export 与 authoritative edits 只接受 ValidDocument；completion/folding 可以显式查询
 recovered view。
 
+LSP 在 workspace index 未完成时只发布当前 revision 的 syntax 与 document-local semantic diagnostics，不使用 partial index 推导引用不存在、依赖关系或可选规则结论。protocol-neutral document_local_diagnostics 不查询 workspace graph 或磁盘，只读取 resident document 的当前语法与语义输出；pending 或 syntax-invalid revision 不沿用 last-valid diagnostics。
+
+索引完成后主动重新发布打开文档的完整诊断列表，合并仍有效的单文件结果与跨文件结果；publishDiagnostics 替换整份列表，不是追加。每次编辑立即清除失效结果，后台结果受 revision/generation 保护。索引等待、语法错误引起的规则不完整属于正常状态，不产生 diagnostics.incomplete 通知或日志；真实 I/O 或查询失败记录具体原因，文件修复后重新检查。不完整的可选规则不发布该规则的推断结论。
+
 一次 workspace diagnostic round 必须只构造一次全局 task dependency graph 与 cycle context，并在同一
 workspace snapshot 的所有 document diagnostics 之间复用；不能按文档重复构造全库上下文。复用不得改变
 diagnostic code、severity、message、range、related ranges 或顺序，也不能省略已关闭任务的检查。

@@ -143,6 +143,19 @@ impl Workspace {
         }
         Ok(diagnostics)
     }
+    /// Current resident revision only; never reads disk or queries workspace facts.
+    /// Pending/invalid revisions contribute syntax diagnostics, never last-valid semantics.
+    pub fn document_local_diagnostics(&self, path: impl AsRef<Path>) -> Vec<Diagnostic> {
+        let Some(entry) = self.documents.get(&normalize(path.as_ref())) else {
+            return Vec::new();
+        };
+        let mut diagnostics = entry.parsed.diagnostics().to_vec();
+        if let Some(current) = &entry.current {
+            diagnostics.extend(local_diagnostics(&current.output));
+        }
+        diagnostics
+    }
+
     pub fn diagnostics(
         &self,
         path: impl AsRef<Path>,
@@ -169,11 +182,10 @@ impl Workspace {
         let Some(entry) = self.documents.get(&path) else {
             return Ok(self.query_result(Vec::new()));
         };
-        let mut diagnostics = entry.parsed.diagnostics().to_vec();
+        let mut diagnostics = self.document_local_diagnostics(&path);
         let Some(current) = &entry.current else {
             return Ok(self.query_result(diagnostics));
         };
-        diagnostics.extend(local_diagnostics(&current.output));
         diagnostics.extend(self.reference_diagnostics(
             &path,
             current.output.links().iter(),
@@ -488,5 +500,30 @@ mod cache_tests {
                 .check_diagnostics_with_context(path, &context)
                 .is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod local_publication_tests {
+    use super::*;
+
+    #[test]
+    fn local_diagnostics_do_not_resolve_workspace_references_or_reuse_old_revisions() {
+        let mut workspace = Workspace::new();
+        let path = Path::new("local.plumb");
+        let source = "`= title One\n`= title Two\n\n`->{missing.plumb}\n";
+        workspace.open_document(path, 1, source);
+        let local = workspace.document_local_diagnostics(path);
+        assert!(local.iter().any(|d| d.code == "metadata.duplicate-key"));
+        assert!(!local.iter().any(|d| d.code == "link.unresolved-path"));
+        let full = workspace.diagnostics(path).unwrap().value;
+        assert!(full.iter().any(|d| d.code == "metadata.duplicate-key"));
+        assert!(full.iter().any(|d| d.code == "link.unresolved-path"));
+        let _pending = workspace.begin_document_revision(path, 2, source).unwrap();
+        assert!(workspace.document_local_diagnostics(path).is_empty());
+        workspace.open_document(path, 3, "`broken{");
+        let invalid = workspace.document_local_diagnostics(path);
+        assert!(invalid.iter().any(|d| d.code == "syntax.unclosed-inline-group"));
+        assert!(!invalid.iter().any(|d| d.code == "metadata.duplicate-key"));
     }
 }

@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::support::{diagnostic_counts, response, run_server, unique_temp_dir, LspTestSession};
+use crate::support::{diagnostic_counts, response, run_server, run_server_after_initial_index, unique_temp_dir, LspTestSession};
 
 #[test]
 fn task_state_publication_uses_proven_identity_and_conservative_full_replacement() {
@@ -409,7 +409,7 @@ fn diagnostics_clear_after_a_link_is_fixed() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     assert_eq!(response(&output, 2)["result"]["uri"], uri);
     let counts = diagnostic_counts(&output, uri);
     assert_eq!(counts.first(), Some(&1));
@@ -458,7 +458,7 @@ fn diagnostics_refresh_when_a_target_document_changes() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_initial_index(&messages);
     assert_eq!(response(&output, 2)["result"]["uri"], target_uri);
     let counts = diagnostic_counts(&output, source_uri);
     assert_eq!(counts.first(), Some(&1));

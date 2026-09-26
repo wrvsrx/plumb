@@ -272,8 +272,10 @@ across files. Disabling a rule clears its diagnostics. Each workspace root has a
 timeline, with nested roots owning their subtrees. Invalid startup configuration rejects
 initialization; invalid runtime configuration clears that root's optional diagnostics and
 reports an error until repaired. Optional LSP rule diagnostics have Warning severity;
-CLI exit rules are unchanged. Initial indexing waits silently. Incomplete checks and query
-failures are logged without popup notifications. A successful in-memory cache fallback
+CLI exit rules are unchanged. While indexing, LSP publishes current document-local
+diagnostics, then replaces the list with merged workspace diagnostics after indexing.
+Incomplete rules defer their conclusions silently; genuine I/O or query failures log
+specific causes without popup notifications. A successful in-memory cache fallback
 allows checks to proceed; file changes retry failed indexing. Background results are
 revision-guarded; LSP publishes UTF-16 locations and cross-file related locations.
 

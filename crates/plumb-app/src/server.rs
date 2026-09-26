@@ -373,6 +373,10 @@ impl ServerState {
     }
 
     fn diagnostic_publication_context(&mut self) -> Option<Arc<WorkspaceDiagnosticContext>> {
+        if !self.roots.is_empty() && !self.index_complete {
+            self.diagnostic_context = None;
+            return None;
+        }
         let pending = self
             .workspace
             .documents()
@@ -398,18 +402,14 @@ impl ServerState {
     }
 
     fn publish_all_open_diagnostics_reusing_context(&mut self) {
-        let Some(context) = self.diagnostic_publication_context() else {
-            return;
-        };
+        let context = self.diagnostic_publication_context();
         for (uri, path) in &self.open_documents {
-            self.publish(uri, path, context.as_ref());
+            self.publish(uri, path, context.as_deref());
         }
     }
 
     fn publish_open_document_diagnostics(&mut self, path: &Path) {
-        let Some(context) = self.diagnostic_publication_context() else {
-            return;
-        };
+        let context = self.diagnostic_publication_context();
         let Some((uri, _)) = self
             .open_documents
             .iter()
@@ -417,13 +417,11 @@ impl ServerState {
         else {
             return;
         };
-        self.publish(uri, path, context.as_ref());
+        self.publish(uri, path, context.as_deref());
     }
 
     fn publish_diagnostics_for_targets(&mut self, changed: &Path, ids: &HashSet<String>) {
-        let Some(context) = self.diagnostic_publication_context() else {
-            return;
-        };
+        let context = self.diagnostic_publication_context();
         let complete = self.diagnostic_context.is_some();
         for (uri, path) in &self.open_documents {
             if !complete
@@ -432,7 +430,7 @@ impl ServerState {
                     .workspace
                     .document_may_reference_targets(path, changed, ids)
             {
-                self.publish(uri, path, context.as_ref());
+                self.publish(uri, path, context.as_deref());
             }
         }
     }
@@ -465,16 +463,19 @@ impl ServerState {
             });
     }
 
-    fn publish(&self, uri: &Url, path: &Path, context: &WorkspaceDiagnosticContext) {
+    fn publish(&self, uri: &Url, path: &Path, context: Option<&WorkspaceDiagnosticContext>) {
         let Some(entry) = self.workspace.get(path) else {
             return;
         };
-        let mut diagnostics = match self.workspace.diagnostics_with_context(path, context) {
-            Ok(result) => result.value,
-            Err(error) => {
-                tracing::error!(%error, path = %path.display(), "workspace diagnostics query failed");
-                return;
-            }
+        let mut diagnostics = match context {
+            Some(context) => match self.workspace.diagnostics_with_context(path, context) {
+                Ok(result) => result.value,
+                Err(error) => {
+                    tracing::error!(%error, path = %path.display(), "workspace diagnostics query failed");
+                    self.workspace.document_local_diagnostics(path)
+                }
+            },
+            None => self.workspace.document_local_diagnostics(path),
         };
         if let Some(bibliography) = self.bibliography_for(path) {
             diagnostics.extend(bibliography.diagnostics.clone());
@@ -495,8 +496,10 @@ impl ServerState {
                 )
             })
             .collect();
-        if let Some(policy) = self.policy.diagnostics.get(path) {
-            diagnostics.extend(policy.iter().cloned());
+        if context.is_some() {
+            if let Some(policy) = self.policy.diagnostics.get(path) {
+                diagnostics.extend(policy.iter().cloned());
+            }
         }
         let version = i32::try_from(entry.revision).ok();
         let _ = self
@@ -572,14 +575,18 @@ impl ServerState {
             if open.contains(&path) {
                 continue;
             }
-            if let Ok(text) = fs::read_to_string(&path) {
-                if self.workspace.insert_disk(path, 0, text).is_ok() {
-                    indexed += 1;
-                } else {
+            match fs::read_to_string(&path) {
+                Ok(text) => match self.workspace.insert_disk(&path, 0, text) {
+                    Ok(_) => indexed += 1,
+                    Err(error) => {
+                        tracing::warn!(path = %path.display(), %error, "workspace indexing failed");
+                        complete = false;
+                    }
+                },
+                Err(error) => {
+                    tracing::warn!(path = %path.display(), %error, "workspace read failed");
                     complete = false;
                 }
-            } else {
-                complete = false;
             }
         }
         self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
@@ -3071,6 +3078,9 @@ fn scanned_files(roots: &[PathBuf]) -> (Vec<PathBuf>, bool) {
     for root in roots {
         let scan = scan_workspace_files(root);
         complete &= scan.is_complete();
+        for error in &scan.errors {
+            tracing::warn!(%error, "workspace scan failed");
+        }
         files.extend(scan.files);
     }
     files.sort();
@@ -3104,6 +3114,9 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
     );
     let (indexed, cache_hits) = match batch {
         Ok(batch) => {
+            for failure in &batch.failures {
+                tracing::warn!(path = %failure.path.display(), error = %failure.message, "workspace indexing failed");
+            }
             complete &= batch.is_complete();
             (batch.documents.len(), batch.cache_hits())
         }
@@ -3113,10 +3126,14 @@ fn build_initial_index(roots: &[PathBuf], generation: u64) -> InitialIndexResult
             match workspace.index_disk_files(&files, BatchIndexOptions::default(), |_| 0, || false)
             {
                 Ok(batch) => {
+                    for failure in &batch.failures {
+                        tracing::warn!(path = %failure.path.display(), error = %failure.message, "workspace indexing failed");
+                    }
                     complete &= batch.is_complete();
                     (batch.documents.len(), 0)
                 }
-                Err(_) => {
+                Err(error) => {
+                    tracing::warn!(%error, "uncached workspace indexing failed");
                     complete = false;
                     (0, 0)
                 }
