@@ -260,7 +260,10 @@ fn watcher_registration_follows_client_capability() {
     let watchers = registration["params"]["registrations"][0]["registerOptions"]["watchers"]
         .as_array()
         .unwrap();
-    assert_eq!(watchers.len(), 3);
+    assert_eq!(watchers.len(), 4);
+    assert_eq!(watchers[0]["globPattern"], "**/.plumb/config.toml");
+    assert_eq!(watchers[0]["kind"], 7);
+    let watchers = &watchers[1..];
     assert_eq!(watchers[0]["globPattern"], "**/*.plumb");
     assert_eq!(watchers[0]["kind"], 7);
     assert_eq!(watchers[1]["globPattern"], "**/.ignore");

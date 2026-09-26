@@ -18,4 +18,6 @@ mod navigation;
 mod rename;
 #[path = "stdio/search.rs"]
 mod search;
+#[path = "stdio/policy.rs"]
+mod policy;
 mod support;

@@ -3,6 +3,7 @@ pub mod cache_cli;
 mod folding;
 pub mod format_cli;
 mod hover;
+pub mod lsp_cli;
 mod next;
 mod position;
 mod search;
@@ -17,19 +18,28 @@ use async_lsp::panic::CatchUnwindLayer;
 use async_lsp::router::Router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
-use server::{DocumentAnalysisResult, InitialIndexResult, ServerState};
+use server::{DocumentAnalysisResult, InitialIndexResult, PolicyDiagnosticsResult, ServerState};
 use tower::ServiceBuilder;
 use tracing::Level;
 
+pub fn run_lsp() {
+    run_lsp_with_config(Vec::new());
+}
+
 #[tokio::main(flavor = "current_thread")]
-pub async fn run_lsp() {
+pub async fn run_lsp_with_config(overrides: Vec<String>) {
     let (server, _) = async_lsp::MainLoop::new_server(|client| {
-        let mut router = Router::from_language_server(ServerState::new(client.clone()));
+        let mut state = ServerState::new(client.clone());
+        state.set_config_overrides(overrides);
+        let mut router = Router::from_language_server(state);
         router.request::<search::PlumbSearchRequest, _>(|state, params| state.search(params));
         router.request::<next::PlumbNextRequest, _>(|state, params| state.next(params));
         router.event::<InitialIndexResult>(|state, result| state.finish_initial_index(result));
         router.event::<DocumentAnalysisResult>(|state, result| {
             state.finish_document_analysis(result)
+        });
+        router.event::<PolicyDiagnosticsResult>(|state, result| {
+            state.finish_policy_diagnostics(result)
         });
         ServiceBuilder::new()
             .layer(TracingLayer::default())

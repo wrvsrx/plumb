@@ -67,9 +67,14 @@ pub struct LspTestSession {
 
 impl LspTestSession {
     pub fn new() -> Self {
+        Self::with_args(&[])
+    }
+
+    pub fn with_args(args: &[&str]) -> Self {
         let cache = TestDirectory::new();
         let mut child = Command::new(env!("CARGO_BIN_EXE_plumb"))
             .arg("lsp")
+            .args(args)
             .env("PLUMB_CACHE_DIR", cache.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

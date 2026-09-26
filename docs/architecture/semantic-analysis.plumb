@@ -429,7 +429,6 @@ Warning/Hint 不导致失败；--level 只筛选基础诊断显示，不屏蔽�
 
 `### LSP configuration and publication
 
-状态：LSP 集成待实现及验证。
 plumb-workspace 提供一次 workspace round 的统一规则结果：complete、incomplete rules 与按 source location
 稳定排序的 diagnostics，每条包含 code、Error severity、message、UTF-8 byte location 与跨文件 related locations。
 code 为 event-category.missing、event-timeline.gap、event-timeline.overlap；查询 issues 保留 agenda codes。

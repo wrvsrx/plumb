@@ -76,6 +76,8 @@ use crate::symbols::{
 mod code_lens;
 mod completion;
 mod decorations;
+mod policy;
+pub(crate) use policy::PolicyDiagnosticsResult;
 
 use decorations::{semantic_tokens, PendingDocumentReads};
 
@@ -92,6 +94,7 @@ pub(crate) struct ServerState {
     open_documents: HashMap<Url, PathBuf>,
     open_document_line_indexes: HashMap<PathBuf, LineIndex>,
     roots: Vec<PathBuf>,
+    implicit_root: bool,
     supports_document_changes: bool,
     supports_resource_rename: bool,
     supports_dynamic_watching: bool,
@@ -110,6 +113,7 @@ pub(crate) struct ServerState {
     document_analysis_tokens: DocumentAnalysisTokens,
     pending_document_reads: HashMap<PathBuf, PendingDocumentReads>,
     diagnostic_context: Option<Arc<WorkspaceDiagnosticContext>>,
+    policy: policy::PolicyState,
 }
 
 #[derive(Default)]
@@ -181,6 +185,7 @@ impl ServerState {
             open_documents: HashMap::new(),
             open_document_line_indexes: HashMap::new(),
             roots: Vec::new(),
+            implicit_root: false,
             supports_document_changes: false,
             supports_resource_rename: false,
             supports_dynamic_watching: false,
@@ -199,6 +204,7 @@ impl ServerState {
             document_analysis_tokens: DocumentAnalysisTokens::default(),
             pending_document_reads: HashMap::new(),
             diagnostic_context: None,
+            policy: policy::PolicyState::default(),
         }
     }
 
@@ -256,6 +262,7 @@ impl ServerState {
             }
         }
         self.open_documents.insert(uri.clone(), path.clone());
+        self.schedule_policy_diagnostics();
         if semantic_analysis_pending {
             self.publish_syntax_diagnostics(&uri, &path);
         } else if rebound && background {
@@ -320,6 +327,7 @@ impl ServerState {
             self.folding_refresh_pending = true;
         }
         self.finish_pending_document_reads(&result.path);
+        self.schedule_policy_diagnostics();
         match impact.exported {
             ExportedSemanticChange::Changed => {
                 if impact.task_graph_changed {
@@ -475,7 +483,7 @@ impl ServerState {
             }
         }
         let mut positions = None;
-        let diagnostics = diagnostics
+        let mut diagnostics: Vec<LspDiagnostic> = diagnostics
             .into_iter()
             .map(|diagnostic| {
                 to_lsp_diagnostic(
@@ -485,6 +493,9 @@ impl ServerState {
                 )
             })
             .collect();
+        if let Some(policy) = self.policy.diagnostics.get(path) {
+            diagnostics.extend(policy.iter().cloned());
+        }
         let version = i32::try_from(entry.revision).ok();
         let _ = self
             .client
@@ -633,6 +644,7 @@ impl ServerState {
             )),
         }));
         self.register_workspace_file_watchers();
+        self.schedule_policy_diagnostics();
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
         self.refresh_folding_ranges();
@@ -659,6 +671,10 @@ impl ServerState {
                 register_options: Some(
                     serde_json::to_value(lsp_types::DidChangeWatchedFilesRegistrationOptions {
                         watchers: vec![
+                            FileSystemWatcher {
+                                glob_pattern: GlobPattern::String("**/.plumb/config.toml".to_string()),
+                                kind: Some(WatchKind::Create | WatchKind::Change | WatchKind::Delete),
+                            },
                             FileSystemWatcher {
                                 glob_pattern: GlobPattern::String("**/*.plumb".to_string()),
                                 kind: Some(
@@ -870,6 +886,7 @@ impl ServerState {
             return false;
         };
         self.workspace.insert(target_path, 0, source);
+        self.schedule_policy_diagnostics();
         true
     }
 
@@ -879,6 +896,7 @@ impl ServerState {
         }
         if let Ok(source) = fs::read_to_string(path) {
             self.workspace.open_document(path, 0, source);
+            self.schedule_policy_diagnostics();
         }
     }
 
@@ -900,6 +918,7 @@ impl ServerState {
             }
         }
         if completed {
+            self.schedule_policy_diagnostics();
             self.publish_all_open_diagnostics();
             self.refresh_code_lenses();
             self.refresh_folding_ranges();
@@ -924,7 +943,7 @@ impl ServerState {
     }
 
     fn require_index_complete(&self) -> Result<(), WorkspaceQueryError> {
-        if !self.roots.is_empty() && !self.index_complete {
+        if !self.implicit_root && !self.roots.is_empty() && !self.index_complete {
             return Err(WorkspaceQueryError::Incomplete);
         }
         Ok(())
@@ -1237,6 +1256,22 @@ impl LanguageServer for ServerState {
         params: InitializeParams,
     ) -> BoxFuture<'static, Result<InitializeResult, Self::Error>> {
         self.roots = workspace_roots(&params);
+        self.implicit_root = self.roots.is_empty();
+        if self.implicit_root {
+            match plumb_workspace::resolve_workspace_root(None) {
+                Ok(root) => self.roots.push(root),
+                Err(error) => {
+                    return Box::pin(async move {
+                        Err(ResponseError::new(ErrorCode::INVALID_PARAMS, error))
+                    });
+                }
+            }
+        }
+        if let Err(error) = self.load_policy_configuration() {
+            return Box::pin(async move {
+                Err(ResponseError::new(ErrorCode::INVALID_PARAMS, error))
+            });
+        }
         self.supports_document_changes = params
             .capabilities
             .workspace
@@ -1478,6 +1513,7 @@ impl LanguageServer for ServerState {
                 diagnostics: Vec::new(),
                 version: None,
             });
+        self.schedule_policy_diagnostics();
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
         self.refresh_folding_ranges();
@@ -1486,10 +1522,15 @@ impl LanguageServer for ServerState {
 
     fn did_save(&mut self, params: DidSaveTextDocumentParams) -> Self::NotifyResult {
         if let Ok(path) = params.text_document.uri.to_file_path() {
+            if self.is_policy_config(&path) {
+                self.reload_policy_configuration();
+                return ControlFlow::Continue(());
+            }
             if let Ok(text) = fs::read_to_string(&path) {
                 let _ = self.workspace.insert_disk(path, 0, text);
             }
         }
+        self.schedule_policy_diagnostics();
         ControlFlow::Continue(())
     }
 
@@ -1497,6 +1538,7 @@ impl LanguageServer for ServerState {
         &mut self,
         _params: DidChangeConfigurationParams,
     ) -> Self::NotifyResult {
+        self.reload_policy_configuration();
         ControlFlow::Continue(())
     }
 
@@ -1512,6 +1554,12 @@ impl LanguageServer for ServerState {
                 Some((path, change.typ))
             })
             .collect::<Vec<_>>();
+        if changes.iter().any(|(path, _)| self.is_policy_config(path)) {
+            self.reload_policy_configuration();
+            if changes.iter().all(|(path, _)| self.is_policy_config(path)) {
+                return ControlFlow::Continue(());
+            }
+        }
         if changes
             .iter()
             .any(|(path, _)| path.file_name().is_some_and(|name| name == ".ignore"))
@@ -1546,6 +1594,7 @@ impl LanguageServer for ServerState {
                 }
             }
         }
+        self.schedule_policy_diagnostics();
         self.publish_all_open_diagnostics();
         self.refresh_code_lenses();
         self.refresh_folding_ranges();
@@ -2755,7 +2804,10 @@ impl LanguageServer for ServerState {
                     new_path.display()
                 )));
             }
-            if !self.roots.is_empty() && !self.roots.iter().any(|root| new_path.starts_with(root)) {
+            if !self.implicit_root
+                && !self.roots.is_empty()
+                && !self.roots.iter().any(|root| new_path.starts_with(root))
+            {
                 return Err(rename_request_error(format!(
                     "document rename target is outside the workspace: {}",
                     new_path.display()

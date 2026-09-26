@@ -36,18 +36,7 @@ fn main() -> ExitCode {
             delegated.extend(rest);
             plumb_notes::run_cli(delegated)
         }
-        Some("lsp") => {
-            if wants_help(&rest) {
-                println!("Usage: plumb lsp\n\nRun the plumb language server over stdio.");
-                ExitCode::SUCCESS
-            } else if rest.is_empty() {
-                plumb::run_lsp();
-                ExitCode::SUCCESS
-            } else {
-                eprintln!("plumb lsp: unexpected arguments");
-                ExitCode::from(2)
-            }
-        }
+        Some("lsp") => plumb::lsp_cli::run(delegated_args("plumb lsp", rest)),
         Some("help" | "--help" | "-h") => {
             print_help();
             ExitCode::SUCCESS
