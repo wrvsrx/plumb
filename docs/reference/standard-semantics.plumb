@@ -322,7 +322,7 @@ invalid explicit override 不 fallback ancestor。tasks 创建 association，不
 deterministically derivation；source uid/when opaque。vdir export 是 managed readonly VEVENT files。
 
 `## 11.1 Agenda accounting
-分类声明字段为 event-category；旧 category 仍是普通属性，不再参与事件核算。普通文档也可在根层声明 event-category，作为直接引用整个文档的 event 的默认分类，不要求 task 或 activity facet；普通文档不会进入 task 用时统计。引用具体条目只读取条目本身的分类，不回退到文档。CLI 的 check-category、--group-by category 及 JSON category/values 字段保持不变。
+分类声明字段为 event-category；旧 category 仍是普通属性，不再参与事件核算。普通文档也可在根层声明 event-category，作为直接引用整个文档的 event 的默认分类，不要求 task 或 activity facet；普通文档不会进入 task 用时统计。引用具体条目只读取条目本身的分类，不回退到文档。summary 的 --group-by category 及 JSON category/values 字段保持不变。
 
 `"event-category" 的 scalar spelling 按 first : rest 分隔：首个元素是 key，全部剩余内容是一个分类（例如 phd misc）。 允许 anonymous grouping 与 unmarked inline verbatim；多个分类必须使用head 仅含 event-category 的 property 下直接 leaf `"-" list items，每项完整内容是一个分类。 分类按首次出现顺序去重。不允许 marked rich inline、重复 property、空值、非 list children 或嵌套 children。 list item（包括 task、event）与 document task 可以声明分类。不从标题前缀、tags、父节点或任意链接递归推导。 普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
 
@@ -340,7 +340,7 @@ vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保�
 
 `## 11.2 分类完整性检查
 
-event check-category 查询全部选中 events，不要求时间窗口。默认检查有效继承分类的每个份额；explicit 模式只检查 event 自身声明，不解析引用。 无分类给出 event 位置；非法 event-category 或无法完整查询返回不完整。point events 同样检查。退出码 0 表示全部有分类，1 表示存在未分类，2 表示不完整。
+可选 check.event-category 规则检查全部 events，不要求时间窗口，检查有效继承分类的每个份额。无分类给出 event 位置；非法 event-category 或无法完整查询返回不完整。point events 同样检查。不提供仅检查显式分类的模式。配置与迁移状态见 semantic-analysis 的 Workspace check configuration。
 
 
 `# 12. Tables

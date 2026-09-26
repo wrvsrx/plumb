@@ -1,5 +1,7 @@
 mod agenda;
 pub use agenda::*;
+mod config;
+pub use config::{CheckSettings, CheckRuleSettings, WorkspaceConfig};
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;

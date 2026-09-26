@@ -388,14 +388,46 @@ agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影�
 
 summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 category、item、task 汇总。 返回逐事件分摊依据、汇总、覆盖时间、问题与 completeness，支持结构化 JSON。分摊保留精度到展示边界。 完整汇总可能选择同一文档数万个 events；store 按 source keys 加载记录时必须去重并分批绑定参数， 不能因 SQLite 单条语句的变量上限而失败。分批不改变 source ordering，也不解码未选中的 records。
 
-check-timeline 接受相同 half-open window，要求其中每一 instant 恰好有一个原始 event interval 覆盖。
-选取所有相交事件（包括从 window 之前开始的事件），裁剪边界后做 interval sweep，不只比较相邻事件。
-返回所有 gap segments、带 source identities 的 overlap segments；空集合的 gap 是整个 window。
-首尾相等是合法衔接；嵌套 overlap 不能制造假 gap；point events 不提供覆盖。
-invalid time 或 incomplete index 不能得到通过结果。分类分摊不会生成额外 timeline intervals。
-可选 CEL filter 显式记录在响应中；检查只对所选集合成立。
-CLI exit status：0 为通过，1 为覆盖不合格，2 为查询失败或结果不完整。
+可选 event-timeline 检查不接受时间窗口或筛选条件，检查整个 workspace 的原始 event intervals。
+状态：以下配置与检查迁移待实现及验证。
+边界取所有有效有限区间的最早 start 与最晚 end；边界之外没有覆盖要求。区间采用 half-open 语义，
+要求边界内每一 instant 恰好一个 interval 覆盖。使用 interval sweep，不只比较相邻事件；返回全部内部
+空档与带 source identities 的重叠，嵌套重叠不能制造假空档。跨文件、跨日期的事件属于同一时间轴。
+合法 point events 不提供覆盖，也不扩大边界；空集合、只有 points 或单个有效区间通过。
+invalid time、未能解析出有限 end 的事件或 incomplete index 不能通过。分类与引用问题不参与 timeline。
+summary 继续接受显式 window，空 window selection 的 gap 仍是整个 window，与连续性检查不同。
 这些问题是主动 query 的结果，不作为默认 document diagnostics 或 syntax errors。
+
+`## 8.2 Workspace check configuration
+
+状态：以下配置与检查迁移待实现及验证。
+工作区配置唯一来源是 resolved workspace root 下的 .plumb/config.toml；不存在时使用内置默认值，
+不创建文件，不合并祖先或用户级配置。读取失败、TOML 格式错误、未知字段和类型错误均失败。
+配置由 plumb-workspace 定义和加载，不改变 syntax/semantic inputs，不参与 semantic cache identity；
+每次 check 重新加载并执行启用的规则，不缓存最终结果。
+
+`toml"
+ [check.event-category]
+ enabled = false
+ 
+ [check.event-timeline]
+ enabled = false
+
+两个规则都只有 enabled 布尔字段，省略时为 false；没有 explicit、query、from 或 to 配置。
+plumb check 接受可重复的 --config KEY=VALUE，KEY 是完整 dotted key，VALUE 按 TOML value 解析。
+每个参数只能赋值一个已知字段，不能注入额外 TOML declarations。文件先校验，再按顺序应用 overrides；
+同键最后一个 override 生效。错误配置不能被 override 隐藏。初版 CLI 覆盖入口仅为 plumb check。
+
+plumb check 始终运行基础 syntax、semantic 与 cross-document diagnostics，并额外运行启用的规则。
+event-category 检查全部 events 的有效继承分类，每个核算份额都必须有分类，包含 point events；
+不支持只检查显式声明。event-timeline 使用上一节的无窗口连续性规则。两个 event check-* 子命令删除，
+不保留兼容 alias。summary、event 查询与 export-vdir 保持各自职责。
+CLI 退出码：0 为无 Error 且启用规则通过；1 为基础 Error 或规则违反；2 为配置/加载/查询失败或结果不完整。
+Warning/Hint 不导致失败；--level 只筛选基础诊断显示，不屏蔽规则失败。成功且无可显示诊断时保持静默。
+规则结果由 shared workspace query 提供，CLI 只将 source byte ranges 转为 workspace-relative path 与
+1-based Unicode scalar line/column，输出 error[check.event-category.missing]、error[check.event-timeline.gap]
+或 error[check.event-timeline.overlap]。gap 附带左右边界事件位置；overlap 附带全部 active event 位置。
+不完整结果保留已有问题并显式输出 check.incomplete，不可伪装为通过。
 
 `# 9. Operations and editing
 
@@ -480,8 +512,8 @@ Exported semantic delta 的 record address 显式区分 document reducer record 
 
 `## 分类检查查询
 
-check-event-categories 在 workspace 层复用 event selection 与 event-category 解析，独立于 timeline window。explicit 模式不解析事项引用；默认检查每个有效核算份额。 输出 complete、checked、missing source locations 与 issues。CLI event check-category 仅投影结果与 0/1/2 退出码，不另行推导类别。 Category 持久化保存去重 values 数组；结构变化提升 store schema version，旧缓存重新索引。
+check-event-categories 在 workspace 层复用 event selection 与 event-category 解析，不接受时间窗口，检查每个有效核算份额。 输出 complete、checked、missing source locations 与 issues。CLI check 仅投影结果与 0/1/2 退出码，不另行推导类别。 Category 持久化保存去重 values 数组；结构变化提升 store schema version，旧缓存重新索引。
 
-CLI event check-category 的 missing-category 终端位置使用事件 selection_range，格式为 path:start_line:start_column..end_line:end_column。
+CLI check 的缺分类终端位置使用事件 selection_range，格式为 path:start_line:start_column..end_line:end_column。
 行、列均从 1 开始，列按 Unicode scalar value 计数，不按 UTF-8 bytes、UTF-16 units 或显示宽度计数；结束位置不包含在范围内。
 两端从同一已加载 source snapshot 转换，支持跨行标题、CRLF 与空范围；不重新读取或解析文件。JSON 与 protocol-neutral report 保留 UTF-8 half-open byte ranges。
