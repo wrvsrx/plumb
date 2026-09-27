@@ -270,6 +270,27 @@ Use the same explicit port in browser automation and health checks so restarting
 the demo never requires rewriting test scripts and cannot collide with the user's
 own `plumb site serve` instance.
 
+## Test and benchmark memory limits
+
+All agent-run tests, benchmarks, profiling sessions, and their build steps must
+run with an explicit hard memory limit. Unbounded test runs have previously
+caused host OOM and made this machine unreachable. Apply the limit before
+starting the workload, including all descendant processes; a timeout or memory
+monitor alone is not sufficient.
+
+Prefer a dedicated cgroup (for example, a transient systemd user service with
+`MemoryMax` and `MemorySwapMax`) and verify that the limit is active. Choose a
+conservative budget based on currently available memory, leaving ample headroom
+for the user's editor and other services. Concurrent workloads must share a
+bounded aggregate budget; do not give each process the entire available budget.
+If no reliable memory-limiting mechanism is available, do not start the workload;
+continue with static investigation and report the limitation.
+
+When a workload hits its limit, reduce the fixture size or concurrency before
+retrying. Do not remove the limit or automatically raise it to consume the host's
+remaining memory. Track and stop only processes started for the current task,
+and never stop the user's editor, language server, or other independent services.
+
 ## Cargo build artifacts
 
 The workspace dev profile uses limited debug information (`debug = 1`). This keeps line numbers,
