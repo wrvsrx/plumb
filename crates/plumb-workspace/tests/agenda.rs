@@ -1032,3 +1032,18 @@ fn inserting_another_document_preserves_existing_event_policy_identities() {
     let fresh = workspace.check_event_timeline(root, dt(START)).unwrap();
     assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(fresh).unwrap());
 }
+
+#[test]
+fn explicit_event_category_does_not_depend_on_target_category_values() {
+    let mut workspace = Workspace::new();
+    let root = Path::new("/notes");
+    workspace.insert("/notes/items.plumb", 0, ITEMS);
+    workspace.insert("/notes/day.plumb", 0, format!("`= event-category fixed\n{EVENT}"));
+    let mut state = plumb_workspace::CategoryCheckState::default();
+    workspace.check_event_categories_incremental(root, dt(START), &mut state).unwrap();
+    workspace.insert("/notes/items.plumb", 1, ITEMS.replace("work", "personal"));
+    let actual = workspace.check_event_categories_incremental(root, dt(START), &mut state).unwrap();
+    assert_eq!(state.recomputed_events, 0);
+    let full = workspace.check_event_categories(root, dt(START), None).unwrap();
+    assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(full).unwrap());
+}

@@ -637,6 +637,8 @@ pub struct TimelineCheckReport {
 #[derive(Clone, Debug, Default)]
 pub struct TimelineCheckState {
     index: timeline_index::TimelineIndex,
+    documents: BTreeMap<PathBuf, usize>,
+    next_document: usize,
     pub recomputed_segments: usize,
 }
 impl TimelineCheckReport {
@@ -969,18 +971,25 @@ impl Workspace {
                 continue;
             }
             let ordinal = ordinals.entry(path.clone()).or_default();
-            let index = (std::sync::Arc::new(path), *ordinal);
+            let document = *state.documents.entry(path.clone()).or_insert_with(|| {
+                let id = state.next_document;
+                state.next_document += 1;
+                id
+            });
+            let index = (document, *ordinal);
             *ordinal += 1;
-            sources.insert(index.clone(), source);
+            let order = sources.len();
+            sources.insert(index, (source, order, end));
             intervals.insert(index, (start, end));
         }
-        state.recomputed_segments = state.index.update(intervals);
+        state
+            .documents
+            .retain(|path, _| ordinals.contains_key(path));
+        state.recomputed_segments = state.index.update_with_order(intervals, |id| sources[id].1);
         for (start, segment) in &state.index.segments {
-            let events = segment
-                .events
-                .iter()
-                .map(|id| sources[id].clone())
-                .collect();
+            let mut ids = segment.events.clone();
+            ids.sort_by_key(|id| (!segment.overlap && sources[id].2 != *start, sources[id].1));
+            let events = ids.iter().map(|id| sources[id].0.clone()).collect();
             let value = TimelineSegment {
                 start: *start,
                 end: segment.end,

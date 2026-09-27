@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound::{Excluded, Unbounded};
 
 type Instant = DateTime<FixedOffset>;
-pub(super) type EventId = (std::sync::Arc<std::path::PathBuf>, usize);
+pub(super) type EventId = (usize, usize);
 
 #[derive(Clone, Debug, Default)]
 struct Boundary {
@@ -29,7 +29,16 @@ pub(super) struct TimelineIndex {
 
 impl TimelineIndex {
     /// Returns the number of elementary intervals recomputed, not inspected ids.
+    #[cfg(test)]
     pub fn update(&mut self, intervals: BTreeMap<EventId, (Instant, Instant)>) -> usize {
+        self.update_with_order(intervals, |id| id.1)
+    }
+
+    pub fn update_with_order(
+        &mut self,
+        intervals: BTreeMap<EventId, (Instant, Instant)>,
+        order: impl Fn(&EventId) -> usize,
+    ) -> usize {
         let mut changed = BTreeSet::new();
         for (id, old) in &self.intervals {
             if !same_interval(intervals.get(id), old) {
@@ -72,7 +81,7 @@ impl TimelineIndex {
                 .starting
                 .iter()
                 .chain(&boundary.ending)
-                .min()
+                .min_by_key(|id| order(id))
                 .cloned();
             if let Some(id) = first {
                 let interval = self.intervals[&id];
@@ -162,7 +171,7 @@ fn same_interval(old: Option<&(Instant, Instant)>, new: &(Instant, Instant)) -> 
 mod tests {
     use super::*;
     fn key(n: usize) -> EventId {
-        (std::sync::Arc::new(std::path::PathBuf::new()), n)
+        (0, n)
     }
     fn t(n: i64) -> Instant {
         DateTime::from_timestamp(n, 0).unwrap().fixed_offset()

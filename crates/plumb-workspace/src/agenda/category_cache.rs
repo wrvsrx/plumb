@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct CategoryValue {
@@ -34,7 +35,7 @@ struct Input {
 /// Malformed inputs are recomputed so their precise issue locations stay current.
 #[derive(Clone, Debug, Default)]
 pub struct CategoryCheckState {
-    entries: BTreeMap<(PathBuf, usize), (Input, bool)>,
+    entries: HashMap<(PathBuf, usize), (Input, bool)>,
     pub recomputed_events: usize,
 }
 
@@ -62,7 +63,7 @@ impl Workspace {
             missing: Vec::new(),
             issues: selected.issues,
         };
-        let mut next = BTreeMap::new();
+        let mut next = HashMap::with_capacity(selected.events.len());
         let mut context = AccountingContext::default();
         let mut targets = BTreeMap::<(PathBuf, String), TargetValue>::new();
         let mut recomputed = 0;
@@ -76,10 +77,11 @@ impl Workspace {
             } else {
                 event.category.clone()
             };
+            let use_target_category = category.declarations.is_empty();
             let mut references = Vec::new();
             for (target, spelling, _) in self.accounting_references(&path, &event)? {
                 let key = (path.clone(), spelling.clone());
-                let value = if let Some(value) = targets.get(&key) {
+                let mut value = if let Some(value) = targets.get(&key) {
                     value.clone()
                 } else {
                     let mut value = TargetValue {
@@ -111,6 +113,9 @@ impl Workspace {
                     targets.insert(key, value.clone());
                     value
                 };
+                if !use_target_category {
+                    value.category = Category::default().into();
+                }
                 references.push((spelling, value));
             }
             let input = Input {
