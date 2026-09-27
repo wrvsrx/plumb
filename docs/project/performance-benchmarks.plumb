@@ -57,6 +57,10 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
 
 `# Measurement contract
 
+增量事件规则的本机结果见 `->{{2026-09 性能快照} ../history/performance/event-policy-incremental-2026-09.plumb}；该快照区分规则重算数量与仍需执行的输入遍历。
+
+`"cargo run --release -p plumb-workspace --example profile_event_policies -- ROOT RELATIVE_DOCUMENT" 在笔记库副本上分别计时 category 和 timeline 增量检查。打开指定文档后各查询三次，再仅在 memory overlay 的文件开头插入空行并各查询三次；然后在 memory overlay 加入三个相互重叠的 events，分别修改单个 interval 和共同引用目标的分类。输出 checked、complete、issues 和实际重算计数；每次计时外与独立 full check 的完整 JSON 结果比较。首次查询包含建立规则缓存，后续查询不包含 parse、fold、LSP projection 或 CLI diagnostic rendering。运行前必须通过 systemd/cgroup 设置整个构建和查询进程组的 MemoryMax 与 MemorySwapMax，单独报告峰值内存。
+
 每次发布结果必须记录 commit、host、kernel、rustc、profile、fixture identity、warmup、measurement duration、 sample count 和 interval midpoint。报告 absolute value 与相对 baseline；wall-clock observation 不是跨机器 SLA， 不能进入普通 correctness CI 的硬阈值。
 
 比较必须覆盖完整 observable path。不得把只 decode records 的 baseline 与同时执行 score/order/hydration 的 新路径比较，也不得把 editor transport wait 归因于 server parse 或 query。Response size、time to first byte、 total time、database/WAL bytes、peak memory 与 steady resident 分开记录。

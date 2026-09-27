@@ -1,0 +1,22 @@
+`= title Event policy 增量检查性能快照 2026-09
+
+本页记录 2026-09-28 的本机测量，不作为跨机器性能承诺。现行契约见 `->{{Semantic analysis} ../../architecture/semantic-analysis.plumb}，复现入口见 `->{{Performance benchmarks} ../../project/performance-benchmarks.plumb}。
+
+实现 commit：workspace 核心 c59983a，LSP 接入 1dd2c0b。Host 为 x86_64 Intel Core i9-9980XE，Linux 6.18.53，rustc 1.97.1，Cargo release profile。构建和测试均以 systemd user service 的 MemoryMax=4G、MemorySwapMax=0 限制整个进程组，CARGO_BUILD_JOBS=1。
+
+Fixture 为本地笔记库的只读副本；285 个 plumb source files 按 relative path 排序，以 path、NUL、bytes、NUL 串联的 SHA-256 为 4e767325942bb6185c055d8c182325e02f178d181d77ac2f97c8a9b75e45e30e。基线与优化后都检查 34,961 events，category missing/issues 均为零，timeline 为 81 gaps、137 overlaps，complete=true。不公开私人笔记内容。
+
+各阶段三次采样；首次 opened 查询包含初始化，后两次复用缓存，没有额外独立 warmup。edited 阶段仅在归档 memory overlay 开头插入空行，不修改 disk source。每次查询在计时外与独立 full check 的完整 JSON 对照；这些 oracle 查询也会预热下一样本的数据。测量只包含 shared rule query 的输入读取、依赖比较、分类核算或覆盖计算及 source location 投影，不含 parse、语义分析、fold、LSP transport 或诊断文本输出。基线采样在 2026-09-27，优化后在 2026-09-28 00:22:11 至 00:22:23 +08:00，区间中点约 00:22:17，总运行 11.895 秒（包含加载和 oracle 查询），测量进程组峰值内存 1.2 GiB、swap 为零；不是交错成对试验，系统负载差异可能影响时间。
+
+空行编辑后三次样本的毫秒值：
+
+`- Category 基线：413.215、409.348、412.273；中位数 412.273。
+`- Category 优化后：198.219、204.060、209.888；中位数 204.060。
+`- Timeline 基线：312.133、301.456、327.871；中位数 312.133。
+`- Timeline 优化后：137.713、135.169、145.044；中位数 137.713。
+
+两条规则 edited 阶段的实际重算计数都为零。改善同时来自取消通用 search 中间结果、复用分类结论与保留时间线拓扑；不能把全部耗时差都归因于增量缓存。输入读取、依赖比较和位置投影仍遍历事件，不是常数时间查询。
+
+继续在 memory overlay 增加三个共享分类目标的 nested events，checked 变为 34,964。首次只重算三个分类结论和十四个时间片段；修改其中一个 interval 时，分类重算为零，时间片段重算为六；修改共同引用目标的分类时，只重算三个分类结论，timeline 重算为零。后续未变化查询的两个重算计数均为零，全部结果逐项等于 full oracle。
+
+分类缓存按当前事件输入和当前目标 facts 比较，位置不进入缓存键；非法输入保守重算 issues。Timeline 使用稳定文档编号与文档内序号，在输出时恢复 source order 与当前范围。文档内部增删导致序号移动时可以保守重算后缀。更进一步减少全量输入扫描与调整 LSP 调度仍有优化空间。
