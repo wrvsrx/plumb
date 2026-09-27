@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub(super) struct PolicyState {
+    cache: Arc<std::sync::Mutex<BTreeMap<PathBuf, plumb_workspace::EventPolicyState>>>,
     overrides: Vec<String>,
     settings: BTreeMap<PathBuf, DiagnosticSettings>,
     pub(super) diagnostics: HashMap<PathBuf, Vec<LspDiagnostic>>,
@@ -136,9 +137,13 @@ impl ServerState {
             .cloned()
             .collect::<HashSet<_>>();
         let client = self.client.clone();
+        let cache = Arc::clone(&self.policy.cache);
         tokio::task::spawn_blocking(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                compute(workspace, settings, roots, open)
+                let mut cache = cache
+                    .lock()
+                    .map_err(|_| "event policy cache lock poisoned".to_owned())?;
+                compute_incremental(workspace, settings, roots, open, &mut cache)
             }))
             .unwrap_or_else(|_| Err("workspace policy analysis failed".into()));
             let _ = client.emit(PolicyDiagnosticsResult { generation, result });
@@ -166,12 +171,24 @@ impl ServerState {
     }
 }
 
+#[cfg(test)]
 fn compute(
     workspace: Workspace,
     settings: BTreeMap<PathBuf, DiagnosticSettings>,
     roots: Vec<PathBuf>,
     open: HashSet<PathBuf>,
 ) -> Result<PolicyPublication, String> {
+    compute_incremental(workspace, settings, roots, open, &mut BTreeMap::new())
+}
+
+fn compute_incremental(
+    workspace: Workspace,
+    settings: BTreeMap<PathBuf, DiagnosticSettings>,
+    roots: Vec<PathBuf>,
+    open: HashSet<PathBuf>,
+    cache: &mut BTreeMap<PathBuf, plumb_workspace::EventPolicyState>,
+) -> Result<PolicyPublication, String> {
+    cache.retain(|root, _| settings.contains_key(root));
     let workspace = workspace.readonly_diagnostic_snapshot()?;
     let now = Local::now().fixed_offset();
     let mut publication = PolicyPublication {
@@ -184,7 +201,13 @@ fn compute(
             .filter(|other| **other != root && other.starts_with(&root))
             .cloned()
             .collect::<Vec<_>>();
-        let report = workspace.policy_diagnostics(&root, &excluded, now, &settings)?;
+        let report = workspace.policy_diagnostics_incremental(
+            &root,
+            &excluded,
+            now,
+            &settings,
+            cache.entry(root.clone()).or_default(),
+        )?;
         for diagnostic in report.diagnostics {
             // Incomplete input cannot establish a rule's negative conclusions.
             if report
@@ -272,6 +295,47 @@ mod tests {
         state.schedule_policy_diagnostics();
         assert!(state.policy.last_status.is_none());
         assert!(!state.policy.running);
+    }
+
+    #[test]
+    fn policy_cache_rebinds_utf16_locations_without_rechecking_geometry_only_edits() {
+        let root = PathBuf::from("/notes");
+        let path = root.join("day.plumb");
+        let source = "`= event-category work\n`- 2026-09-22T10:00:00Z--11:00 中文😀\n `+ event\n`- 2026-09-22T12:00:00Z--13:00 Later\n `+ event\n";
+        let mut workspace = Workspace::new();
+        workspace.open_document(&path, 1, source);
+        let mut config = DiagnosticSettings::default();
+        config.event_category.enabled = true;
+        config.event_timeline.enabled = true;
+        let settings = BTreeMap::from([(root.clone(), config)]);
+        let open = HashSet::from([path.clone()]);
+        let mut cache = BTreeMap::new();
+        let before = compute_incremental(
+            workspace.clone(),
+            settings.clone(),
+            vec![root.clone()],
+            open.clone(),
+            &mut cache,
+        )
+        .unwrap();
+        assert_eq!(cache[&root].category.recomputed_events, 2);
+        workspace.open_document(&path, 2, format!("\n{source}"));
+        let after = compute_incremental(
+            workspace.clone(),
+            settings.clone(),
+            vec![root.clone()],
+            open.clone(),
+            &mut cache,
+        )
+        .unwrap();
+        assert_eq!(cache[&root].category.recomputed_events, 0);
+        assert_eq!(cache[&root].timeline.recomputed_segments, 0);
+        assert_eq!(
+            after.diagnostics[&path][0].range.start.line,
+            before.diagnostics[&path][0].range.start.line + 1
+        );
+        let fresh = compute(workspace, settings, vec![root], open).unwrap();
+        assert_eq!(after.diagnostics, fresh.diagnostics);
     }
 
     #[test]
