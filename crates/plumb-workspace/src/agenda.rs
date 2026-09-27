@@ -1,8 +1,11 @@
 //! Protocol-neutral agenda accounting and exact-coverage queries.
+mod category_cache;
+mod timeline_index;
 use crate::{
     normalize, parse_task_reference_target, resolve_relative, QueryCompleteness, ResolvedTarget,
     SearchRecordKind, Workspace,
 };
+pub use category_cache::CategoryCheckState;
 use chrono::{DateTime, FixedOffset};
 use plumb_semantics::{Category, EventRecord, TaskOwner, TaskReferenceTarget};
 use serde::Serialize;
@@ -194,29 +197,12 @@ impl Workspace {
         )
     }
 
-    fn event_accounting_with_context(
+    fn accounting_references(
         &self,
         path: &Path,
         event: &EventRecord,
-        duration_seconds: f64,
-        context: &mut AccountingContext,
-    ) -> Result<(Vec<AgendaShare>, Vec<AgendaIssue>), String> {
-        let path = normalize(path);
-        let source = location(&path, event.selection_range.clone());
-        let event_category = if event.category.declarations.is_empty() {
-            context.document_category(self, &path)?
-        } else {
-            event.category.clone()
-        };
-        let mut issues = Vec::new();
-        if event.tasks_override && event.tasks.is_empty() {
-            issues.push(issue(
-                "agenda.invalid-item",
-                "explicit tasks declaration is empty",
-                source.clone(),
-            ));
-        }
-        let refs = if event.tasks_override {
+    ) -> Result<Vec<(TaskReferenceTarget, String, Range<usize>)>, String> {
+        Ok(if event.tasks_override {
             event
                 .tasks
                 .iter()
@@ -225,7 +211,7 @@ impl Workspace {
         } else if event.accounting_links.is_empty() {
             Vec::new()
         } else {
-            let links = if self.documents.contains_key(&path) {
+            let links = if self.documents.contains_key(path) {
                 self.current_output(&path)
                     .map(|o| o.links_contained_by_record(event))
                     .unwrap_or_default()
@@ -252,7 +238,32 @@ impl Workspace {
                     ),
                 })
                 .collect()
+        })
+    }
+
+    fn event_accounting_with_context(
+        &self,
+        path: &Path,
+        event: &EventRecord,
+        duration_seconds: f64,
+        context: &mut AccountingContext,
+    ) -> Result<(Vec<AgendaShare>, Vec<AgendaIssue>), String> {
+        let path = normalize(path);
+        let source = location(&path, event.selection_range.clone());
+        let event_category = if event.category.declarations.is_empty() {
+            context.document_category(self, &path)?
+        } else {
+            event.category.clone()
         };
+        let mut issues = Vec::new();
+        if event.tasks_override && event.tasks.is_empty() {
+            issues.push(issue(
+                "agenda.invalid-item",
+                "explicit tasks declaration is empty",
+                source.clone(),
+            ));
+        }
+        let refs = self.accounting_references(&path, event)?;
         let mut seen = BTreeSet::new();
         let mut shares = Vec::new();
         let mut item_categories = Vec::new();
@@ -619,6 +630,15 @@ pub struct TimelineCheckReport {
     pub overlaps: Vec<TimelineSegment>,
     pub issues: Vec<AgendaIssue>,
 }
+
+/// Retained timeline topology. Source locations are projected anew each round.
+/// Event ordinals are conservative identities: insertion may invalidate a suffix,
+/// but cannot accidentally reuse another event's interval.
+#[derive(Clone, Debug, Default)]
+pub struct TimelineCheckState {
+    index: timeline_index::TimelineIndex,
+    pub recomputed_segments: usize,
+}
 impl TimelineCheckReport {
     pub fn passed(&self) -> bool {
         self.complete && self.gaps.is_empty() && self.overlaps.is_empty()
@@ -643,6 +663,62 @@ impl Workspace {
         let in_scope = |path: &Path| {
             path.starts_with(&root) && !excluded_roots.iter().any(|r| path.starts_with(r))
         };
+        if filter.is_none() {
+            // Policy checks have no search expression or ranking. Read typed
+            // event facts directly rather than constructing all search results
+            // and then loading the same event records again.
+            let mut paths = BTreeSet::new();
+            paths.extend(self.documents.keys().filter(|p| in_scope(p)).cloned());
+            let stored = self
+                .disk_store
+                .as_ref()
+                .map(|store| store.documents())
+                .transpose()
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default();
+            let validity = stored
+                .into_iter()
+                .filter(|doc| in_scope(&doc.path))
+                .map(|doc| (doc.path, doc.valid))
+                .collect::<BTreeMap<_, _>>();
+            paths.extend(validity.keys().cloned());
+            let mut result = SelectedEvents {
+                complete: true,
+                events: Vec::new(),
+                issues: Vec::new(),
+            };
+            for path in paths {
+                let events = if let Some(entry) = self.documents.get(&path) {
+                    entry
+                        .current
+                        .as_ref()
+                        .map(|current| current.output.events().events.iter().collect::<Vec<_>>())
+                } else if validity.get(&path) == Some(&true) {
+                    Some(
+                        self.disk_store
+                            .as_ref()
+                            .expect("stored path has a store")
+                            .events_for_path(&path)
+                            .map_err(|e| e.to_string())?,
+                    )
+                } else {
+                    None
+                };
+                if let Some(events) = events {
+                    result
+                        .events
+                        .extend(events.into_iter().map(|event| (path.clone(), event)));
+                } else {
+                    result.issues.push(issue(
+                        "agenda.invalid-document",
+                        "document has no valid semantic output",
+                        location(&path, 0..0),
+                    ));
+                }
+            }
+            result.complete = result.issues.is_empty();
+            return Ok(result);
+        }
         let selected = self
             .search_records_filtered(
                 &root,
@@ -839,6 +915,82 @@ impl Workspace {
             active.extend(starting);
             previous = Some(instant);
             previous_ending = ending;
+        }
+        report.complete &= report.issues.is_empty();
+        Ok(report)
+    }
+
+    pub fn check_event_timeline_incremental(
+        &self,
+        root: &Path,
+        now: DateTime<FixedOffset>,
+        state: &mut TimelineCheckState,
+    ) -> Result<TimelineCheckReport, String> {
+        self.check_event_timeline_incremental_in_scope(root, now, &[], state)
+    }
+
+    pub(crate) fn check_event_timeline_incremental_in_scope(
+        &self,
+        root: &Path,
+        now: DateTime<FixedOffset>,
+        excluded_roots: &[PathBuf],
+        state: &mut TimelineCheckState,
+    ) -> Result<TimelineCheckReport, String> {
+        let selected = self.selected_check_events(root, now, None, excluded_roots)?;
+        let mut report = TimelineCheckReport {
+            complete: selected.complete,
+            checked: selected.events.len(),
+            gaps: Vec::new(),
+            overlaps: Vec::new(),
+            issues: selected.issues,
+        };
+        let mut sources = BTreeMap::new();
+        let mut ordinals = BTreeMap::<PathBuf, usize>::new();
+        let mut intervals = BTreeMap::new();
+        for (path, event) in selected.events {
+            if event.at_datetime().is_some() {
+                continue;
+            }
+            let source = location(&path, event.selection_range.clone());
+            let (Some(start), Some(end)) = (event.start_datetime(), event.end_datetime()) else {
+                report.issues.push(issue(
+                    "agenda.invalid-time",
+                    "event has no valid finite interval",
+                    source,
+                ));
+                continue;
+            };
+            if end <= start {
+                report.issues.push(issue(
+                    "agenda.invalid-time",
+                    "event end must follow start",
+                    source,
+                ));
+                continue;
+            }
+            let ordinal = ordinals.entry(path.clone()).or_default();
+            let index = (std::sync::Arc::new(path), *ordinal);
+            *ordinal += 1;
+            sources.insert(index.clone(), source);
+            intervals.insert(index, (start, end));
+        }
+        state.recomputed_segments = state.index.update(intervals);
+        for (start, segment) in &state.index.segments {
+            let events = segment
+                .events
+                .iter()
+                .map(|id| sources[id].clone())
+                .collect();
+            let value = TimelineSegment {
+                start: *start,
+                end: segment.end,
+                events,
+            };
+            if segment.overlap {
+                report.overlaps.push(value);
+            } else {
+                report.gaps.push(value);
+            }
         }
         report.complete &= report.issues.is_empty();
         Ok(report)

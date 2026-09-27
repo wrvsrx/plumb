@@ -399,6 +399,20 @@ invalid time、未能解析出有限 end 的事件或 incomplete index 不能通
 summary 继续接受显式 window，空 window selection 的 gap 仍是整个 window，与连续性检查不同。
 这些规则默认禁用，启用后作为 workspace diagnostics，不改变 syntax validity。
 
+`## 8.1.1 Incremental event policy checks
+
+event-category 与 event-timeline 提供跨轮增量检查；原有 full check 保留为独立 correctness oracle。
+
+增量状态由 protocol-neutral workspace 层持有，每轮从当前 immutable snapshot 与 root/excluded-root scope 验证 typed inputs。LSP 只负责在 background rounds 之间传递状态、丢弃过期结果并发布当前 generation 的结果，不在 adapter 中推导分类或时间覆盖。配置重新启用、scope 变化、无法证明输入一致或缓存缺失时允许 full rebuild；不得把 partial input 缓存为完整结果。
+
+Category 按 event 缓存核算分类结论，记录 event 的有效分类、核算引用、tasks override 与引用目标依赖。仅修改无关 title text 或 event 时间不使分类结论失效；修改 title 内参与核算的链接必须失效。目标有效分类、身份、task 身份、解析歧义或存在性变化，必须重新计算依赖该目标的 events，包含此前无法解析的引用。文档根层和祖先分类变化按其实际继承依赖失效；显式非法声明的 barrier 语义保持不变。成功结论按文档路径和文档内序号复用，非法输入每轮重算 issues 以保留精确位置；新增文档不改变其它文档的 event identities。
+
+Timeline 维护有限 interval 的有序边界与参与事件集合。新增、删除或时间变化只更新对应边界，并重新计算受影响时间区域的 gap/overlap；不能仅查看 start 排序的相邻两个 events。跨越受影响区域的长区间、nested overlap、相等边界、point、open interval 和 invalid time 均与 full check 一致。分类和引用变化不重建时间覆盖结果。
+
+Source geometry 与规则结论分离。文件开头插入空行或前方 owner 长度变化时，保留不变的分类/覆盖结论，但所有 source locations 与 related locations 必须重绑定当前 revision；不得发布旧 byte ranges。不能可靠匹配的新旧 events 可以局部或完整重建，不得误用缓存。
+
+Memory、persistent store、open overlay 与关闭恢复必须给出相同结果。增量结果与 fresh full check 比较时包括 complete、checked、issues、缺分类位置、gap/overlap 边界、参与事件及其顺序。验证同时记录实际重算数，防止仅用全量重算通过结果测试。性能基准单独计时两条规则，排除 parse、fold、LSP projection 和输出渲染，覆盖无变化、纯位置变化、单 event 修改、目标分类修改与多层重叠；所有构建和测试遵守 AGENTS.md 的硬内存限制。
+
 `## 8.2 Workspace diagnostic configuration
 
 工作区配置唯一来源是 resolved workspace root 下的 .plumb/config.toml；不存在时使用内置默认值，

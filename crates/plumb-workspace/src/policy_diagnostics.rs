@@ -4,6 +4,12 @@ use chrono::{DateTime, FixedOffset};
 use plumb_syntax::DiagnosticSeverity;
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Debug, Default)]
+pub struct EventPolicyState {
+    pub category: crate::CategoryCheckState,
+    pub timeline: crate::TimelineCheckState,
+}
+
 #[derive(Debug, Clone)]
 pub struct PolicyDiagnostic {
     pub code: String,
@@ -68,10 +74,39 @@ impl Workspace {
         now: DateTime<FixedOffset>,
         settings: &DiagnosticSettings,
     ) -> Result<PolicyDiagnosticReport, String> {
+        self.policy_diagnostics_with_state(root, excluded_roots, now, settings, None)
+    }
+
+    pub fn policy_diagnostics_incremental(
+        &self,
+        root: &Path,
+        excluded_roots: &[PathBuf],
+        now: DateTime<FixedOffset>,
+        settings: &DiagnosticSettings,
+        state: &mut EventPolicyState,
+    ) -> Result<PolicyDiagnosticReport, String> {
+        self.policy_diagnostics_with_state(root, excluded_roots, now, settings, Some(state))
+    }
+
+    fn policy_diagnostics_with_state(
+        &self,
+        root: &Path,
+        excluded_roots: &[PathBuf],
+        now: DateTime<FixedOffset>,
+        settings: &DiagnosticSettings,
+        mut state: Option<&mut EventPolicyState>,
+    ) -> Result<PolicyDiagnosticReport, String> {
         let mut report = PolicyDiagnosticReport::default();
         if settings.event_category.enabled {
-            let categories =
-                self.check_event_categories_in_scope(root, now, None, excluded_roots)?;
+            let categories = match state.as_deref_mut() {
+                Some(state) => self.check_event_categories_incremental_in_scope(
+                    root,
+                    now,
+                    excluded_roots,
+                    &mut state.category,
+                )?,
+                None => self.check_event_categories_in_scope(root, now, None, excluded_roots)?,
+            };
             if !categories.complete {
                 report.incomplete_rules.push("event-category".into());
             }
@@ -87,7 +122,15 @@ impl Workspace {
             report.issues(categories.issues);
         }
         if settings.event_timeline.enabled {
-            let timeline = self.check_event_timeline_in_scope(root, now, excluded_roots)?;
+            let timeline = match state {
+                Some(state) => self.check_event_timeline_incremental_in_scope(
+                    root,
+                    now,
+                    excluded_roots,
+                    &mut state.timeline,
+                )?,
+                None => self.check_event_timeline_in_scope(root, now, excluded_roots)?,
+            };
             if !timeline.complete {
                 report.incomplete_rules.push("event-timeline".into());
             }

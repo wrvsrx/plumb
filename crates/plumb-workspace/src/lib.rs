@@ -3,7 +3,7 @@ pub use agenda::*;
 mod config;
 pub use config::{DiagnosticSettings, DiagnosticRuleSettings, WorkspaceConfig};
 mod policy_diagnostics;
-pub use policy_diagnostics::{PolicyDiagnostic, PolicyDiagnosticReport};
+pub use policy_diagnostics::{EventPolicyState, PolicyDiagnostic, PolicyDiagnosticReport};
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;

@@ -54,6 +54,8 @@ syntax tree 不进入 persistent store。document analysis 仍先产生 protocol
 
 同一 agenda summary 或 event-category check round 内按 normalized target identity 复用引用解析结果、每个文档的 task identities 与根分类。缓存仅属于一次 immutable workspace 查询，不能跨请求沿用；下一次查询必须反映磁盘更新、unsaved overlay 与关闭恢复。普通事项是否允许参与取决于当前 event 的 tasks override，诊断 source range 与引用 spelling 也逐 occurrence 保留，不能把第一条 event 的许可或错误位置缓存为目标属性。
 
+Event policy 的跨轮增量状态与上述 AccountingContext 分离：每轮从当前 snapshot 重新确认 typed inputs 与目标 facts，仅当分类依赖相等时复用成功结论；非法输入重新生成 issues。Timeline 保留边界拓扑并更新变化区域。两条规则每轮重绑定 source locations，均不持久化最终诊断，也不跨 revision 复用未验证的目标解析。无 filter 的全量 policy 输入直接读取 typed event records，避免先构造通用 search results 再重新读取事件。详见 semantic-analysis 的 Incremental event policy checks。
+
 Task CEL optimization 先把 parsed CEL AST 中可证明 exact 且 total 的 typed predicate 降为 protocol-neutral candidate IR，再由 store 编译为带 bind parameters 的 SQLite condition。Store 只能从固定 column、operator、 derived-state spelling 与 typed literal 白名单生成 SQL；不得拼接 CEL source 或 user values。SQL 结果只是完整 CEL result 的 candidate superset，原始 CEL Program 仍对每个 candidate 作最终求值并拥有 bool/error semantics。 不支持、类型不确定或依赖 open-overlay relation 的 expression 保持 Rust-only，不得用近似 SQL 改变结果。
 
 Web task collection 只通过 shared TaskPageQuery 暴露 bounded page、complete 与 opaque next cursor；不存在返回 全部 tasks 的 legacy snapshot endpoint。Task authoring 的 document list 来自 page response，reference candidate 使用独立 bounded candidate query。Graph 的 per-document task/open-task metrics 从 lightweight typed task facts 聚合，不 hydrate TaskRecord，也不解析 task relations。
