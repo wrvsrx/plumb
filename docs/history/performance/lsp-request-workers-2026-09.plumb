@@ -1,0 +1,86 @@
+`= title LSP request workers and folding profile 2026-09
+
+本页记录 2026-09-28 的 CodeLens 查询与 CPU 请求隔离验收，当前规范见
+`->{workspace ../../architecture/workspace.plumb} 与 `->{semantic-analysis ../../architecture/semantic-analysis.plumb}。
+
+`# Fixture and method
+
+主机 pba，Linux 6.18.53，构建使用 rustc 1.98.1、release profile、单 Cargo job。
+实现 commits 为 a986384 与 f68b416，基于 98c56a6 的 fix/lsp-request-workers 分支；after binary SHA-256 为
+3ab5dcb91a7cd7d9e65da0b93f1de3fc6afc5e7f84f15b2b380cf5860152dcdf。
+before 使用调查开始时运行中的旧 LSP executable，SHA-256 为
+e61ffd09e63cfc3114fed9529b4dfd3e5d8b3d42926a948ea0e074d198a319e5；未从该 binary 反推 commit。
+
+最初直接读取用户笔记库时，source 在测量期间变化，故那组不作为前后性能对照。
+正式回放使用固定的 notebook semantic-input 副本，包括 plumb files、ignore files 与配置；
+目标 migrated-from-khal.plumb 为 6496687 bytes、240717 lines，SHA-256 为
+c4a3c70427ca674fdc307697bbbcc07772a8c6d047af572518dfcb2963e75aed。
+固定副本测量与客户端细分 profile 在 09:31–09:35 UTC 附近执行；不包含私人正文。
+
+客户端为配置中的 patched Neovim 0.12.5+editor-fixes.6，使用实际 capabilities，开启 CodeLens 与
+LSP folding。独立 cache 先完整预热一次；正式 before/after 各四次：三次修改 event end minute
+后立即 formatting，第四次等待 150 ms 后 formatting。修改只发生在测试 buffer，退出不保存。
+formatting 保持默认 1000 ms timeout。proxy 记录 request/response timestamps、bytes、counts 与 errors。
+fixture 校验在回放前后相同。所有构建、测试、回放与子进程置于 MemoryMax=2G、MemorySwapMax=0 的
+已验证 systemd cgroup；没有修改或终止用户服务。service peak 包含 editor、LSP 与缓存页，不等于
+LSP steady RSS；正式成对回放峰值接近 2 GiB，新版独立客户端阶段测量约 1.3 GiB。
+
+`# Results
+
+before formatting 四次分别为 1020、1015、1016、1012 ms，全部客户端 timeout。
+after 分别为 171、71、74、64 ms，全部成功；第一次返回一个 formatting edit，之后为零 edits。
+这是四次实际回放观察，不是跨机器延迟保证。
+
+同一成对回放中，成功 CodeLens responses 的 stdio 往返为 before 2175–2624 ms、after 211–645 ms，
+两侧均返回一个 lens。该口径包含 decorator 排队、transport 与 client backpressure，排除 after 的
+ContentModified responses。新版另做独立 raw-protocol CodeLens 查询，一次 warmup 后三次为
+23.4、39.3、30.6 ms；三次结果一致。旧进程随后已退出，未再执行该 raw-protocol baseline，不能把
+after 独立请求的数字直接除以 before 混合请求数字作为查询算法加速倍数。
+
+同 fixture 的 release fold 分段 profile，三次含首轮：labels 为 54.5–58.5 ms，ranges 为
+45.1–48.2 ms，直接 JSON serialization 为 3.3–4.5 ms；33535 folds、3611416 bytes。
+不含 parse/semantic build、request queue、async-lsp Value 构建、stdio 或 editor rendering；task workspace
+状态按本地不完整索引路径决定，不能用作复杂跨文件 task dependencies 的性能代表。
+
+新版 headless Neovim 的独立回调细分：State.evaluate 四次为 85.6、34.3、37.4、45.4 ms；
+vim._foldupdate 四次为 547.6、623.5、650.3、617.7 ms。原始全回调观察曾达 671 ms，并使一次
+formatting 虽无 server timeout 仍接近 961 ms。服务端隔离不能消除客户端同步回调占用。
+
+`# Implemented boundary
+
+batched reverse-reference query 在 hydration/resolution 前按 normalized target document 过滤 Link，
+显式 event tasks 先以 borrowed views 筛选；implicit event-task associations 已由普通 Link 覆盖，
+不逐 event 再解析并去重。current/invalid overlay、same-document、ambiguous anchor 与 component-range
+occurrence 规则不变，普通正确性 tests 覆盖 memory/persistent parity 与无关损坏 target 不被 decode。
+
+formatting/range formatting 与 CodeLens/folding 使用两个独立 CPU 执行额度。先异步取得额度再
+spawn_blocking；取消、同文档同类 supersession、source/workspace generation 与 SQLite read stamp
+校验拒绝旧结果。pending semantic folding 的 labels 也在后台计算。共享 Arc revisions，不复制全库
+syntax/semantic graphs，不逐请求复制 readonly database。不可中断的已启动工作允许结束，但占用额度
+直到真实退出。格式化始终通过 plumb-edit。
+
+验证包含 240 项 workspace tests、87 项 LSP unit tests、113 项 stdio tests 和 project document checks；
+覆盖被阻塞的 decoration 不阻塞 formatting、queued cancellation 释放 snapshot、running cancellation
+保持额度、stale results、worker failure、close/rename 与 SQLite 其它连接写入。
+
+`# Folding optimization plan — not implemented
+
+第一优先级在 patched Neovim fork：对新旧 ranges 的 start/end/kind 比较结构。当只有 collapsedText
+改变时，仅更新 row_text 与必要显示，跳过 State.evaluate 和整文件 vim._foldupdate；time-range edit
+是该分支的典型输入。验证可见 foldtext 更新、关闭状态保持、相邻嵌套 folds 同行结束等现有 patch
+边界；结构变化仍走完整 fallback。修改应落在 Neovim fork，按现有语义 patch tag 与 nur-packages
+compare diff 流程集成。本次只测量，没有修改 editor。
+
+第二优先级是结构变化时的客户端工作量：用 range boundary 差分与前缀和替代逐 fold 逐行叠加，
+保留同一行 start 优先与 nested end level 修正；进一步限定需要 foldupdate 的区间。不能只优化 Lua
+循环而忽略占主要成本的整文件 C fold engine 更新，也不能破坏原有 fold boundary/reconciliation。
+
+第三优先级在 plumb：按共享 green shard 缓存相对 structural fold summaries 与 event labels。
+同长度时间修改应只更新受影响 event label，复用其余约 3.3 万条；newline/indent/marker 改动需更新
+位置及相邻 shard/heading boundary。Task labels 单独校验 workspace dependencies 与时间状态，不能
+把 now-dependent task state 永久缓存。只保留当前打开 revision 的轻量派生结果，关闭释放。
+
+标准 foldingRange 仍返回完整响应，缓存不能消除约 3.6 MB 的传输及客户端处理。直接 serialization
+目前不是首要热点；若上述优化后 transport 仍占主导，再单独测 async-lsp Value 构建与写出，不能
+用直接 serde_json timing 推断整个协议栈成本。每步分别报告 server CPU、wire latency、client evaluate
+和 foldupdate，并复跑同一 time-range edit 场景。

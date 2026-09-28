@@ -55,6 +55,21 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
 `- `"scripts/benchmark-event-category.py"：固定 34,831-event 单文档归档的 release CLI 分类检查；重复引用普通事项，包含多分类、未分类、无法解析引用、非法分类及独立 syntax-invalid document。通过 --binary、--label before/after 与同一 --work-dir 对比完整冷／热／无缓存路径，保存 fixture 与 stdout SHA-256、退出码、cache stats、wall time 和 peak RSS；每组默认 3 samples，warm 单独预热一次，cold 使用新 application cache，不清 OS page cache。计时外验证固定 event count、invalid document count 与全部输出一致性。
 `- `"profile_contained_links_full_document"：低选择性反例，一次请求包含全部 34,831 Links；对比旧单边与新双边索引查询，两者均加载并解码完整结果，3 次 warmup 后交替采样 10 对。不设置 wall-clock CI 阈值，使用 release ignored unit test 手动运行。
 
+`# LSP CPU request isolation
+
+使用独立 headless patched Neovim、实际 client capabilities 与隔离 cache，开启 CodeLens 和 LSP folding。
+在 memory buffer 修改一个 event time range 后立即调用默认 1000 ms timeout 的 formatting；不保存笔记，
+不重启用户 editor/server。对同一只读 fixture 分别运行 before/after binaries，保存 source SHA-256；
+stdio proxy 只记录 method、request id、timestamps、response bytes、error 与 result count，不记录正文。
+同时报告 formatting latency、timeout 次数与 CodeLens/folding 完整响应耗时；排除返回 null 或 stale error
+的装饰请求，不能把失败的快速返回当成加速。开启两种装饰是验收路径，关闭装饰只用作归因对照。
+
+`"profile_fold_request_stages" 是 release ignored unit profile。通过 PLUMB_PROFILE_DOCUMENT 指定只读文件，
+分别计时 labels、ranges（含 byte/UTF-16 projection）与 JSON serialization，输出 folds/bytes。三次 samples
+保留首轮，不含 parse/semantics build、排队、stdio transport 或 editor rendering；不把该分段数据与完整
+client latency 混为一谈。任务、事件、metadata labels 与数据库依赖的 fixture 差异必须单独说明。
+所有构建与回放仍受同一 hard-memory-limit contract 约束；不在 correctness CI 设置性能秒数阈值。
+
 `# Measurement contract
 
 增量事件规则的本机结果见 `->{{2026-09 性能快照} ../history/performance/event-policy-incremental-2026-09.plumb}；该快照区分规则重算数量与仍需执行的输入遍历。
