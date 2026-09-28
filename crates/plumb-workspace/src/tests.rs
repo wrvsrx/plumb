@@ -1018,7 +1018,7 @@ fn semantic_install_classifies_local_exported_and_invalid_transitions() {
     );
 
     assert!(workspace
-        .begin_document_revision("note.plumb", 6, "`broken{\n")
+        .begin_document_revision("note.plumb", 6, format!("{exported_source}`broken{{\n"))
         .is_none());
     let recovered = workspace
         .begin_document_revision("note.plumb", 7, exported_source)
@@ -1028,6 +1028,18 @@ fn semantic_install_classifies_local_exported_and_invalid_transitions() {
         workspace.install_document_analysis_with_change(recovered),
         Some(ExportedSemanticChange::Changed),
         "restoring authority after an invalid revision must notify dependents"
+    );
+    assert!(
+        workspace
+            .get("note.plumb")
+            .unwrap()
+            .current
+            .as_ref()
+            .unwrap()
+            .output
+            .reused_semantic_node_count()
+            > 0,
+        "recovery should reuse the last valid semantic baseline"
     );
 }
 

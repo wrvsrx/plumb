@@ -145,9 +145,18 @@ impl Workspace {
         let path = normalize(path.as_ref());
         let source = source.into();
         let previous = self.documents.get(&path);
+        // Keep the last completed valid output as the semantic baseline while a
+        // newer revision is invalid or still being analyzed.  The syntax layer
+        // compares stable shard identities, so this remains safe across the
+        // invalid intermediate revisions and lets unchanged semantic nodes be
+        // reused when the source becomes valid again.
         let previous_output = previous
-            .and_then(|entry| entry.current.as_ref())
+            .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
             .map(|current| Arc::clone(&current.output));
+        // Exported impact compares against the last *authoritative current*
+        // revision.  A recovery from invalid syntax must still notify dependents
+        // even when it reproduces the older valid output; the semantic analyzer
+        // above may nevertheless use that older output for local reuse.
         let previous_exported_output = previous
             .filter(|entry| entry.parsed.is_valid())
             .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
