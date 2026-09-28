@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::support::{response, run_server};
+use crate::support::{response, run_server, run_server_after_response, LspTestSession};
 
 #[test]
 fn whole_document_formatting_keeps_unchanged_blocks_out_of_edits() {
@@ -123,7 +123,7 @@ fn formats_valid_documents_and_declines_invalid_revisions() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_response(&messages[..4], &messages[4..]);
     assert_eq!(
         response(&output, 1)["result"]["capabilities"]["documentFormattingProvider"],
         true
@@ -239,7 +239,12 @@ fn range_formatting_formats_only_complete_contained_blocks() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let mut session = LspTestSession::new();
+    for message in &messages {
+        session.send(message);
+        if let Some(id) = message.get("id") { session.wait_for_response(id); }
+    }
+    let output = session.finish();
     assert_eq!(
         response(&output, 1)["result"]["capabilities"]["documentRangeFormattingProvider"],
         true

@@ -86,6 +86,7 @@ mod decorations;
 #[cfg(test)]
 mod diagnostic_tests;
 mod policy;
+mod workers;
 pub(crate) use policy::PolicyDiagnosticsResult;
 
 use decorations::{semantic_tokens, PendingDocumentReads};
@@ -124,6 +125,7 @@ pub(crate) struct ServerState {
     pending_document_reads: HashMap<PathBuf, PendingDocumentReads>,
     diagnostic_context: Option<Arc<WorkspaceDiagnosticContext>>,
     policy: policy::PolicyState,
+    workers: workers::Workers,
 }
 
 #[derive(Default)]
@@ -216,7 +218,40 @@ impl ServerState {
             pending_document_reads: HashMap::new(),
             diagnostic_context: None,
             policy: policy::PolicyState::default(),
+            workers: workers::Workers::default(),
         }
+    }
+
+    fn format_request(
+        &mut self,
+        uri: Url,
+        range: Option<lsp_types::Range>,
+    ) -> BoxFuture<'static, Result<Option<Vec<LspTextEdit>>, ResponseError>> {
+        let entry = uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| self.workspace.get(path).cloned());
+        let Some(entry) = entry else {
+            return Box::pin(async { Ok(None) });
+        };
+        let kind = if range.is_some() {
+            workers::Kind::RangeFormat
+        } else {
+            workers::Kind::Format
+        };
+        self.workers.request(&entry.path, kind).run(move || {
+            let source = entry.parsed.source();
+            let edits = match range {
+                Some(range) => plumb_edit::format_green_contained(
+                    entry.parsed.green(),
+                    position_to_offset(source, range.start)..position_to_offset(source, range.end),
+                ),
+                None => plumb_edit::format_green(entry.parsed.green()),
+            };
+            Ok(edits
+                .ok()
+                .map(|edits| text_edits_to_lsp(source, edits).collect()))
+        })
     }
 
     fn update(
@@ -231,6 +266,7 @@ impl ServerState {
             return;
         };
         let path = normalize(&path);
+        self.workers.source_changed(&path);
         self.pending_document_reads.remove(&path);
         let revision = i64::from(version);
         let (token, generation) = self.document_analysis_tokens.next(&path);
@@ -305,6 +341,7 @@ impl ServerState {
         let previous = (self.supports_code_lens_refresh || self.supports_folding_range_refresh)
             .then(|| analysis.previous_valid_output().cloned())
             .flatten();
+        self.workers.workspace_changed();
         let Some(impact) = self
             .workspace
             .install_document_analysis_with_impact(analysis)
@@ -564,6 +601,7 @@ impl ServerState {
     }
 
     fn index_roots(&mut self) -> (usize, bool) {
+        self.workers.workspace_changed();
         self.notify_index_progress(WorkDoneProgress::Begin(WorkDoneProgressBegin {
             title: "Indexing plumb workspace".to_string(),
             cancellable: Some(false),
@@ -633,6 +671,7 @@ impl ServerState {
     }
 
     fn start_initial_index(&mut self) {
+        self.workers.workspace_changed();
         self.index_pending = true;
         self.index_complete = false;
         self.index_generation = self.index_generation.wrapping_add(1);
@@ -663,6 +702,7 @@ impl ServerState {
             .values()
             .filter_map(|path| self.workspace.get(path).cloned())
             .collect::<Vec<_>>();
+        self.workers.workspace_changed();
         self.workspace = result.workspace;
         for entry in open {
             self.workspace.overlay_document_entry(entry);
@@ -793,6 +833,8 @@ impl ServerState {
     }
 
     fn begin_path_rename(&mut self, old_path: PathBuf, new_path: PathBuf) {
+        self.workers.source_changed(&old_path);
+        self.workers.source_changed(&new_path);
         self.pending_document_reads.remove(&old_path);
         self.pending_document_reads.remove(&new_path);
         self.document_analysis_tokens.cancel(&old_path);
@@ -925,6 +967,7 @@ impl ServerState {
         let Ok(source) = fs::read_to_string(target_path) else {
             return false;
         };
+        self.workers.source_changed(&normalize(target_path));
         self.workspace.insert(target_path, 0, source);
         self.schedule_policy_diagnostics();
         true
@@ -935,6 +978,7 @@ impl ServerState {
             return;
         }
         if let Ok(source) = fs::read_to_string(path) {
+            self.workers.source_changed(&normalize(path));
             self.workspace.open_document(path, 0, source);
             self.schedule_policy_diagnostics();
         }
@@ -950,6 +994,7 @@ impl ServerState {
                 continue;
             }
             self.document_analysis_tokens.cancel(&path);
+            self.workers.workspace_changed();
             if self.workspace.complete_pending_document_analysis(&path) {
                 self.finish_pending_document_reads(&path);
                 completed = true;
@@ -1536,6 +1581,7 @@ impl LanguageServer for ServerState {
         let uri = params.text_document.uri;
         if let Some(path) = self.open_documents.remove(&uri) {
             self.open_document_line_indexes.remove(&path);
+            self.workers.source_changed(&path);
             self.document_analysis_tokens.cancel(&path);
             self.pending_document_reads.remove(&path);
             let (files, complete) = self.scanned_files();
@@ -1568,6 +1614,7 @@ impl LanguageServer for ServerState {
     }
 
     fn did_save(&mut self, params: DidSaveTextDocumentParams) -> Self::NotifyResult {
+        self.workers.workspace_changed();
         if let Ok(path) = params.text_document.uri.to_file_path() {
             if self.is_policy_config(&path) {
                 self.reload_policy_configuration();
@@ -1585,6 +1632,7 @@ impl LanguageServer for ServerState {
         &mut self,
         _params: DidChangeConfigurationParams,
     ) -> Self::NotifyResult {
+        self.workers.workspace_changed();
         self.reload_policy_configuration();
         ControlFlow::Continue(())
     }
@@ -1593,6 +1641,7 @@ impl LanguageServer for ServerState {
         &mut self,
         params: DidChangeWatchedFilesParams,
     ) -> Self::NotifyResult {
+        self.workers.workspace_changed();
         let changes = params
             .changes
             .into_iter()
@@ -1727,64 +1776,89 @@ impl LanguageServer for ServerState {
         &mut self,
         params: FoldingRangeParams,
     ) -> BoxFuture<'static, Result<Option<Vec<FoldingRange>>, Self::Error>> {
-        let mut refresh_after_analysis = false;
-        if let Ok(path) = params.text_document.uri.to_file_path() {
-            if self.supports_folding_collapsed_text {
-                if let Some(pending) = self.await_document_semantics(&path, true) {
-                    let limit = self.folding_range_limit;
-                    let line_only = self.line_folding_only;
-                    return Box::pin(async move {
-                        let snapshot = pending.await?;
-                        Ok(Some(green_folding_ranges(
-                            snapshot.entry.parsed.source(),
-                            snapshot.entry.parsed.green(),
-                            limit,
-                            snapshot.labels.as_ref(),
-                            line_only,
-                        )))
-                    });
-                }
+        let Ok(path) = params.text_document.uri.to_file_path() else {
+            return Box::pin(async { Ok(None) });
+        };
+        let path = normalize(&path);
+        let Some(entry) = self.workspace.get(&path).cloned() else {
+            return Box::pin(async { Ok(None) });
+        };
+        let request = self.workers.request(&path, workers::Kind::Fold);
+        let request = if self.supports_folding_collapsed_text {
+            request
+        } else {
+            request.source_only()
+        };
+        let limit = self.folding_range_limit;
+        let line_only = self.line_folding_only;
+        if self.supports_folding_collapsed_text {
+            if let Some(pending) = self.await_document_semantics(&path, true) {
+                return Box::pin(async move {
+                    let snapshot = pending.await?;
+                    request
+                        .at_workspace_generation(snapshot.workspace_generation)
+                        .run(move || {
+                            workers::query(&snapshot.workspace, || {
+                                let labels = fold_labels(
+                                    &snapshot.workspace,
+                                    &snapshot.entry.path,
+                                    &snapshot.entry,
+                                    snapshot.index_complete,
+                                );
+                                Ok(Some(green_folding_ranges(
+                                    snapshot.entry.parsed.source(),
+                                    snapshot.entry.parsed.green(),
+                                    limit,
+                                    Some(&labels),
+                                    line_only,
+                                )))
+                            })
+                        })
+                        .await
+                });
             }
         }
-        let result = (|| {
-            let Some(path) = params.text_document.uri.to_file_path().ok() else {
-                return Ok(None);
-            };
-            let Some(entry) = self.workspace.get(path) else {
-                return Ok(None);
-            };
-            let labels = if self.supports_folding_collapsed_text {
-                refresh_after_analysis = self.supports_folding_range_refresh
-                    && entry.current.is_some()
-                    && self
-                        .workspace
-                        .documents()
-                        .any(|entry| entry.parsed.is_valid() && entry.current.is_none());
-                Some(fold_labels(
-                    &self.workspace,
-                    &entry.path,
-                    entry,
-                    self.index_complete,
-                ))
-            } else {
-                refresh_after_analysis = self.supports_folding_range_refresh
-                    && entry.parsed.is_valid()
-                    && entry.current.is_none();
-                None
-            };
-            let ranges = green_folding_ranges(
-                entry.parsed.source(),
-                entry.parsed.green(),
-                self.folding_range_limit,
-                labels.as_ref(),
-                self.line_folding_only,
-            );
-            Ok(Some(ranges))
-        })();
-        if refresh_after_analysis {
+
+        if !self.supports_folding_collapsed_text {
+            if self.supports_folding_range_refresh
+                && entry.parsed.is_valid()
+                && entry.current.is_none()
+            {
+                self.folding_refresh_pending = true;
+            }
+            return request.run(move || {
+                Ok(Some(green_folding_ranges(
+                    entry.parsed.source(),
+                    entry.parsed.green(),
+                    limit,
+                    None,
+                    line_only,
+                )))
+            });
+        }
+        if self.supports_folding_range_refresh
+            && entry.current.is_some()
+            && self
+                .workspace
+                .documents()
+                .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+        {
             self.folding_refresh_pending = true;
         }
-        Box::pin(async move { result })
+        let workspace = self.workspace.clone();
+        let index_complete = self.index_complete;
+        request.run(move || {
+            workers::query(&workspace, || {
+                let labels = fold_labels(&workspace, &path, &entry, index_complete);
+                Ok(Some(green_folding_ranges(
+                    entry.parsed.source(),
+                    entry.parsed.green(),
+                    limit,
+                    Some(&labels),
+                    line_only,
+                )))
+            })
+        })
     }
 
     fn symbol(
@@ -1847,39 +1921,14 @@ impl LanguageServer for ServerState {
         &mut self,
         params: DocumentFormattingParams,
     ) -> BoxFuture<'static, Result<Option<Vec<LspTextEdit>>, Self::Error>> {
-        let edits = params
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| self.workspace.get(path))
-            .and_then(|entry| {
-                let source = entry.parsed.source();
-                let edits = plumb_edit::format_green(entry.parsed.green()).ok()?;
-                Some(text_edits_to_lsp(source, edits).collect())
-            });
-        Box::pin(async move { Ok(edits) })
+        self.format_request(params.text_document.uri, None)
     }
 
     fn range_formatting(
         &mut self,
         params: DocumentRangeFormattingParams,
     ) -> BoxFuture<'static, Result<Option<Vec<LspTextEdit>>, Self::Error>> {
-        let edits = params
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| self.workspace.get(path))
-            .and_then(|entry| {
-                let source = entry.parsed.source();
-                let selection = position_to_offset(source, params.range.start)
-                    ..position_to_offset(source, params.range.end);
-                let edits =
-                    plumb_edit::format_green_contained(entry.parsed.green(), selection).ok()?;
-                Some(text_edits_to_lsp(source, edits).collect())
-            });
-        Box::pin(async move { Ok(edits) })
+        self.format_request(params.text_document.uri, Some(params.range))
     }
 
     fn definition(
@@ -2024,98 +2073,36 @@ impl LanguageServer for ServerState {
         &mut self,
         params: CodeLensParams,
     ) -> BoxFuture<'static, Result<Option<Vec<CodeLens>>, Self::Error>> {
-        if let Ok(path) = params.text_document.uri.to_file_path() {
-            self.ensure_request_document(&path);
+        let Ok(path) = params.text_document.uri.to_file_path() else {
+            return Box::pin(async { Ok(None) });
+        };
+        self.ensure_request_document(&path);
+        if self
+            .workspace
+            .get(&path)
+            .is_none_or(|entry| !entry.parsed.is_valid())
+        {
+            return Box::pin(async { Ok(None) });
         }
-        let mut pending_semantics = false;
-        let result = (|| {
-            let Some(path) = params.text_document.uri.to_file_path().ok() else {
-                return Ok(None);
-            };
-            let Some(entry) = self.workspace.get(&path) else {
-                return Ok(None);
-            };
-            let Some(output) = entry.current.as_ref() else {
-                pending_semantics = entry.parsed.is_valid();
-                return Ok(None);
-            };
-            let Ok(uri) = Url::from_file_path(&entry.path) else {
-                return Ok(None);
-            };
-            if optional_decorative_query(self.require_index_complete())
-                .map_err(workspace_query_response_error)?
-                .is_none()
-            {
-                return Ok(None);
-            }
-            let anchor_ids = output
-                .output
-                .anchors()
-                .iter()
-                .map(|anchor| anchor.id.value.clone())
-                .collect::<HashSet<_>>();
-            let Some(mut references) = optional_decorative_query(
-                self.complete_query(
-                    self.workspace
-                        .reverse_references_for_document(&entry.path, &anchor_ids),
-                ),
-            )
-            .map_err(workspace_query_response_error)?
-            else {
-                pending_semantics = true;
-                return Ok(None);
-            };
-            let mut lenses = Vec::new();
-            let mut location_cache = ReferenceLocationCache::new(&self.workspace);
-            let locations = references
-                .document
-                .into_iter()
-                .filter_map(|reference| {
-                    location_cache.location(&reference.source_path, &reference.source_range)
-                })
-                .collect::<Vec<_>>();
-            let count = locations.len();
-            let title = if count == 1 {
-                "1 file reference".to_string()
-            } else {
-                format!("{count} file references")
-            };
-            lenses.push(reference_code_lens(
-                &uri,
-                lsp_types::Range::default(),
-                title,
-                locations,
-            ));
-            lenses.extend(output.output.anchors().iter().filter_map(|anchor| {
-                let locations = references
-                    .anchors
-                    .remove(&anchor.id.value)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|reference| {
-                        location_cache.location(&reference.source_path, &reference.source_range)
-                    })
-                    .collect::<Vec<_>>();
-                let count = locations.len();
-                let title = if count == 1 {
-                    "1 reference".to_string()
-                } else {
-                    format!("{count} references")
-                };
-                let lens_range = if anchor.kind == AnchorKind::Inline {
-                    anchor.id.range.clone()
-                } else {
-                    anchor.range.start..anchor.range.start
-                };
-                let range = location_cache.location(&entry.path, &lens_range)?.range;
-                Some(reference_code_lens(&uri, range, title, locations))
-            }));
-            Ok(Some(lenses))
-        })();
-        if pending_semantics && self.supports_code_lens_refresh {
-            self.code_lens_refresh_pending = true;
+
+        if self
+            .workspace
+            .documents()
+            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+        {
+            self.code_lens_refresh_pending |= self.supports_code_lens_refresh;
+            return Box::pin(async { Ok(None) });
         }
-        Box::pin(async move { result })
+        if let Err(error) = self.require_index_complete() {
+            let result = optional_decorative_query::<()>(Err(error))
+                .map(|_| None)
+                .map_err(workspace_query_response_error);
+            return Box::pin(async move { result });
+        }
+        let workspace = self.workspace.clone();
+        self.workers
+            .request(&normalize(&path), workers::Kind::CodeLens)
+            .run(move || workers::query(&workspace, || code_lens::lenses(&workspace, &path)))
     }
 
     fn hover(
@@ -3260,6 +3247,7 @@ mod tests {
 
     #[test]
     fn code_lens_projection_ignores_anchor_extent_and_link_editing_spelling() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         for (old, new, equal) in [
             (
                 "`# Title\n `@ main\n\n Body\n",
@@ -3302,7 +3290,7 @@ mod tests {
             let project = |state: &mut ServerState| {
                 ["source.plumb", "target.plumb"].map(|path| {
                     let params: CodeLensParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(root.join(path)).unwrap()}})).unwrap();
-                    futures::FutureExt::now_or_never(state.code_lens(params)).unwrap().unwrap().unwrap()
+                    runtime.block_on(state.code_lens(params)).unwrap().unwrap()
                 })
             };
             let before = project(&mut state);
@@ -3324,6 +3312,7 @@ mod tests {
 
     #[test]
     fn semantic_equal_revisions_can_change_code_lens_reference_positions() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let (_main, client) =
             async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
         let mut state = ServerState::new(client);
@@ -3351,8 +3340,7 @@ mod tests {
             serde_json::json!({"textDocument":{"uri":Url::from_file_path(target).unwrap()}}),
         )
         .unwrap();
-        let before = futures::FutureExt::now_or_never(state.code_lens(params.clone()))
-            .unwrap()
+        let before = runtime.block_on(state.code_lens(params.clone()))
             .unwrap()
             .unwrap();
         let prepared = state
@@ -3377,8 +3365,7 @@ mod tests {
             previous.exported_semantic_summary(),
             current.exported_semantic_summary()
         );
-        let after = futures::FutureExt::now_or_never(state.code_lens(params))
-            .unwrap()
+        let after = runtime.block_on(state.code_lens(params))
             .unwrap()
             .unwrap();
         let references = |lenses: &[CodeLens]| {
@@ -3398,6 +3385,7 @@ mod tests {
 
     #[test]
     fn formatting_projections_match_edit_layer_with_utf8_and_crlf() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         for ending in ["\n", "\r\n"] {
             let (_main, client) =
                 async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
@@ -3424,8 +3412,7 @@ mod tests {
             assert!(full.len() > 1);
             let params = serde_json::from_value(serde_json::json!({"textDocument":{"uri":uri},"options":{"tabSize":1,"insertSpaces":true}})).unwrap();
             assert_eq!(
-                futures::FutureExt::now_or_never(state.formatting(params))
-                    .unwrap()
+                runtime.block_on(state.formatting(params))
                     .unwrap()
                     .unwrap(),
                 full
@@ -3441,8 +3428,7 @@ mod tests {
             assert!(!partial.is_empty());
             let params = serde_json::from_value(serde_json::json!({"textDocument":{"uri":uri},"range":byte_range_to_lsp(&source, &selection),"options":{"tabSize":1,"insertSpaces":true}})).unwrap();
             assert_eq!(
-                futures::FutureExt::now_or_never(state.range_formatting(params))
-                    .unwrap()
+                runtime.block_on(state.range_formatting(params))
                     .unwrap()
                     .unwrap(),
                 partial
@@ -3758,16 +3744,12 @@ mod tests {
                     let dependent = PathBuf::from("/tmp/plumb-fold-dependent.plumb");
                     state.workspace.open_document(&dependent, 1, "`- Dependent\n `+ task\n `= depends plumb-independent-folding.plumb#target\n");
                     let dependent_params: FoldingRangeParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(&dependent).unwrap()}})).unwrap();
-                    let dependent_before = futures::FutureExt::now_or_never(
-                        state.folding_range(dependent_params.clone()),
-                    )
-                    .unwrap()
+                    let dependent_before = state.folding_range(dependent_params.clone()).await
                     .unwrap()
                     .unwrap();
                     let params: FoldingRangeParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(&path).unwrap()}})).unwrap();
                     let before =
-                        futures::FutureExt::now_or_never(state.folding_range(params.clone()))
-                            .unwrap()
+                        state.folding_range(params.clone()).await
                             .unwrap()
                             .unwrap();
                     let (_, generation) = state.document_analysis_tokens.next(&path);
@@ -3781,14 +3763,12 @@ mod tests {
                         generation,
                         analysis: Ok(analysis),
                     });
-                    let after = futures::FutureExt::now_or_never(state.folding_range(params))
-                        .unwrap()
+                    let after = state.folding_range(params).await
                         .unwrap()
                         .unwrap();
                     let changed = structure_changed || (labels && label_changed);
                     let dependent_after =
-                        futures::FutureExt::now_or_never(state.folding_range(dependent_params))
-                            .unwrap()
+                        state.folding_range(dependent_params).await
                             .unwrap()
                             .unwrap();
                     assert_eq!(
@@ -3843,8 +3823,7 @@ mod tests {
                 serde_json::json!({"textDocument":{"uri":Url::from_file_path(&path).unwrap()}}),
             )
             .unwrap();
-            let before = futures::FutureExt::now_or_never(state.folding_range(params.clone()))
-                .unwrap()
+            let before = state.folding_range(params.clone()).await
                 .unwrap()
                 .unwrap();
             assert_eq!(state.folding_refresh_pending, !invalid);
@@ -3860,8 +3839,7 @@ mod tests {
                 generation,
                 analysis: Ok(analysis),
             });
-            let after = futures::FutureExt::now_or_never(state.folding_range(params))
-                .unwrap()
+            let after = state.folding_range(params).await
                 .unwrap()
                 .unwrap();
             assert_ne!(before, after);
@@ -3914,8 +3892,7 @@ mod tests {
                 )
                 .unwrap();
                 assert!(
-                    !futures::FutureExt::now_or_never(state.folding_range(params))
-                        .unwrap()
+                    !state.folding_range(params).await
                         .unwrap()
                         .unwrap()
                         .is_empty()
@@ -4009,8 +3986,7 @@ mod tests {
                         });
                         request.await.unwrap().unwrap()
                     } else {
-                        futures::FutureExt::now_or_never(state.folding_range(params.clone()))
-                            .unwrap()
+                        state.folding_range(params.clone()).await
                             .unwrap()
                             .unwrap()
                     };
@@ -4039,8 +4015,7 @@ mod tests {
                         generation: generation_b,
                         analysis: Ok(pending_b),
                     });
-                    let ranges = futures::FutureExt::now_or_never(state.folding_range(params))
-                        .unwrap()
+                    let ranges = state.folding_range(params).await
                         .unwrap()
                         .unwrap();
                     assert_eq!(
@@ -4201,8 +4176,7 @@ mod tests {
                     serde_json::json!({"textDocument":{"uri":Url::from_file_path(&path).unwrap()}}),
                 )
                 .unwrap();
-                    assert!(futures::FutureExt::now_or_never(state.code_lens(params))
-                        .unwrap()
+                    assert!(state.code_lens(params).await
                         .unwrap()
                         .is_none());
                     assert!(state.code_lens_refresh_pending);
@@ -4284,10 +4258,7 @@ mod tests {
                     let params: CodeLensParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(query_path).unwrap()}})).unwrap();
                     if trigger != "refresh" {
                         for _ in 0..2 {
-                            assert!(futures::FutureExt::now_or_never(
-                                state.code_lens(params.clone())
-                            )
-                            .unwrap()
+                            assert!(state.code_lens(params.clone()).await
                             .unwrap()
                             .is_none());
                         }
@@ -4299,8 +4270,7 @@ mod tests {
                     let _ = state.finish_document_analysis(pending.remove(0));
                     if trigger != "refresh" {
                         assert!(
-                            futures::FutureExt::now_or_never(state.code_lens(params.clone()))
-                                .unwrap()
+                            state.code_lens(params.clone()).await
                                 .unwrap()
                                 .is_none()
                         );
@@ -4325,8 +4295,7 @@ mod tests {
                         _ => unreachable!(),
                     }
                     assert!(!state.code_lens_refresh_pending);
-                    let complete = futures::FutureExt::now_or_never(state.code_lens(params))
-                        .unwrap()
+                    let complete = state.code_lens(params).await
                         .unwrap()
                         .unwrap();
                     assert_eq!(
@@ -4507,6 +4476,7 @@ mod tests {
     #[test]
     #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]
     fn profile_formatting_response() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let (_main, client) =
             async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
         let mut state = ServerState::new(client);
@@ -4520,8 +4490,7 @@ mod tests {
         state.workspace.open_document(path, 1, source);
         let params: DocumentFormattingParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(path).unwrap()},"options":{"tabSize":1,"insertSpaces":true}})).unwrap();
         let mut run = || {
-            let edits = futures::FutureExt::now_or_never(state.formatting(params.clone()))
-                .unwrap()
+            let edits = runtime.block_on(state.formatting(params.clone()))
                 .unwrap()
                 .unwrap();
             assert!(edits.len() >= 2_000, "edits={}", edits.len());
@@ -4621,6 +4590,7 @@ mod tests {
     #[test]
     #[ignore = "manual release-profile timing; no wall-clock correctness threshold"]
     fn profile_code_lens_response() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let (_main, client) =
             async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
         let mut state = ServerState::new(client);
@@ -4643,8 +4613,7 @@ mod tests {
         )
         .unwrap();
         let mut run = || {
-            let lenses = futures::FutureExt::now_or_never(state.code_lens(params.clone()))
-                .unwrap()
+            let lenses = runtime.block_on(state.code_lens(params.clone()))
                 .unwrap()
                 .unwrap();
             assert_eq!(lenses.len(), 2_001);

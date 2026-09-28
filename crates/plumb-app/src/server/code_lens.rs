@@ -212,3 +212,85 @@ mod tests {
         }
     }
 }
+
+
+pub(super) fn lenses(
+    workspace: &super::Workspace,
+    path: &std::path::Path,
+) -> Result<Option<Vec<lsp_types::CodeLens>>, async_lsp::ResponseError> {
+    use super::{
+        optional_decorative_query, reference_code_lens, workspace_query_response_error,
+        QueryResult, ReferenceLocationCache,
+    };
+    use std::collections::HashSet;
+    let Some(entry) = workspace.get(path) else {
+        return Ok(None);
+    };
+    let Some(output) = entry.current.as_ref() else {
+        return Ok(None);
+    };
+    let Ok(uri) = lsp_types::Url::from_file_path(&entry.path) else {
+        return Ok(None);
+    };
+    let anchor_ids = output
+        .output
+        .anchors()
+        .iter()
+        .map(|anchor| anchor.id.value.clone())
+        .collect::<HashSet<_>>();
+    let Some(mut references) = optional_decorative_query(
+        workspace
+            .reverse_references_for_document(&entry.path, &anchor_ids)
+            .and_then(QueryResult::require_complete),
+    )
+    .map_err(workspace_query_response_error)?
+    else {
+        return Ok(None);
+    };
+    let mut lenses = Vec::new();
+    let mut location_cache = ReferenceLocationCache::new(workspace);
+    let locations = references
+        .document
+        .into_iter()
+        .filter_map(|reference| {
+            location_cache.location(&reference.source_path, &reference.source_range)
+        })
+        .collect::<Vec<_>>();
+    let count = locations.len();
+    let title = if count == 1 {
+        "1 file reference".to_string()
+    } else {
+        format!("{count} file references")
+    };
+    lenses.push(reference_code_lens(
+        &uri,
+        lsp_types::Range::default(),
+        title,
+        locations,
+    ));
+    lenses.extend(output.output.anchors().iter().filter_map(|anchor| {
+        let locations = references
+            .anchors
+            .remove(&anchor.id.value)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|reference| {
+                location_cache.location(&reference.source_path, &reference.source_range)
+            })
+            .collect::<Vec<_>>();
+        let count = locations.len();
+        let title = if count == 1 {
+            "1 reference".to_string()
+        } else {
+            format!("{count} references")
+        };
+        let lens_range = if anchor.kind == AnchorKind::Inline {
+            anchor.id.range.clone()
+        } else {
+            anchor.range.start..anchor.range.start
+        };
+        let range = location_cache.location(&entry.path, &lens_range)?.range;
+        Some(reference_code_lens(&uri, range, title, locations))
+    }));
+    Ok(Some(lenses))
+}

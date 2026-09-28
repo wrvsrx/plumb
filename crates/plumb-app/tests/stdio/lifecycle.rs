@@ -73,7 +73,7 @@ fn pending_decorations_handle_cancel_new_edits_and_close_reopen_over_stdio() {
         }
         let first_folds = response(&output, 3);
         if first_folds.get("error").is_some() {
-            assert_ne!(operation, "cancel");
+            // Request 5 also supersedes request 3 when only tokens were canceled.
             assert_eq!(first_folds["error"]["code"], -32801);
         } else {
             assert!(first_folds["result"]

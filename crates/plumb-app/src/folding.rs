@@ -993,3 +993,30 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod request_profile {
+    use super::*;
+
+    #[test]
+    #[ignore = "manual bounded release profiling; PLUMB_PROFILE_DOCUMENT selects a read-only fixture"]
+    fn profile_fold_request_stages() {
+        let path = std::env::var("PLUMB_PROFILE_DOCUMENT").expect("set PLUMB_PROFILE_DOCUMENT");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let mut workspace = Workspace::new();
+        workspace.open_document(&path, 1, source);
+        let entry = workspace.get(&path).unwrap();
+        for _ in 0..3 {
+            let start = std::time::Instant::now();
+            let labels = collapsed_text_labels(&workspace, Path::new(&path), entry, false);
+            let label_time = start.elapsed();
+            let start = std::time::Instant::now();
+            let ranges = green_ranges(entry.parsed.source(), entry.parsed.green(), None, Some(&labels), true);
+            let ranges_time = start.elapsed();
+            let start = std::time::Instant::now();
+            let bytes = serde_json::to_vec(&ranges).unwrap();
+            eprintln!("fold stages: labels={label_time:?} ranges={ranges_time:?} serialize={:?} folds={} bytes={}", start.elapsed(), ranges.len(), bytes.len());
+            std::hint::black_box(bytes);
+        }
+    }
+}

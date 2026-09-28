@@ -588,7 +588,9 @@ fn code_lenses_count_anchor_references_and_ignore_last_valid_output() {
 
     let mut all_messages = messages.to_vec();
     all_messages.extend_from_slice(&shutdown);
-    let output = run_server_after_initial_index(&all_messages);
+    let output = crate::support::run_server_after_initial_index_with_action(
+        &all_messages[..3], || {}, &all_messages[3..],
+    );
     assert_eq!(
         response(&output, 1)["result"]["capabilities"]["codeLensProvider"],
         json!({ "resolveProvider": false })

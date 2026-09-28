@@ -356,7 +356,7 @@ fn provides_structural_folding_for_valid_and_recovered_documents() {
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];
 
-    let output = run_server(&messages);
+    let output = run_server_after_response(&messages[..4], &messages[4..]);
     assert_eq!(
         response(&output, 1)["result"]["capabilities"]["experimental"]["plumb"]
             ["foldingRangeRefresh"]["method"],

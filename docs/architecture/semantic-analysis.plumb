@@ -328,6 +328,16 @@ completion、其它 document requests 与 notifications 继续处理。
 不得返回成功空值、无限排队或阻塞事件循环。已有请求保留原 revision-bound 结果；完成、取消或丢弃请求后
 释放额度，后续请求可以正常进入。notifications 与内部事件不占请求额度，饱和时仍按原顺序处理。
 
+请求计算隔离已实现：whole/range formatting、CodeLens、folding ranges 与 collapsed labels 的重计算
+在 blocking workers 执行，包括等待 semantics 完成后的 folding。formatting 与 decorations 各保留一个独立
+执行额度，先异步取得额度再启动 worker；请求准入总上限继续限制等待队列。取消请求释放排队资源；
+同文档同类较新请求取代旧请求。已开始的不可中断计算允许结束，但取消或失效结果不得发布。
+共享 immutable parsed/semantic revisions，不为请求复制整个数据库或重新 parse。workspace 查询使用乐观
+代际校验：任何 workspace 输入变化使旧 decoration 结果失效，包括查询期间共享 store 的更新；查询前后检查 SQLite data_version 与 total_changes，
+其它连接写入或同连接写入都使混合结果失效，不以复制完整数据库实现请求快照；
+formatting 与不需要 labels 的 syntax-only folding 只绑定目标文档 source generation，不因无关 semantic completion 或 index installation 失效。
+被取代或输入失效的请求返回 ContentModified，协议 cancellation 继续使用 RequestCancelled；worker failure 返回 InternalError，不能把失效结果伪装成成功空值。
+
 当前 generation 的 worker 异常终止必须结束等待并返回 protocol internal error，不作为 source diagnostic；同一失败
 revision 的后续请求也立即失败，直到新的 revision 或显式 navigation 成功重建 semantics，不能等待已不存在的 worker。
 

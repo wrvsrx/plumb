@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,13 +8,14 @@ use plumb_workspace::{DocumentEntry, DocumentRevision};
 use tokio::sync::watch;
 
 use super::ServerState;
-use crate::folding::{collapsed_text_labels, FoldLabel};
 use crate::position::PositionIndex;
 use crate::semantic_tokens::{closed_task_token_ranges, physical_line_ranges};
 
 pub(super) struct SemanticSnapshot {
     pub entry: DocumentEntry,
-    pub labels: Option<HashMap<(usize, usize), FoldLabel>>,
+    pub workspace: plumb_workspace::Workspace,
+    pub workspace_generation: u64,
+    pub index_complete: bool,
 }
 
 pub(super) struct PendingDocumentReads {
@@ -81,12 +81,11 @@ impl ServerState {
         {
             self.folding_refresh_pending = true;
         }
-        let labels = pending.fold_labels.then(|| {
-            collapsed_text_labels(&self.workspace, &entry.path, entry, self.index_complete)
-        });
         let _ = pending.result.send(Some(Ok(Arc::new(SemanticSnapshot {
             entry: entry.clone(),
-            labels,
+            workspace: self.workspace.clone(),
+            workspace_generation: self.workers.generation(),
+            index_complete: self.index_complete,
         }))));
     }
 
@@ -293,7 +292,7 @@ mod tests {
             }))
             .unwrap(),
         );
-        assert!(formatting.now_or_never().unwrap().is_ok());
+        assert!(formatting.await.is_ok());
         assert!(!state.index_complete);
         finish(&mut state, generation, pending);
 
@@ -315,9 +314,7 @@ mod tests {
         let (_, _pending) = begin(&mut state, 2, DONE);
         state.supports_folding_collapsed_text = false;
         let folds = state
-            .folding_range(fold_params())
-            .now_or_never()
-            .unwrap()
+            .folding_range(fold_params()).await
             .unwrap()
             .unwrap();
         assert!(!folds.is_empty());
@@ -327,9 +324,7 @@ mod tests {
         state.update(uri(), 3, "`- {invalid\n `+ task\n".into(), None, false);
         state.supports_folding_collapsed_text = true;
         assert!(state
-            .folding_range(fold_params())
-            .now_or_never()
-            .unwrap()
+            .folding_range(fold_params()).await
             .is_ok());
         assert!(state
             .semantic_tokens_full(tokens_params())
@@ -482,9 +477,7 @@ mod tests {
             );
             assert_eq!(
                 state
-                    .folding_range(fold_params())
-                    .now_or_never()
-                    .unwrap()
+                    .folding_range(fold_params()).await
                     .unwrap_err()
                     .code,
                 ErrorCode::INTERNAL_ERROR

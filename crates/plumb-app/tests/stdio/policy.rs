@@ -91,10 +91,16 @@ fn policy_timeline_refreshes_other_files_and_projects_utf16_related_locations() 
     // Rapid changes must not let an older gap result replace the final continuous revision.
     change(&mut s, &b, 3, &second.replace("12:00", "11:30"));
     change(&mut s, &b, 4, &second.replace("12:00", "11:00"));
-    s.wait_for_next(|m| publication(m, &b) && m["params"]["version"] == 4);
-    s.wait_for_next(|m| {
-        publication(m, &a) && has(m, "event-category.missing") && !has(m, "event-timeline.gap")
-    });
+    // Publication iterates a HashMap: either document may arrive first.
+    let mut saw_a = false;
+    let mut saw_b = false;
+    while !saw_a || !saw_b {
+        let message = s.wait_for_next(|m| publication(m, &a) || publication(m, &b));
+        saw_a |= publication(&message, &a)
+            && has(&message, "event-category.missing")
+            && !has(&message, "event-timeline.gap");
+        saw_b |= publication(&message, &b) && message["params"]["version"] == 4;
+    }
     // Closing restores the saved interval and the cross-file gap.
     s.send(&json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":uri(&b)}}}));
     s.wait_for_next(|m| publication(m, &a) && has(m, "event-timeline.gap"));
