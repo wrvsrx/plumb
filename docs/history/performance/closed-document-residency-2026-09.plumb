@@ -1,0 +1,23 @@
+`= title Closed document residency measurement 2026-09
+
+本页记录 2026-09-28 的 Web residency 修复测量，不覆盖现行规范；当前边界见 `->{workspace ../../architecture/workspace.plumb}。真实笔记库的 source snapshot 在测量之间有变化：修复前为 280 graph nodes、29193 edges，修复后为 280 nodes、29194 edges。不得把两次观察当作逐 byte 相同 fixture 的语义对照；同 fixture 的 memory/persistent graph parity 由自动测试验证。
+
+`# Method
+
+使用 release 构建的独立进程，通过 WebWorkspace::load 加载真实笔记库，再调用 graph_excluding，排除 path 等于 zk/closed.plumb 的文档。每轮使用独立于用户服务的 cache namespace；第一轮建立缓存，第二轮复用同一缓存。没有向线上 HTTP 服务发送测试请求，没有修改笔记。systemd user service 以 MemoryMax=2G、MemorySwapMax=0 限制构建、测试程序和全部子进程，并读取 cgroup memory.max 与 memory.swap.max 确认生效。
+
+阶段数据取自 /proc/self/status 的 VmRSS 与 glibc mallinfo2。加载后以及释放结果后，仅在测量进程调用 malloc_trim(0) 区分分配器保留页与存活数据；生产实现没有加入 malloc_trim。allocated 指 uordblks，不包含单独的 mmap allocations。以下均为 MiB，RSS 由内核 kB 除以 1024；构建服务峰值不是应用运行时峰值。
+
+`# Warm cache results
+
+修复前：load RSS 142.8；load 后 trim 142.7；graph RSS 1650.0；drop graph 后 trim 1163.9；drop workspace 后 trim 10.5。
+
+修复后：load RSS 142.7；load 后 trim 142.6；graph RSS 177.0；drop graph 后 trim 147.2；drop workspace 后 trim 10.3。
+
+修复前 graph 阶段 allocated 为 1040.2，drop graph 后为 1028.4；修复后分别为 23.5 与 11.7。两次 mmap allocations 约 126.1。图结果本身约 11.8，主要差异是 full_graph 不再把全部 DocumentEntry materialize 并保留于 OnceLock。源文本、SQLite detached snapshot 与轻量 resource index 仍可驻留。
+
+`# Cold cache and limits
+
+修复后冷缓存 load RSS 654.0，trim 后 144.5；graph RSS 222.1，drop graph 后 trim 148.1。冷启动曾解析大文档，分配器仍可保留大量已释放页；本修复不承诺冷启动未经 trim 的 RSS 等于热缓存数字。SQLite 整库 readonly snapshot 的复制、Web HTML cache 的预算与 watcher snapshot 重建也不是本次消除的成本。
+
+本轮解决的是 closed document 完整树的常驻边界：索引查询不创建树，单文档操作结束后不缓存树。测试覆盖 disk/memory facts parity、unsaved 与 invalid overlay 遮蔽、close 恢复磁盘事实、weak revision 可回收、Web graph/task/event/resource 查询零 materialization、编辑复用同一解析修订与原有 Web query/mutation/render 行为。

@@ -85,3 +85,13 @@ Web 树查询通过 shared query_task_tree_page 保留命中任务的完整 ance
 树查询与普通查询的 cursor signature 区分是否保留 ancestors。complete 根据按完整文档截断后的实际剩余结果计算；最后一个文档即使超过软 limit，只要已全部返回，也必须 complete=true 且不生成空后续页。
 
 Task tree refresh 可以携带已加载 document paths。shared query 在同一 revision 上先过滤、补 ancestors 与排序，再把普通 soft limit 扩展到最后一个仍有结果的 retained document，保持结果为连续 prefix 和完整文档。已不匹配或已删除的文档不产生 stale records；未加载的其余文档不 hydrate。返回 cursor 从实际 prefix 末尾继续，不能跳过或重复结果。retention 只用于无 cursor 的 refresh；普通 task page 与 CLI query 语义不变。Web adapter 将 document identities 转成 indexed paths，不能自行合并旧 records 或重复查询整个 collection。
+
+`# Closed document residency boundary
+
+完整 syntax tree、DocumentOutput 与 last-valid output 属于打开文档的内存 overlay，或一次显式 authoring/render operation 的临时输入。关闭 persistent-backed document 后，workspace 释放 overlay；调用方不再持有的旧 revision 必须可回收。关闭不把未保存内容提交数据库，host 先确认磁盘 generation，查询恢复到该 generation。数据库维护 closed documents 的 links、anchors、tasks、events 与 resource facts；数据库页缓存和 detached query snapshot 不等于打开文档。
+
+Web 没有隐含的全库 open session。HTTP 请求之间的 closed document 快照只保留 source/revision snapshot 与数据库 query snapshot，不用 OnceLock 永久保存按需解析的 DocumentEntry；派生展示与资源缓存不得持有完整树。Graph、task/event collection、reference candidates、event selection 与 resource inventory 必须通过 workspace 的 typed indexed queries 读取事实；这些 query 不创建 syntax tree，也不能在 adapter 直接访问 store。Overlay 路径完整遮蔽 persisted generation，包括 invalid overlay，关闭后恢复磁盘事实。
+
+需要 syntax 的单文档操作只 materialize 目标 revision，并在请求结束释放；已经存在的 DocumentEntry 通过共享 revision 安装到临时 operation workspace，不能再次传 source 解析。Web note source、revision 和 document lists 从 immutable source snapshot 投影，不为读取正文建立完整树。Bibliography/rendering 可以临时分析目标文档，但不得导致其他 closed documents 常驻。多请求并发时旧 snapshot 可由请求持有至完成，不能以浏览器 close 通知作为唯一释放机制。
+
+验收要求 persistent/overlay/close 查询一致、全库图与集合查询不 materialize syntax、单文档操作不保留树，并保持原有查询与 guarded edit 结果。测试同时验证没有触发 materialization，以及临时 operation 释放后旧 revision 的 weak reference 无法升级；只检查 workspace map 为空不足以证明树已释放。
