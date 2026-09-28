@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::support::{diagnostic_counts, response, run_server, run_server_after_initial_index, unique_temp_dir, LspTestSession};
 
 #[test]
-fn task_state_publication_uses_proven_identity_and_conservative_full_replacement() {
+fn task_state_publication_targets_changed_records_for_ranged_and_full_changes() {
     fn run(full: bool) {
         let root = unique_temp_dir();
         std::fs::create_dir_all(&root).unwrap();
@@ -85,7 +85,8 @@ fn task_state_publication_uses_proven_identity_and_conservative_full_replacement
                         && message["params"]["uri"] == unrelated.as_str()
                 )
                 .count(),
-            usize::from(full)
+            // Unchanged records retain correspondence even in this full replacement.
+            0
         );
         std::fs::remove_dir_all(root).unwrap();
     }
