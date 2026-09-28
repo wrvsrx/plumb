@@ -898,6 +898,43 @@ mod tests {
     }
 
     #[test]
+    fn incremental_event_snapshots_export_byte_for_byte_like_fresh_analysis() {
+        use std::sync::Arc;
+        let source = "`= title Plan\n`= event-category work\n`- Activity\n `@ activity\n`# Section\n `= event-category nested\n `- 2026-09-22T10:00:00Z--11:00 `->{#activity}\n  `+ event\n`- 2026-09-22T11:00:00Z--12:00 Last\n `+ event\n";
+        let old = Arc::new(plumb_syntax::GreenDocument::parse(source));
+        let previous = plumb_semantics::analyze_green_document(
+            old.valid_syntax().unwrap(), Arc::clone(&old),
+        ).unwrap();
+        for (needle, replacement) in [
+            ("Plan", "Updated plan"),
+            ("work", "personal"),
+            ("nested", "changed"),
+            ("Last", "Longer title"),
+            ("#activity", "#other"),
+            ("", "Prelude 中\n\n"),
+            ("`- Activity\n `@ activity\n", ""),
+        ] {
+            let changed = source.replacen(needle, replacement, 1);
+            let revision = old.reparse(&changed);
+            let change = plumb_semantics::DocumentChange {
+                old_range: revision.old_reparsed_range,
+                new_range: revision.reparsed_range,
+            };
+            let syntax = Arc::new(revision.document);
+            let output = plumb_semantics::analyze_green_document_incremental(
+                syntax.valid_syntax().unwrap(), Arc::clone(&syntax), &previous, &change,
+            ).unwrap();
+            let parsed = syntax.materialize();
+            let actual = json!({
+                "pandoc-api-version": [1, 23, 1],
+                "meta": super::lower_metadata(output.metadata().metadata.as_ref(), &output).unwrap(),
+                "blocks": super::lower_document_blocks(&parsed.syntax.blocks, &output),
+            });
+            assert_eq!(serde_json::to_vec(&actual).unwrap(), serde_json::to_vec(&export(&changed).unwrap()).unwrap(), "{needle}");
+        }
+    }
+
+    #[test]
     fn exports_incremental_definition_groups_like_fresh_analysis() {
         use std::sync::Arc;
         let source = "`= title Notes\n\n`: first old\n`= author Alice\n`: second\n\n body\n `: nested value\n\n`note separator\n\n`: third end\n";
