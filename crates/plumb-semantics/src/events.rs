@@ -252,6 +252,10 @@ struct EventContext {
     timezone: Option<String>,
 }
 
+pub(crate) fn same_document_context(a: &MetadataOutput, b: &MetadataOutput) -> bool {
+    EventContext::from_metadata(a) == EventContext::from_metadata(b)
+}
+
 impl EventContext {
     fn from_metadata(metadata: &MetadataOutput) -> Self {
         let scalar = |key: &str| {

@@ -285,7 +285,7 @@ pub use document::{
     AnchorKind, AnchorRecord, DocumentChange, DocumentOutput, EmbedRecord, EmbedRecordView,
     EmbedTarget, EventLinkRange, ExportedSemanticChangeKinds, ExportedSemanticDelta,
     ExportedSemanticSummary, LinkRecord, LinkRecordView, LinkSpelling, LinkTarget,
-    SemanticRecordAddress, SemanticRecordChange, SemanticRecordEntry, SemanticRoot, SourceBacked,
+    SemanticNodeSnapshot, SemanticRecordAddress, SemanticRecordChange, SemanticRecordEntry, SemanticRoot, SourceBacked,
 };
 pub use events::{
     analyze_events, EventField, EventOutput, EventRecord, EventRecordView, EventRecords,

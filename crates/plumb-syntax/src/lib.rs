@@ -3,7 +3,10 @@ mod lossless;
 mod parser;
 mod syntax;
 
-pub use green::{GreenDocument, GreenParse, GreenShard, GreenShardView, ValidGreenDocument};
+pub use green::{
+    GreenDocument, GreenParse, GreenShard, GreenShardId, GreenShardView, ShardProjection,
+    SyntaxChangeSet, SyntaxChangedFields, SyntaxInvalidation, ValidGreenDocument,
+};
 pub use parser::{
     attributes_from_inlines, parse, parse_incremental, parse_incremental_from_change, plain_scalar,
     IncrementalParse, SourceChange,

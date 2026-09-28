@@ -87,8 +87,8 @@ reducers。旧 absolute-range splice、`"GreenSemanticRevision"、eager
 `"GreenLocalOutput::materialize" 和 public field访问均已删除；workspace snapshot只保存一个
 `"Arc<DocumentOutput>"，对应 green syntax revision由该 output tree持有。
 
-document semantics 直接消费 syntax red views，并以 green node allocation identity、semantic analyzer version 与
-explicit inherited-context key 缓存 shard-local facts。pointer-identical green subtree 只有在 context key 相同
+document semantics 直接消费 syntax red views，并以 opaque GreenShardId、semantic analyzer version 与
+explicit inherited-context key 缓存 shard-local facts。identity 相同的 immutable green subtree 只有在 context key 相同
 时才能复用；date/timezone、task/event depth、table structural role 与其它 ancestor-derived input 必须进入 key。
 changed syntax 不必产生 changed semantics。Local semantic summary精确比较一个shard的全部analyzer outputs，并把
 cross-shard reducer读取的root list/definition role作为额外input。changed shard重算后summary相等时共享旧output Arc；当metadata
@@ -97,8 +97,7 @@ context、node correspondence、所有local summaries与root roles均相等，�
 diagnostic topology或global duplicate overlay。任一条件不成立时回退各reducer现有的独立delta规则。Document
 exported-summary equality与workspace notification stop同样已实现。
 
-incremental tree revision使用 green parser返回的 old/new shard-aligned replacement range，以 prefix/replacement/suffix
-线性 splice复用 nodes，不为每个 revision重建 identity hash table。
+incremental tree revision使用 green parser返回的 old/new shard-aligned replacement range 与 opaque shard identities，以 source-ordered prefix/replacement/suffix 线性匹配复用 nodes，不为每个 revision重建 identity hash table。即使 byte diff 的公共 spelling 使 parser 多解析一个实际未变的边界 shard，精确相等的 prefix/suffix shard 也恢复原 identity。
 
 Definition/metadata independence 已实现：`"MetadataOutput"只拥有document metadata与其diagnostics，不包含definition
 lists。`"DocumentOutput::definitions()"提供独立的source-ordered definition groups；definition属于body semantics，
@@ -109,7 +108,7 @@ Definition局部facts按green shard保存relative ranges；未变化shard复用�
 adjacency分组，document declarations保持透明，nested groups不能与top-level groups合并。稳定分组拓扑共享索引并绑定
 current semantic tree，absolute ranges只在consumer访问时投影，不为无关编辑clone/rebase完整definition records。
 metadata context改变时，仍可按syntax identity共享未变化的definition局部结果；包含Event等context-dependent facts的
-SemanticNode继续按metadata equality重新生成其余局部输出。
+SemanticNode 仅在 date/timezone decoded context 或 document-task facet 改变时重新生成其余局部输出；metadata root reducer 仍保存当前完整 metadata 与 diagnostics。
 删除definition、插入separator分裂相邻组、移除separator合并组、修改body、修改prefix后的ranges都必须与fresh analysis
 及export相等。definition变化不能误复用旧definition body/groups，也不能使未变化的Event shard仅因definition变化而重算。
 short-circuit必须包含definition局部facts与分组边界；metadata本身变化仍按原规则重算相关context和diagnostics。
@@ -405,7 +404,7 @@ event-category 与 event-timeline 提供跨轮增量检查；原有 full check �
 
 增量状态由 protocol-neutral workspace 层持有，每轮从当前 immutable snapshot 与 root/excluded-root scope 验证 typed inputs。LSP 只负责在 background rounds 之间传递状态、丢弃过期结果并发布当前 generation 的结果，不在 adapter 中推导分类或时间覆盖。配置重新启用、scope 变化、无法证明输入一致或缓存缺失时允许 full rebuild；不得把 partial input 缓存为完整结果。
 
-Category 按 event 缓存核算分类结论，记录 event 的有效分类、核算引用、tasks override 与引用目标依赖。仅修改无关 title text 或 event 时间不使分类结论失效；修改 title 内参与核算的链接必须失效。目标有效分类、身份、task 身份、解析歧义或存在性变化，必须重新计算依赖该目标的 events，包含此前无法解析的引用。文档根层和祖先分类变化按其实际继承依赖失效；显式非法声明的 barrier 语义保持不变。成功结论按文档路径和文档内序号复用，非法输入每轮重算 issues 以保留精确位置；新增文档不改变其它文档的 event identities。
+Category 按 event 缓存核算分类结论，记录 event 的有效分类、核算引用、tasks override 与引用目标依赖。仅修改无关 title text 或 event 时间不使分类结论失效；修改 title 内参与核算的链接必须失效。目标有效分类、身份、task 身份、解析歧义或存在性变化，必须重新计算依赖该目标的 events，包含此前无法解析的引用。文档根层和祖先分类变化按其实际继承依赖失效；显式非法声明的 barrier 语义保持不变。成功结论按文档路径、immutable shard identity 和 node-relative provenance 复用；不按 event ordinal 匹配。非法输入保守重算 issues 以保留精确位置；新增文档不改变其它文档的 event identities。
 
 Timeline 维护有限 interval 的有序边界与参与事件集合。新增、删除或时间变化只更新对应边界，并重新计算受影响时间区域的 gap/overlap；不能仅查看 start 排序的相邻两个 events。跨越受影响区域的长区间、nested overlap、相等边界、point、open interval 和 invalid time 均与 full check 一致。分类和引用变化不重建时间覆盖结果。
 
@@ -556,3 +555,21 @@ check-event-categories 在 workspace 层复用 event selection 与 event-categor
 CLI check 的缺分类终端位置使用事件 selection_range，格式为 path:start_line:start_column..end_line:end_column。
 行、列均从 1 开始，列按 Unicode scalar value 计数，不按 UTF-8 bytes、UTF-16 units 或显示宽度计数；结束位置不包含在范围内。
 两端从同一已加载 source snapshot 转换，支持跨行标题、CRLF 与空范围；不重新读取或解析文件。protocol-neutral report 保留 UTF-8 half-open byte ranges。
+
+`# Incremental syntax to policy graph
+
+已实现：syntax change set、immutable semantic node inputs、category target 反向边与 timeline interval delta 组成 protocol-neutral policy graph；完整分析继续作为独立 oracle。
+
+Policy input 以 immutable semantic node 为缓存边界。缓存保存 node-relative event inputs、normalized references、目标依赖与 analyzer context。仅 source offset 改变时更新 projection，不遍历该节点内的 events 或重新构造 inputs。新增、移除、替换 syntax owner 只更新对应 semantic nodes；document context 变化允许重算受影响节点。无变化节点不得因为 event ordinal 漂移而丢弃 cache。
+
+Category 的目标解析结果独立缓存，以反向边找出需要重新验证 input 的 consumers；删除旧 consumer 时同时删除旧边。缺失、歧义或 invalid 目标同样保留 dependency，目标后来出现必须触发检查。normalized input 未变时复用 accounting result；issues 和 missing locations 属于 current revision，不能缓存 absolute source ranges 后直接发布。持久层 generation 或 scope 无法局部证明时允许 full fallback，必须与独立 full oracle 一致。
+
+Timeline 的 event identity 与 byte range 分离。interval delta 只删除旧边界并安装新增或改变 interval；geometry projection 不重新提取时间。受影响区间的 overlap 与 gap 重新计算，保留跨越该区间的长 event。source ordering 或 timezone offset 改变也必须保持 full sweep 的 observable ordering。
+
+诊断内部增量计算不改变 LSP publishDiagnostics 的替换协议：对受影响 document 发布完整当前列表，绝不能把部分列表当作标准 LSP 增量消息。记录 visited/extracted inputs、recomputed accounting、dependency propagation 与 rebuilt segments，性能验收不能只统计最终 accounting calls。
+
+Local analyzer context key 只包含实际使用的 document facts：event 的 date/timezone decoded values 与 document-task facet。title、tags、event-category 或这些值的 source geometry 改变不使全部 local nodes 失效；metadata/root reducers 仍按当前 revision 重建。Category policy 单独追踪 document default，仅使用该 default 的 nodes 依赖它；拥有显式或祖先 category barrier 的 event 不受无关 document category 修改影响。
+
+缓存只活在同一个 binary process 中，static analyzer version 不会在缓存寿命内改变，规则结果不写入 SQLite。Persistent-only document 以 content hash generation 为整体 fallback node，overlay 使用 resident shard identities；关闭 overlay 后重新绑定 disk generation。错误查询清空该规则的部分 cache，后续重建，不能把失败中间态当作完整缓存。
+
+Identity/context 比较和 source projection 仍可以枚举 shards，不宣称 end-to-end 常数复杂度。Top-level shard 内的 nested ownership 改变以 owning shard 为保守失效边界；未变化 shard 内不遍历 events、不提取 references、不重建 Input。缺失诊断和 timeline segments 的完整输出成本与实际输出大小相关。连续性检查通过 augmented AVL interval index 查询跨越变化区域的长 event，不扫描完整 interval map；相同 instant 的显示 offset 按当前 source order 的首个贡献者选择。

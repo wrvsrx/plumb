@@ -427,12 +427,17 @@ pub struct DocumentEntry {
 pub struct DocumentRevision {
     green: Arc<GreenDocument>,
     diagnostics: Vec<Diagnostic>,
+    syntax_changes: Option<plumb_syntax::SyntaxChangeSet>,
 }
 
 impl DocumentRevision {
     fn from_green(green: Arc<GreenDocument>) -> Self {
         let diagnostics = green.diagnostics();
-        Self { green, diagnostics }
+        Self {
+            green,
+            diagnostics,
+            syntax_changes: None,
+        }
     }
 
     pub fn source(&self) -> &str {
@@ -445,6 +450,10 @@ impl DocumentRevision {
 
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+
+    pub fn syntax_changes(&self) -> Option<&plumb_syntax::SyntaxChangeSet> {
+        self.syntax_changes.as_ref()
     }
 
     pub fn green(&self) -> &Arc<GreenDocument> {

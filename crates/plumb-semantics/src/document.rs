@@ -406,6 +406,50 @@ struct SemanticNode {
     output: Arc<SemanticNodeOutput>,
 }
 
+/// Immutable local facts with a current-revision range projection.
+/// Cloning this handle never clones or extracts individual records.
+#[derive(Debug, Clone)]
+pub struct SemanticNodeSnapshot {
+    id: plumb_syntax::GreenShardId,
+    offset: usize,
+    output: Arc<SemanticNodeOutput>,
+}
+
+impl SemanticNodeSnapshot {
+    pub fn id(&self) -> plumb_syntax::GreenShardId {
+        self.id
+    }
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+    pub fn same_facts(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.output, &other.output)
+    }
+    pub fn event_count(&self) -> usize {
+        self.output.events.events.len()
+    }
+    pub fn events(&self) -> impl Iterator<Item = crate::EventRecord> + '_ {
+        self.output.events.events.iter().map(|mut event| {
+            event.shift(self.offset as isize);
+            event
+        })
+    }
+}
+
+impl DocumentOutput {
+    pub fn semantic_nodes(&self) -> impl ExactSizeIterator<Item = SemanticNodeSnapshot> + '_ {
+        self.root
+            .tree
+            .nodes
+            .iter()
+            .map(|node| SemanticNodeSnapshot {
+                id: node.syntax.id(),
+                offset: node.offset,
+                output: Arc::clone(&node.output),
+            })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticNodeOutput {
     headings: HeadingOutput,
@@ -886,7 +930,9 @@ fn analyze_semantic_tree_observed(
         |previous| previous.root.document_declaration_end,
     );
     let reusable = previous.filter(|previous| {
-        Arc::ptr_eq(&previous.root.metadata, &metadata) || previous.metadata() == metadata.as_ref()
+        has_document_task == had_document_task
+            && (Arc::ptr_eq(&previous.root.metadata, &metadata)
+                || crate::events::same_document_context(previous.metadata(), &metadata))
     });
     observer.metadata_complete();
     let reusable_nodes = reusable_node_indices(previous, &syntax, change);
@@ -907,7 +953,11 @@ fn analyze_semantic_tree_observed(
     let mut heading_topology_rebindable = same_node_count;
     let mut cache_hits = 0;
     let mut semantic_equal_hits = 0;
-    let mut all_local_summaries_equal = same_node_count && reusable.is_some();
+    let mut all_local_summaries_equal = same_node_count
+        && previous.is_some_and(|previous| {
+            Arc::ptr_eq(&previous.root.metadata, &metadata)
+                || previous.metadata() == metadata.as_ref()
+        });
     let mut all_node_geometry_equal = same_node_count
         && previous.is_some_and(|previous| {
             previous.root.document_declaration_end == document_declaration_end
@@ -1389,44 +1439,34 @@ fn reusable_node_indices(
     change: Option<&DocumentChange>,
 ) -> Vec<Option<usize>> {
     let node_count = syntax.shards().len();
-    let (Some(previous), Some(change)) = (previous, change) else {
+    let (Some(previous), Some(_)) = (previous, change) else {
         return vec![None; node_count];
     };
-    let previous_nodes = &previous.root.tree.nodes;
-    let previous_prefix = previous_nodes
+    let old = &previous.root.tree.nodes;
+    let ids = syntax
+        .shards()
+        .map(|view| view.shard().id())
+        .collect::<Vec<_>>();
+    let prefix = old
         .iter()
-        .take_while(|node| {
-            node.offset + node.syntax.parsed().source.len() <= change.old_range.start
-        })
+        .zip(&ids)
+        .take_while(|(node, id)| node.syntax.id() == **id)
         .count();
-    let current_prefix = syntax
-        .shards()
-        .take_while(|view| view.range().end <= change.new_range.start)
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(ids[prefix..].iter().rev())
+        .take_while(|(node, id)| node.syntax.id() == **id)
         .count();
-    let previous_suffix = previous_nodes.partition_point(|node| node.offset < change.old_range.end);
-    let current_suffix = syntax
-        .shards()
-        .take_while(|view| view.range().start < change.new_range.end)
-        .count();
-    if previous_prefix != current_prefix
-        || previous_nodes.len() - previous_suffix != node_count - current_suffix
-    {
-        return vec![None; node_count];
-    }
-
-    syntax
-        .shards()
-        .enumerate()
-        .map(|(index, view)| {
-            let previous_index = if index < current_prefix {
+    (0..node_count)
+        .map(|index| {
+            if index < prefix {
                 Some(index)
-            } else if index >= current_suffix {
-                Some(previous_suffix + index - current_suffix)
+            } else if index >= node_count - suffix {
+                Some(old.len() - (node_count - index))
             } else {
                 None
-            }?;
-            Arc::ptr_eq(view.shard(), &previous_nodes[previous_index].syntax)
-                .then_some(previous_index)
+            }
         })
         .collect()
 }

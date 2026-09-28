@@ -173,5 +173,18 @@ workspace/adapters不得持有或缓存该 projection。
 tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
 node kinds/ranges；scanner state round-trip 不引入 ERROR。它不改变 strict parser authority。
 
-当前 contract 不承诺 cross-revision NodeId reuse。incremental identity、source-map 与 canonicalization 必须作为
-同一设计问题解决；优化不能泄漏不稳定 public identity。
+跨 revision identity 的增量协议见第 11 节；tree-sitter identity 不作为 strict parser identity。
+
+`# 11. Incremental change protocol
+
+已实现：本节定义 incremental-syntax-semantics-graph 的 process-local revision 与 identity 协议。
+
+GreenShardId 是 process-local 单调分配的 opaque identity，不从 ordinal、source offset、内容 hash 或 allocation address 派生，不序列化到持久缓存。共享的 immutable shard 保持 identity；fresh parse 产生独立 identities，但 source/tree/diagnostic equality 忽略 identity。插入或删除前方 owner 只改变后方 range projection。无法证明 correspondence 的 replacement（包括跨边界合并、拆分及以 delete/insert 表达的移动）移除旧 identity 并创建新 identity，不按相同标题或重复 explicit id 猜测对应关系。
+
+已重新解析但精确相等的 source-ordered prefix/suffix shards 恢复原 identity；不匹配 replacement 内部的重复 spelling。GreenParse 的 change set 携带 old/new replacement range、signed offset delta、removed/added shard identities 与 reused identities 的 old/new range projection。失效原因区分 owner replacement、扩大结构边界、whole-document fallback 与无变化。无变化不产生新 identity。已知 SourceChange 必须验证 UTF-8 boundaries 和 unchanged prefix/suffix；错误 hint 回退到比较真实 bytes，不信任 adapter 提供的结构边界。
+
+Semantic consumer 以 shard identity 加 shard-relative owner location 与 record kind 作为该 immutable owner 的身份；同一 shard 内的 event、list item、anchor 和 link 不因前方其它 shard 插入而改变身份。changed shard 内无法证明 correspondence 的 owners 保守重建。纯 offset change 不重新提取 typed semantic facts。语法不合法的 current revision 不生成 authoritative semantic changes，恢复后以 valid snapshot 重建。
+
+Change set 的 changed_fields 是 replacement 内 generic typed-owner 变化的保守并集：text_fields、direct_children、declarations 与 structure。declarations 比较 generic attribute projection 的 decoded key/value，不赋予 marker 官方语义；新增/删除无法配对的 shard 保守标记结构变化。reused projection 自身标识仅 absolute offset 变化，不扫描该 shard 内的 token 或 semantic record。flags 用于解释失效，不作为越过 valid typed view 的授权。
+
+SourceChange 的 followed_by 将顺序 edit 的 old/new byte ranges 合成为覆盖所有修改的最小连续 envelope，不比较完整 source。后续 edit 的 range 属于前一次 edit 后的 revision；重叠、前移、后移与 full replacement 都按此规则映射。LSP 对同一个 didChange 中的多次修改累计该 provenance，交给 workspace 验证；UTF-16 转换失败或 arithmetic overflow 拒绝该通知，不退回猜测修改位置。

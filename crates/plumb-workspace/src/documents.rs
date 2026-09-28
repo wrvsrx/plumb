@@ -152,7 +152,7 @@ impl Workspace {
             .filter(|entry| entry.parsed.is_valid())
             .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
             .map(|current| Arc::clone(&current.output));
-        let (green, change) = match previous {
+        let (green, change, syntax_changes) = match previous {
             Some(entry) => {
                 let incremental = match source_change {
                     Some(change) => entry.parsed.green().reparse_from_change(source, change),
@@ -162,11 +162,17 @@ impl Workspace {
                     old_range: incremental.old_reparsed_range,
                     new_range: incremental.reparsed_range,
                 };
-                (Arc::new(incremental.document), Some(change))
+                (
+                    Arc::new(incremental.document),
+                    Some(change),
+                    Some(incremental.changes),
+                )
             }
-            None => (Arc::new(GreenDocument::parse(source)), None),
+            None => (Arc::new(GreenDocument::parse(source)), None, None),
         };
-        let parsed = Arc::new(DocumentRevision::from_green(green));
+        let mut parsed = DocumentRevision::from_green(green);
+        parsed.syntax_changes = syntax_changes;
+        let parsed = Arc::new(parsed);
         let previous_last_valid = self
             .documents
             .get(&path)

@@ -17,6 +17,35 @@ pub struct SourceChange {
     pub new_range: SourceRange,
 }
 
+impl SourceChange {
+    /// Compose byte provenance for a subsequent edit in the intermediate revision.
+    /// The enclosing replacement may include unchanged bytes between two edits.
+    pub fn followed_by(&self, next: &Self) -> Option<Self> {
+        if self.old_range.start != self.new_range.start
+            || next.old_range.start != next.new_range.start
+            || self.old_range.start > self.old_range.end
+            || self.new_range.start > self.new_range.end
+            || next.old_range.start > next.old_range.end
+            || next.new_range.start > next.new_range.end
+        {
+            return None;
+        }
+        let start = self.old_range.start.min(next.old_range.start);
+        let old_end = self
+            .old_range
+            .end
+            .checked_add(next.old_range.end.saturating_sub(self.new_range.end))?;
+        let new_end = next
+            .new_range
+            .end
+            .checked_add(self.new_range.end.saturating_sub(next.old_range.end))?;
+        Some(Self {
+            old_range: start..old_end,
+            new_range: start..new_end,
+        })
+    }
+}
+
 pub fn parse(source: impl Into<String>) -> ParsedDocument {
     let source = source.into();
     let (syntax, diagnostics) = {

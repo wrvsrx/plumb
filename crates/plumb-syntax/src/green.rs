@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::parser::{
@@ -16,9 +17,58 @@ pub struct GreenDocument {
     invalid_shards: usize,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+/// Opaque process-local identity. Never persisted or derived from an address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GreenShardId(u64);
+
+static NEXT_SHARD_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug)]
 pub struct GreenShard {
+    id: GreenShardId,
     parsed: ParsedDocument,
+}
+
+impl PartialEq for GreenShard {
+    fn eq(&self, other: &Self) -> bool {
+        self.parsed == other.parsed
+    }
+}
+impl Eq for GreenShard {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyntaxInvalidation {
+    Unchanged,
+    OwnerReplacement,
+    StructuralBoundary,
+    FullParse,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShardProjection {
+    pub id: GreenShardId,
+    pub old_range: Range<usize>,
+    pub new_range: Range<usize>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SyntaxChangedFields {
+    pub text_fields: bool,
+    pub direct_children: bool,
+    pub declarations: bool,
+    pub structure: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxChangeSet {
+    pub old_range: Range<usize>,
+    pub new_range: Range<usize>,
+    pub offset_delta: isize,
+    pub removed: Vec<GreenShardId>,
+    pub added: Vec<GreenShardId>,
+    pub reused: Vec<ShardProjection>,
+    pub reason: SyntaxInvalidation,
+    pub changed_fields: SyntaxChangedFields,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +76,7 @@ pub struct GreenParse {
     pub document: GreenDocument,
     pub old_reparsed_range: Range<usize>,
     pub reparsed_range: Range<usize>,
+    pub changes: SyntaxChangeSet,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -47,6 +98,13 @@ impl GreenDocument {
             .windows(2)
             .map(|window| {
                 Arc::new(GreenShard {
+                    id: GreenShardId(
+                        NEXT_SHARD_ID
+                            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
+                                id.checked_add(1)
+                            })
+                            .expect("shard identity exhausted"),
+                    ),
                     parsed: parse(source[window[0]..window[1]].to_string()),
                 })
             })
@@ -83,13 +141,14 @@ impl GreenDocument {
         if !valid_source_change(&self.source, &source, &change) {
             return self.reparse(source);
         }
+        if source == self.source {
+            return self.finish_reparse(self.clone(), 0..0, 0..0, SyntaxInvalidation::Unchanged);
+        }
         let starts = self.shard_starts();
         let old_start = starts
             .iter()
             .copied()
-            .filter(|start| {
-                *start <= change.old_range.start && reusable_boundary(&source, *start)
-            })
+            .filter(|start| *start <= change.old_range.start && reusable_boundary(&source, *start))
             .last()
             .unwrap_or(0);
         let (old_end, new_end) = starts
@@ -107,11 +166,12 @@ impl GreenDocument {
             .unwrap_or((self.source.len(), source.len()));
         if old_start == 0 && old_end == self.source.len() {
             let end = source.len();
-            return GreenParse {
-                document: Self::parse(source),
-                old_reparsed_range: 0..self.source.len(),
-                reparsed_range: 0..end,
-            };
+            return self.finish_reparse(
+                Self::parse(source),
+                0..self.source.len(),
+                0..end,
+                SyntaxInvalidation::FullParse,
+            );
         }
 
         let mut invalid_shards = 0;
@@ -138,14 +198,111 @@ impl GreenDocument {
                     Arc::clone(shard)
                 }),
         );
-        GreenParse {
-            document: Self {
+        let reason = if starts
+            .iter()
+            .any(|start| *start > old_start && *start <= change.old_range.start)
+            || starts
+                .iter()
+                .any(|start| *start >= change.old_range.end && *start < old_end)
+        {
+            SyntaxInvalidation::StructuralBoundary
+        } else {
+            SyntaxInvalidation::OwnerReplacement
+        };
+        self.finish_reparse(
+            Self {
                 source,
                 shards,
                 invalid_shards,
             },
-            old_reparsed_range: old_start..old_end,
-            reparsed_range: old_start..new_end,
+            old_start..old_end,
+            old_start..new_end,
+            reason,
+        )
+    }
+
+    fn finish_reparse(
+        &self,
+        mut document: Self,
+        old_range: Range<usize>,
+        new_range: Range<usize>,
+        reason: SyntaxInvalidation,
+    ) -> GreenParse {
+        // A byte hint can end inside a spelling shared by an inserted owner
+        // and its successor. Recover exact prefix/suffix shard correspondence
+        // after parsing; duplicate interior spellings are never matched.
+        let prefix = self
+            .shards
+            .iter()
+            .zip(&document.shards)
+            .take_while(|(old, new)| Arc::ptr_eq(old, new) || old.parsed == new.parsed)
+            .count();
+        let suffix = self.shards[prefix..]
+            .iter()
+            .rev()
+            .zip(document.shards[prefix..].iter().rev())
+            .take_while(|(old, new)| Arc::ptr_eq(old, new) || old.parsed == new.parsed)
+            .count();
+        for index in 0..prefix {
+            document.shards[index] = Arc::clone(&self.shards[index]);
+        }
+        for index in 0..suffix {
+            let new_index = document.shards.len() - 1 - index;
+            document.shards[new_index] = Arc::clone(&self.shards[self.shards.len() - 1 - index]);
+        }
+        let old = self
+            .shards()
+            .map(|view| (view.shard.id, view.range()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let new = document
+            .shards()
+            .map(|view| (view.shard.id, view.range()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let before = self
+            .shards
+            .iter()
+            .filter(|shard| !new.contains_key(&shard.id))
+            .map(|shard| &shard.parsed)
+            .collect::<Vec<_>>();
+        let after = document
+            .shards
+            .iter()
+            .filter(|shard| !old.contains_key(&shard.id))
+            .map(|shard| &shard.parsed)
+            .collect::<Vec<_>>();
+        let changed_fields = changed_fields(&before, &after);
+        let changes = SyntaxChangeSet {
+            changed_fields,
+            offset_delta: document.source.len() as isize - self.source.len() as isize,
+            old_range: old_range.clone(),
+            new_range: new_range.clone(),
+            reason,
+            removed: self
+                .shards()
+                .filter(|view| !new.contains_key(&view.shard.id))
+                .map(|view| view.shard.id)
+                .collect(),
+            added: document
+                .shards()
+                .filter(|view| !old.contains_key(&view.shard.id))
+                .map(|view| view.shard.id)
+                .collect(),
+            reused: document
+                .shards()
+                .filter_map(|view| {
+                    old.get(&view.shard.id).map(|range| ShardProjection {
+                        id: view.shard.id,
+                        old_range: range.clone(),
+                        new_range: view.range(),
+                    })
+                })
+                .collect(),
+        };
+        GreenParse {
+            document,
+            old_reparsed_range: old_range,
+            reparsed_range: new_range,
+            changes,
         }
     }
 
@@ -254,6 +411,10 @@ impl<'a> ValidGreenDocument<'a> {
 }
 
 impl GreenShard {
+    pub fn id(&self) -> GreenShardId {
+        self.id
+    }
+
     pub fn parsed(&self) -> &ParsedDocument {
         &self.parsed
     }
@@ -352,4 +513,69 @@ fn attr_range(item: &AttrItem) -> &Range<usize> {
         | AttrItem::Class { range, .. }
         | AttrItem::Pair { range, .. } => range,
     }
+}
+
+fn same_declarations(a: &Attributes, b: &Attributes) -> bool {
+    fn value(item: &AttrItem) -> (u8, &str, &str) {
+        match item {
+            AttrItem::Id { value, .. } => (0, "", value.as_str()),
+            AttrItem::Class { value, .. } => (1, "", value.as_str()),
+            AttrItem::Pair { key, value, .. } => (2, key.as_str(), value.decoded.as_str()),
+        }
+    }
+    a.items.iter().map(value).eq(b.items.iter().map(value))
+}
+
+fn changed_fields(before: &[&ParsedDocument], after: &[&ParsedDocument]) -> SyntaxChangedFields {
+    use crate::Block;
+    let mut fields = SyntaxChangedFields::default();
+    if before.len() != after.len() {
+        // No correspondence is asserted for added/removed owner runs.
+        return SyntaxChangedFields {
+            text_fields: true,
+            direct_children: true,
+            declarations: true,
+            structure: true,
+        };
+    }
+    for (old, new) in before.iter().zip(after) {
+        fields.declarations |= !same_declarations(&old.syntax.attrs, &new.syntax.attrs);
+        fields.structure |= old.is_valid() != new.is_valid();
+        let mut stack = vec![(old.syntax.blocks.as_slice(), new.syntax.blocks.as_slice())];
+        while let Some((old, new)) = stack.pop() {
+            if old.len() != new.len() {
+                fields.direct_children = true;
+                fields.structure = true;
+                // Added children may contain declaration-bearing descendants.
+                fields.declarations = true;
+            }
+            for (old, new) in old.iter().zip(new) {
+                match (old, new) {
+                    (Block::Parsed(old), Block::Parsed(new)) => {
+                        fields.structure |= old.mark.as_ref().map(|m| &m.marker)
+                            != new.mark.as_ref().map(|m| &m.marker);
+                        let empty = Attributes::default();
+                        fields.declarations |= !same_declarations(
+                            old.mark.as_ref().map_or(&empty, |m| &m.attrs),
+                            new.mark.as_ref().map_or(&empty, |m| &m.attrs),
+                        );
+                        fields.text_fields |= old.content != new.content;
+                        stack.push((&old.children, &new.children));
+                    }
+                    (Block::Verbatim(old), Block::Verbatim(new)) => {
+                        fields.structure |= old.mark.as_ref().map(|m| &m.marker)
+                            != new.mark.as_ref().map(|m| &m.marker);
+                        fields.text_fields |= old.text != new.text;
+                    }
+                    _ => {
+                        fields.structure = true;
+                        fields.text_fields = true;
+                        fields.direct_children = true;
+                        fields.declarations = true;
+                    }
+                }
+            }
+        }
+    }
+    fields
 }
