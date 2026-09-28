@@ -80,6 +80,8 @@ LSP 按编辑器提供的 workspace roots 分别加载配置；没有 roots 时�
 修改事项分类或事件时间会刷新相关打开文档的诊断；关闭文档后恢复磁盘状态。LSP 使用 UTF-16 位置，
 关联事件可通过 relatedInformation 跨文件跳转。可选规则诊断显示为 Warning，基础语法错误仍显示为 Error；CLI 的规则退出码不变。规则后台计算，旧版本结果不会覆盖新版本。
 
+编辑 event 时，后台检查复用未变化节点的分类结论和时间区间；修改引用事项的分类会刷新依赖它的事件。文件前方插入内容后，诊断位置跟随当前文本移动。检查结果与完整 CLI 检查一致。
+
 LSP 监听 .plumb/config.toml 的创建、修改和删除；workspace/didChangeConfiguration 也会重新读取配置。
 配置只读取已保存内容，命令行 overrides 在重载后继续优先。关闭规则立即清除旧诊断，删除文件恢复默认值。
 启动配置错误使 initialize 失败；运行中配置错误通过 window/showMessage 报告，并清除该 root 的可选诊断，

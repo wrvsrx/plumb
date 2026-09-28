@@ -72,3 +72,9 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
 常用 hot path 不得以明显 latency、memory 或 write-amplification 回退换取单一指标改善。选择性优化必须同时 测量低选择性反例；异步化必须分别报告 event-loop latency 与 total CPU work；persistent optimization 必须证明 未 decode 或 hydrate 未选 records。
 
 Rejected prototype 只有在新的 prerequisite 已满足、同一 production parity benchmark 不再显示常用路径回退时 才可重新评估。新结果追加到按年月命名的 history 文档，本页只在 workload 或验收 contract 改变时更新。
+
+`# Incremental syntax semantics graph acceptance
+
+`"cargo test -p plumb-workspace --test agenda incremental_graph_35k_event_acceptance -- --ignored --nocapture" 使用固定 34,961-event snapshot，输出 fixture SHA-256、changed syntax identities、recomputed semantic nodes、实际 category/timeline input 提取数量、accounting 次数、dependency propagation、rebuilt timeline segments、两条规则独立 wall time 与 process VmHWM。先 warm cache，再执行单 event 文本修改与局部插入；计时外对比完整 full-oracle JSON。工作负载必须在 MemoryMax=2G、MemorySwapMax=0 的同一受限进程组运行，构建使用单 job。
+
+该验收不只检查 accounting cache hits：新增或修改一个独立 owner 时 input 提取不得超过实际受影响节点。纯 offset 修改不重提取未变化 node 的 records。实际本机数据和 fallback 边界见 `->{{2026-09 graph 验收快照} ../history/performance/incremental-syntax-semantics-graph-2026-09.plumb}。profile_event_policies 同时输出 extracted、recomputed、propagated 和 visited_intervals，避免把 input 扫描藏在命中率之后。

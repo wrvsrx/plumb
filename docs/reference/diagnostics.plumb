@@ -93,3 +93,5 @@ configuration。启用后的缺分类、内部空档或重叠导致 CLI exit 1�
 基础 diagnostics 的 Warning/Hint 不导致失败；规则结果的 source locations 来自同一 workspace snapshot。
 
 category/timeline 的 agenda.invalid-document 在 memory 与 persistent 查询中使用相同 message：document has no valid semantic output；backend 选择不能改变诊断文字、位置或 completeness。
+
+增量 policy graph 只复用规则结论，不复用旧 revision 的 absolute source location。source geometry 改变时从 immutable node-relative provenance 重新投影；目标变化沿 category 反向边失效，时间变化只更新关联 interval segments。内部局部更新仍由 adapter 合并为受影响 document 的完整 publishDiagnostics 列表。full fallback 与增量路径必须逐项保持 code、message、range、related locations、顺序和 completeness 一致。

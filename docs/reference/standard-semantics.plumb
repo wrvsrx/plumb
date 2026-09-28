@@ -409,3 +409,7 @@ block lower Para。plumb export 直接产生 Pandoc JSON，只把 Pandoc 当 wri
 `# 14. Version boundary
 
 official profile 只解释 current syntax。semantic analysis 不检测历史 epoch，也不在分析前执行 source migration。
+
+`# 15. Incremental policy equivalence
+
+Event-category 与 event-timeline 的增量缓存不改变第 11 节的语义。相同 normalized category、tasks override 与去重 normalized reference targets 可以复用成功结论；invalid declarations 的 barrier、缺失目标、目标歧义与来源范围必须保留。时间 interval 与 category/reference 输入分开失效，source offset 变化不改变 accounting 或时间覆盖。完整分析是结果、diagnostics 与 export 的独立 correctness oracle。缓存身份、fallback 和版本协议见 `->{语义架构 ../architecture/semantic-analysis.plumb}。
