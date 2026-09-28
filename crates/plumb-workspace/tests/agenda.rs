@@ -1020,13 +1020,27 @@ fn incremental_timeline_matches_full_across_disk_overlay_invalid_and_offset_chan
 fn inserting_another_document_preserves_existing_event_policy_identities() {
     let mut workspace = Workspace::new();
     let root = Path::new("/notes");
-    workspace.insert("/notes/z.plumb", 1, "`= event-category work\n`- 2026-09-22T10:00:00Z--11:00 Z\n `+ event\n");
+    workspace.insert(
+        "/notes/z.plumb",
+        1,
+        "`= event-category work\n`- 2026-09-22T10:00:00Z--11:00 Z\n `+ event\n",
+    );
     let mut category = plumb_workspace::CategoryCheckState::default();
     let mut timeline = plumb_workspace::TimelineCheckState::default();
-    workspace.check_event_categories_incremental(root, dt(START), &mut category).unwrap();
-    workspace.check_event_timeline_incremental(root, dt(START), &mut timeline).unwrap();
-    workspace.insert("/notes/a.plumb", 1, "`= event-category work\n`- 2026-09-22T18:00:00+08:00--19:00 A\n `+ event\n");
-    workspace.check_event_categories_incremental(root, dt(START), &mut category).unwrap();
+    workspace
+        .check_event_categories_incremental(root, dt(START), &mut category)
+        .unwrap();
+    workspace
+        .check_event_timeline_incremental(root, dt(START), &mut timeline)
+        .unwrap();
+    workspace.insert(
+        "/notes/a.plumb",
+        1,
+        "`= event-category work\n`- 2026-09-22T18:00:00+08:00--19:00 A\n `+ event\n",
+    );
+    workspace
+        .check_event_categories_incremental(root, dt(START), &mut category)
+        .unwrap();
     assert_eq!(category.recomputed_events, 1);
     let actual = workspace.check_event_timeline_incremental(root, dt(START), &mut timeline).unwrap();
     let fresh = workspace.check_event_timeline(root, dt(START)).unwrap();
@@ -1038,12 +1052,253 @@ fn explicit_event_category_does_not_depend_on_target_category_values() {
     let mut workspace = Workspace::new();
     let root = Path::new("/notes");
     workspace.insert("/notes/items.plumb", 0, ITEMS);
-    workspace.insert("/notes/day.plumb", 0, format!("`= event-category fixed\n{EVENT}"));
+    workspace.insert(
+        "/notes/day.plumb",
+        0,
+        format!("`= event-category fixed\n{EVENT}"),
+    );
     let mut state = plumb_workspace::CategoryCheckState::default();
     workspace.check_event_categories_incremental(root, dt(START), &mut state).unwrap();
     workspace.insert("/notes/items.plumb", 1, ITEMS.replace("work", "personal"));
     let actual = workspace.check_event_categories_incremental(root, dt(START), &mut state).unwrap();
     assert_eq!(state.recomputed_events, 0);
     let full = workspace.check_event_categories(root, dt(START), None).unwrap();
+    assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(full).unwrap());
+}
+
+#[test]
+fn incremental_graph_extracts_only_changed_owners_and_dependency_consumers() {
+    let mut w = Workspace::new();
+    let root = Path::new("/notes");
+    let mut category = plumb_workspace::CategoryCheckState::default();
+    let mut timeline = plumb_workspace::TimelineCheckState::default();
+    let event = |id| {
+        format!("`- 2026-09-22T10:00:00Z--11:00 event-{id}\n `+ event\n `= event-category work\n")
+    };
+    let source = (0..100).map(event).collect::<String>();
+    let changed = source.replace("event-50\n", "changed-50\n");
+    let inserted = format!("{}{}", event(999), changed);
+    for (revision, text) in [
+        source.clone(),
+        changed.clone(),
+        inserted,
+        changed.clone(),
+        format!("\n{changed}"),
+        format!("`= event-category other\n\n{changed}"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        w.insert("/notes/day.plumb", revision as i64, text);
+        let actual = w
+            .check_event_categories_incremental(root, dt(START), &mut category)
+            .unwrap();
+        let full = w.check_event_categories(root, dt(START), None).unwrap();
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            serde_json::to_value(full).unwrap()
+        );
+        let actual = w
+            .check_event_timeline_incremental(root, dt(START), &mut timeline)
+            .unwrap();
+        let full = w.check_event_timeline(root, dt(START)).unwrap();
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            serde_json::to_value(full).unwrap()
+        );
+        if revision > 0 {
+            assert!(
+                category.extracted_events <= 2,
+                "revision {revision}: {} category inputs",
+                category.extracted_events
+            );
+            assert!(
+                timeline.extracted_events <= 2,
+                "revision {revision}: {} timeline inputs",
+                timeline.extracted_events
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "35k-event acceptance workload; run alone with MemoryMax=2G and MemorySwapMax=0"]
+fn incremental_graph_35k_event_acceptance() {
+    let mut w = Workspace::new();
+    let root = Path::new("/notes");
+    let mut category = plumb_workspace::CategoryCheckState::default();
+    let mut timeline = plumb_workspace::TimelineCheckState::default();
+    let mut source = String::from("`= event-category work\n");
+    for id in 0..34_961 {
+        let start = dt(START) + chrono::Duration::seconds(id * 60);
+        let end = start + chrono::Duration::seconds(60);
+        source.push_str(&format!(
+            "`- {}--{} event-{id}\n `+ event\n",
+            start.to_rfc3339(),
+            end.format("%Y-%m-%dT%H:%M:%S")
+        ));
+    }
+    use sha2::{Digest, Sha256};
+    eprintln!("fixture_sha256={:x}", Sha256::digest(source.as_bytes()));
+    w.insert("/notes/day.plumb", 1, &source);
+    w.check_event_categories_incremental(root, dt(START), &mut category)
+        .unwrap();
+    w.check_event_timeline_incremental(root, dt(START), &mut timeline)
+        .unwrap();
+    let changed = source.replace("event-17000\n", "changed-17000\n");
+    for (revision, source) in [
+        changed.clone(),
+        format!("`- 2026-09-22T09:59:00Z--10:00 Inserted\n `+ event\n{changed}"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        w.insert("/notes/day.plumb", revision as i64 + 2, source);
+        let entry = w.get("/notes/day.plumb").unwrap();
+        let changes = entry.parsed.syntax_changes().unwrap();
+        eprintln!(
+            "syntax_added={} syntax_removed={} semantic_recomputed={}",
+            changes.added.len(),
+            changes.removed.len(),
+            entry.current.as_ref().unwrap().output.semantic_node_count()
+                - entry
+                    .current
+                    .as_ref()
+                    .unwrap()
+                    .output
+                    .reused_semantic_node_count()
+        );
+        let start = std::time::Instant::now();
+        let actual = w
+            .check_event_categories_incremental(root, dt(START), &mut category)
+            .unwrap();
+        let category_elapsed = start.elapsed();
+        let full = w.check_event_categories(root, dt(START), None).unwrap();
+        assert!(
+            serde_json::to_value(actual).unwrap() == serde_json::to_value(full).unwrap(),
+            "35k policy output differs from oracle"
+        );
+        let start = std::time::Instant::now();
+        let actual = w
+            .check_event_timeline_incremental(root, dt(START), &mut timeline)
+            .unwrap();
+        let timeline_elapsed = start.elapsed();
+        let full = w.check_event_timeline(root, dt(START)).unwrap();
+        assert!(
+            serde_json::to_value(actual).unwrap() == serde_json::to_value(full).unwrap(),
+            "35k policy output differs from oracle"
+        );
+        eprintln!("revision={revision} category_inputs={} accounting={} propagation={} category={category_elapsed:?} timeline_inputs={} segments={} timeline={timeline_elapsed:?}", category.extracted_events, category.recomputed_events, category.dependency_propagations, timeline.extracted_events, timeline.recomputed_segments);
+        assert!(category.extracted_events <= 2);
+        assert!(timeline.extracted_events <= 2);
+        assert!(timeline.visited_intervals < 100);
+    }
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        if let Some(peak) = status.lines().find(|line| line.starts_with("VmHWM:")) {
+            eprintln!("{peak}");
+        }
+    }
+}
+
+#[test]
+fn graph_differential_handles_nested_owners_references_invalid_recovery_and_moves() {
+    let mut w = Workspace::new();
+    let root = Path::new("/notes");
+    let mut category = plumb_workspace::CategoryCheckState::default();
+    let mut timeline = plumb_workspace::TimelineCheckState::default();
+    let first = "`- 2026-09-22T10:00:00Z--11:00 `->{items.plumb#a}\n `+ event\n";
+    let second = "`- 2026-09-22T18:00:00+08:00--19:00 `->{items.plumb#b}\n `+ event\n";
+    let nested = "`# Section\n `= event-category section\n `- 2026-09-22T10:10:00Z--10:20 Nested\n  `+ event\n";
+    let original = format!("{first}{nested}{second}");
+    for (revision, text) in [
+        original.clone(),
+        format!("{second}{nested}{first}"),
+        original.replace("items.plumb#a", "items.plumb#missing"),
+        original.replace("items.plumb#a", "items.plumb#b"),
+        original.replace("`= event-category section", "`= event-category"),
+        original.replace("10:10:00Z", "broken"),
+        original.replace(" Nested", " {unclosed"),
+        original.clone(),
+        original.replace("`# Section", "`- Parent"),
+        original.replace("items.plumb#a", "items.plumb#c"),
+        format!("\r\n{}", original.replace('\n', "\r\n")),
+        String::new(),
+        original.clone(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        w.insert(
+            "/notes/items.plumb",
+            revision as i64,
+            if revision % 2 == 0 {
+                ITEMS.to_owned()
+            } else {
+                ITEMS.replace("work", "personal")
+            },
+        );
+        w.insert("/notes/day.plumb", revision as i64, text);
+        let actual = w
+            .check_event_categories_incremental(root, dt(START), &mut category)
+            .unwrap();
+        let full = w.check_event_categories(root, dt(START), None).unwrap();
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            serde_json::to_value(full).unwrap(),
+            "category revision {revision}"
+        );
+        let actual = w
+            .check_event_timeline_incremental(root, dt(START), &mut timeline)
+            .unwrap();
+        let full = w.check_event_timeline(root, dt(START)).unwrap();
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            serde_json::to_value(full).unwrap(),
+            "timeline revision {revision}"
+        );
+    }
+}
+
+#[test]
+fn target_reverse_edges_only_extract_actual_category_consumers() {
+    let mut w = Workspace::new();
+    let root = Path::new("/notes");
+    let mut state = plumb_workspace::CategoryCheckState::default();
+    let inherited = "`- 2026-09-22T10:00:00Z One `->{items.plumb#a}\n `+ event\n";
+    let fixed =
+        "`- 2026-09-22T10:00:00Z Two `->{items.plumb#a}\n `+ event\n `= event-category fixed\n";
+    w.insert("/notes/items.plumb", 0, ITEMS);
+    w.insert("/notes/day.plumb", 0, format!("{inherited}{fixed}"));
+    w.check_event_categories_incremental(root, dt(START), &mut state)
+        .unwrap();
+    w.insert("/notes/items.plumb", 1, ITEMS.replace("work", "changed"));
+    w.check_event_categories_incremental(root, dt(START), &mut state)
+        .unwrap();
+    assert_eq!(state.extracted_events, 1);
+    assert_eq!(state.dependency_propagations, 1);
+    w.insert("/notes/day.plumb", 1, fixed);
+    w.check_event_categories_incremental(root, dt(START), &mut state)
+        .unwrap();
+    w.insert("/notes/items.plumb", 2, ITEMS.replace("work", "again"));
+    w.check_event_categories_incremental(root, dt(START), &mut state)
+        .unwrap();
+    assert_eq!(state.extracted_events, 0);
+    assert_eq!(state.dependency_propagations, 0);
+}
+
+#[test]
+fn normalized_reference_aliases_reuse_accounting_and_do_not_duplicate_edges() {
+    let mut w = Workspace::new();
+    let root = Path::new("/notes");
+    let mut state = plumb_workspace::CategoryCheckState::default();
+    let source = "`- 2026-09-22T10:00:00Z `->{items.plumb#a}\n `+ event\n";
+    w.insert("/notes/items.plumb", 0, ITEMS);
+    w.insert("/notes/day.plumb", 0, source);
+    w.check_event_categories_incremental(root, dt(START), &mut state).unwrap();
+    w.insert("/notes/day.plumb", 1, source.replace("items.plumb#a", "./items.plumb#a"));
+    let actual = w.check_event_categories_incremental(root, dt(START), &mut state).unwrap();
+    assert_eq!(state.extracted_events, 1);
+    assert_eq!(state.recomputed_events, 0);
+    let full = w.check_event_categories(root, dt(START), None).unwrap();
     assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(full).unwrap());
 }

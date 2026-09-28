@@ -23,6 +23,8 @@ pub(super) struct Segment {
 #[derive(Clone, Debug, Default)]
 pub(super) struct TimelineIndex {
     intervals: BTreeMap<EventId, (Instant, Instant)>,
+    spatial: super::interval_tree::IntervalTree,
+    pub visited_intervals: usize,
     boundaries: BTreeMap<Instant, Boundary>,
     pub segments: BTreeMap<Instant, Segment>,
 }
@@ -34,39 +36,95 @@ impl TimelineIndex {
         self.update_with_order(intervals, |id| id.1)
     }
 
-    pub fn update_with_order(
+    #[cfg(test)]
+    pub fn update_with_order<K: Ord>(
         &mut self,
         intervals: BTreeMap<EventId, (Instant, Instant)>,
-        order: impl Fn(&EventId) -> usize,
+        order: impl Fn(&EventId) -> K,
     ) -> usize {
+        let mut changes = self
+            .intervals
+            .keys()
+            .filter(|id| !intervals.contains_key(id))
+            .map(|id| (*id, None))
+            .collect::<BTreeMap<_, _>>();
+        changes.extend(
+            intervals
+                .into_iter()
+                .map(|(id, interval)| (id, Some(interval))),
+        );
+        self.apply_changes(changes, order)
+    }
+
+    pub fn apply_changes<K: Ord>(
+        &mut self,
+        changes: BTreeMap<EventId, Option<(Instant, Instant)>>,
+        order: impl Fn(&EventId) -> K,
+    ) -> usize {
+        self.visited_intervals = 0;
         let mut changed = BTreeSet::new();
-        for (id, old) in &self.intervals {
-            if !same_interval(intervals.get(id), old) {
-                changed.extend([old.0, old.1]);
-                self.boundaries.get_mut(&old.0).unwrap().starting.remove(id);
-                self.boundaries.get_mut(&old.1).unwrap().ending.remove(id);
+        let mut projected = BTreeSet::new();
+        for (id, new) in changes {
+            if let Some((start, end)) = new {
+                projected.extend([start, end]);
             }
-        }
-        for (id, new) in &intervals {
-            assert!(
-                new.0 < new.1,
-                "index accepts finite positive intervals only"
-            );
-            if !same_interval(self.intervals.get(id), new) {
+            if new
+                .as_ref()
+                .is_some_and(|new| same_interval(self.intervals.get(&id), new))
+            {
+                continue;
+            }
+            if let Some(old) = self.intervals.remove(&id) {
+                self.spatial.remove(old.0, id);
+                changed.extend([old.0, old.1]);
+                self.boundaries
+                    .get_mut(&old.0)
+                    .unwrap()
+                    .starting
+                    .remove(&id);
+                self.boundaries.get_mut(&old.1).unwrap().ending.remove(&id);
+            }
+            if let Some(new) = new {
+                assert!(
+                    new.0 < new.1,
+                    "index accepts finite positive intervals only"
+                );
                 changed.extend([new.0, new.1]);
                 self.boundaries
                     .entry(new.0)
                     .or_default()
                     .starting
-                    .insert(id.clone());
-                self.boundaries
-                    .entry(new.1)
-                    .or_default()
-                    .ending
-                    .insert(id.clone());
+                    .insert(id);
+                self.boundaries.entry(new.1).or_default().ending.insert(id);
+                self.spatial.insert(new.0, new.1, id);
+                self.intervals.insert(id, new);
             }
         }
-        self.intervals = intervals;
+        // Equal instants may carry different displayed offsets. Source moves
+        // can change the fresh sweep's first contributor without changing any
+        // interval, so refresh only endpoints touched by replacement tokens.
+        for instant in projected {
+            let Some((stored, boundary)) = self.boundaries.get_key_value(&instant) else {
+                continue;
+            };
+            let Some(id) = boundary
+                .starting
+                .iter()
+                .chain(&boundary.ending)
+                .min_by_key(|id| order(id))
+            else {
+                continue;
+            };
+            let interval = self.intervals[id];
+            let canonical = if boundary.starting.contains(id) {
+                interval.0
+            } else {
+                interval.1
+            };
+            if canonical.offset() != stored.offset() {
+                changed.insert(instant);
+            }
+        }
         let Some(first) = changed.first().copied() else {
             return 0;
         };
@@ -113,12 +171,8 @@ impl TimelineIndex {
         for instant in stale {
             self.segments.remove(&instant);
         }
-        let mut active = self
-            .intervals
-            .iter()
-            .filter(|(_, (start, end))| *start <= lower && lower < *end)
-            .map(|(id, _)| id.clone())
-            .collect::<BTreeSet<_>>();
+        let (mut active, visited) = self.spatial.containing(lower);
+        self.visited_intervals = visited;
         let mut count = 0;
         let mut boundaries = self.boundaries.range(lower..).peekable();
         while let Some((instant, boundary)) = boundaries.next() {

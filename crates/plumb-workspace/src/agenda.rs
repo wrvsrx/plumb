@@ -1,5 +1,8 @@
 //! Protocol-neutral agenda accounting and exact-coverage queries.
 mod category_cache;
+mod interval_tree;
+mod policy_inputs;
+mod timeline_cache;
 mod timeline_index;
 use crate::{
     normalize, parse_task_reference_target, resolve_relative, QueryCompleteness, ResolvedTarget,
@@ -631,16 +634,7 @@ pub struct TimelineCheckReport {
     pub issues: Vec<AgendaIssue>,
 }
 
-/// Retained timeline topology. Source locations are projected anew each round.
-/// Event ordinals are conservative identities: insertion may invalidate a suffix,
-/// but cannot accidentally reuse another event's interval.
-#[derive(Clone, Debug, Default)]
-pub struct TimelineCheckState {
-    index: timeline_index::TimelineIndex,
-    documents: BTreeMap<PathBuf, usize>,
-    next_document: usize,
-    pub recomputed_segments: usize,
-}
+pub use timeline_cache::TimelineCheckState;
 impl TimelineCheckReport {
     pub fn passed(&self) -> bool {
         self.complete && self.gaps.is_empty() && self.overlaps.is_empty()
@@ -938,70 +932,11 @@ impl Workspace {
         excluded_roots: &[PathBuf],
         state: &mut TimelineCheckState,
     ) -> Result<TimelineCheckReport, String> {
-        let selected = self.selected_check_events(root, now, None, excluded_roots)?;
-        let mut report = TimelineCheckReport {
-            complete: selected.complete,
-            checked: selected.events.len(),
-            gaps: Vec::new(),
-            overlaps: Vec::new(),
-            issues: selected.issues,
-        };
-        let mut sources = BTreeMap::new();
-        let mut ordinals = BTreeMap::<PathBuf, usize>::new();
-        let mut intervals = BTreeMap::new();
-        for (path, event) in selected.events {
-            if event.at_datetime().is_some() {
-                continue;
-            }
-            let source = location(&path, event.selection_range.clone());
-            let (Some(start), Some(end)) = (event.start_datetime(), event.end_datetime()) else {
-                report.issues.push(issue(
-                    "agenda.invalid-time",
-                    "event has no valid finite interval",
-                    source,
-                ));
-                continue;
-            };
-            if end <= start {
-                report.issues.push(issue(
-                    "agenda.invalid-time",
-                    "event end must follow start",
-                    source,
-                ));
-                continue;
-            }
-            let ordinal = ordinals.entry(path.clone()).or_default();
-            let document = *state.documents.entry(path.clone()).or_insert_with(|| {
-                let id = state.next_document;
-                state.next_document += 1;
-                id
-            });
-            let index = (document, *ordinal);
-            *ordinal += 1;
-            let order = sources.len();
-            sources.insert(index, (source, order, end));
-            intervals.insert(index, (start, end));
+        let _ = now;
+        let result = self.check_timeline_graph(root, excluded_roots, state);
+        if result.is_err() {
+            *state = TimelineCheckState::default();
         }
-        state
-            .documents
-            .retain(|path, _| ordinals.contains_key(path));
-        state.recomputed_segments = state.index.update_with_order(intervals, |id| sources[id].1);
-        for (start, segment) in &state.index.segments {
-            let mut ids = segment.events.clone();
-            ids.sort_by_key(|id| (!segment.overlap && sources[id].2 != *start, sources[id].1));
-            let events = ids.iter().map(|id| sources[id].0.clone()).collect();
-            let value = TimelineSegment {
-                start: *start,
-                end: segment.end,
-                events,
-            };
-            if segment.overlap {
-                report.overlaps.push(value);
-            } else {
-                report.gaps.push(value);
-            }
-        }
-        report.complete &= report.issues.is_empty();
-        Ok(report)
+        result
     }
 }

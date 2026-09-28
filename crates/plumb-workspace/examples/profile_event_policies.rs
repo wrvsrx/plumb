@@ -56,7 +56,12 @@ fn main() {
                 c.issues.len(),
                 c.complete
             );
-            println!("category recomputed={}", category_state.recomputed_events);
+            println!(
+                "category extracted={} recomputed={} propagated={}",
+                category_state.extracted_events,
+                category_state.recomputed_events,
+                category_state.dependency_propagations
+            );
             let fresh = loaded
                 .workspace
                 .check_event_categories(&root, loaded.now, None)
@@ -71,7 +76,12 @@ fn main() {
                 .check_event_timeline_incremental(&root, loaded.now, &mut timeline_state)
                 .unwrap();
             println!("{phase} timeline {i} ms={:.3} checked={} gaps={} overlaps={} issues={} complete={}",t.elapsed().as_secs_f64()*1000.,c.checked,c.gaps.len(),c.overlaps.len(),c.issues.len(),c.complete);
-            println!("timeline recomputed={}", timeline_state.recomputed_segments);
+            println!(
+                "timeline extracted={} recomputed={} visited_intervals={}",
+                timeline_state.extracted_events,
+                timeline_state.recomputed_segments,
+                timeline_state.visited_intervals
+            );
             let fresh = loaded
                 .workspace
                 .check_event_timeline(&root, loaded.now)
