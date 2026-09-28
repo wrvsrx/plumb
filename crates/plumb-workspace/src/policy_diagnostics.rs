@@ -23,6 +23,8 @@ pub struct PolicyDiagnostic {
 pub struct PolicyDiagnosticReport {
     pub diagnostics: Vec<PolicyDiagnostic>,
     pub incomplete_rules: Vec<String>,
+    /// Rules whose conclusions must be withheld because document inputs are missing.
+    pub deferred_rules: Vec<String>,
 }
 
 impl PolicyDiagnosticReport {
@@ -109,6 +111,7 @@ impl Workspace {
             };
             if !categories.complete {
                 report.incomplete_rules.push("event-category".into());
+                report.deferred_rules.push("event-category".into());
             }
             for source in categories.missing {
                 report.diagnostics.push(PolicyDiagnostic {
@@ -133,6 +136,9 @@ impl Workspace {
             };
             if !timeline.complete {
                 report.incomplete_rules.push("event-timeline".into());
+            }
+            if !timeline.conclusions_available {
+                report.deferred_rules.push("event-timeline".into());
             }
             report.segments("gap", timeline.gaps);
             report.segments("overlap", timeline.overlaps);

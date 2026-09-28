@@ -473,7 +473,9 @@ open/change/close、后台语义完成、磁盘 watched-file 变化、初始索�
 规则计算在后台使用 detached readonly workspace snapshot，连续请求合并，旧 generation 结果不得覆盖新状态。
 同一 round 只计算一次全工作区结果，不按每个打开文件重复计算；关闭规则使旧规则结果立即失效，下一次当前范围完整 publication 移除其诊断。
 未完成索引时发布 Local 范围诊断；索引完成后存在 pending semantic revision 或 policy generation 时等待，不清空客户端已有结果，完成后发布合并列表。初始索引未开始／进行中是正常等待，不发送 diagnostics.incomplete；索引不完整时继续发布单文件诊断，完整后重新发送合并列表。规则不完整本身不产生通知或日志，真实查询失败才通过 window/logMessage Warning 记录具体原因，不发送弹窗提示；运行中配置错误仍使用 window/showMessage Error。索引失败后的 watched-file 变化触发完整重扫，成功后恢复规则诊断，不能通过累积 false 永久停用规则。
-syntax-invalid 当前文档不使用 last-valid events；结果不完整时暂不发布受影响规则的结论，不能冒充通过。
+syntax-invalid 当前文档不使用 last-valid events；缺失文档语义或索引不完整时暂不发布受影响规则的结论，不能冒充通过。
+Timeline 仅对当前有效的有限时间区间计算 gap/overlap。单个事件时间无效、缺少有限 end 或 end 不晚于 start 时跳过该事件，保留 agenda.invalid-time 警告，但不阻止其余有效事件的 gap/overlap 发布。gap 表示当前有效事件之间的空档；修复时间后重新计算，期间允许出现随后被修复事件填补的 gap。
+规则结果分别记录检查完整性与结论发布资格：invalid-time 仍使检查不完整、CLI 不通过，但不单独阻止 timeline 结论发布；若同时存在 syntax-invalid 文档，仍抑制该 root 的 timeline 结论。全量与增量查询必须保持这两种状态一致。
 LSP 对打开的 plumb 文档发布规则诊断，保留基础 diagnostics，并投影为 UTF-16 ranges 与跨文件 relatedInformation。
 closed related source 读取时验证与 snapshot content hash 一致，失败不可使用错误坐标；下一次有效 round 可恢复。
 

@@ -1302,3 +1302,67 @@ fn normalized_reference_aliases_reuse_accounting_and_do_not_duplicate_edges() {
     let full = w.check_event_categories(root, dt(START), None).unwrap();
     assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(full).unwrap());
 }
+
+#[test]
+fn invalid_time_keeps_timeline_conclusions_available_but_check_incomplete() {
+    for persistent in [false, true] {
+        let mut w = if persistent {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else {
+            Workspace::new()
+        };
+        let mut state = plumb_workspace::EventPolicyState::default();
+        let mut settings = plumb_workspace::DiagnosticSettings::default();
+        settings.event_timeline.enabled = true;
+        for (revision, time) in ["12:00", "invalid", "12:00"].iter().enumerate() {
+            let source = format!("`- 2026-09-22T10:00:00Z--11:00 First\n `+ event\n`- 2026-09-22T10:30:00Z--11:00 Overlap\n `+ event\n`- 2026-09-22T12:00:00Z--13:00 Last\n `+ event\n`- 2026-09-22T11:00:00Z--{time} Editing\n `+ event\n");
+            w.insert_disk("/notes/day.plumb", revision as i64, source)
+                .unwrap();
+            let full = w
+                .policy_diagnostics(Path::new("/notes"), &[], dt(START), &settings)
+                .unwrap();
+            let cached = w
+                .policy_diagnostics_incremental(
+                    Path::new("/notes"),
+                    &[],
+                    dt(START),
+                    &settings,
+                    &mut state,
+                )
+                .unwrap();
+            assert_eq!(full.incomplete_rules, cached.incomplete_rules);
+            assert_eq!(full.deferred_rules, cached.deferred_rules);
+            assert!(cached.deferred_rules.is_empty());
+            let codes = |r: &plumb_workspace::PolicyDiagnosticReport| {
+                r.diagnostics
+                    .iter()
+                    .map(|d| d.code.clone())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(codes(&full), codes(&cached));
+            assert!(codes(&cached).contains(&"event-timeline.overlap".into()));
+            assert_eq!(
+                codes(&cached).contains(&"event-timeline.gap".into()),
+                *time == "invalid"
+            );
+            assert_eq!(
+                codes(&cached).contains(&"agenda.invalid-time".into()),
+                *time == "invalid"
+            );
+            assert_eq!(cached.complete(), *time != "invalid");
+        }
+        w.insert_disk("/notes/invalid.plumb", 1, "`- invalid Event\n `+ event\n")
+            .unwrap();
+        w.insert_disk("/notes/broken.plumb", 1, "`broken{").unwrap();
+        let report = w
+            .policy_diagnostics_incremental(
+                Path::new("/notes"),
+                &[],
+                dt(START),
+                &settings,
+                &mut state,
+            )
+            .unwrap();
+        assert_eq!(report.deferred_rules, ["event-timeline"]);
+    }
+}

@@ -214,9 +214,9 @@ fn compute_incremental(
             cache.entry(root.clone()).or_default(),
         )?;
         for diagnostic in report.diagnostics {
-            // Incomplete input cannot establish a rule's negative conclusions.
+            // Missing document inputs defer conclusions; invalid event times only skip events.
             if report
-                .incomplete_rules
+                .deferred_rules
                 .iter()
                 .any(|rule| diagnostic.code.starts_with(&format!("{rule}.")))
             {
@@ -402,6 +402,48 @@ mod tests {
         );
         let fresh = compute(workspace, settings, vec![root], open).unwrap();
         assert_eq!(after.diagnostics, fresh.diagnostics);
+    }
+
+    #[test]
+    fn invalid_time_does_not_hide_gap_or_overlap_publication() {
+        let root = PathBuf::from("/notes");
+        let path = root.join("day.plumb");
+        let mut workspace = Workspace::new();
+        let mut config = DiagnosticSettings::default();
+        config.event_timeline.enabled = true;
+        let settings = BTreeMap::from([(root.clone(), config)]);
+        let open = HashSet::from([path.clone()]);
+        let mut cache = BTreeMap::new();
+        for (revision, end) in ["12:00", "invalid", "12:00"].iter().enumerate() {
+            workspace.open_document(&path, revision as i64, format!("`- 2026-09-22T10:00:00Z--11:00 First\n `+ event\n`- 2026-09-22T10:30:00Z--11:00 Overlap\n `+ event\n`- 2026-09-22T12:00:00Z--13:00 Last\n `+ event\n`- 2026-09-22T11:00:00Z--{end} Editing\n `+ event\n"));
+            let result = compute_incremental(
+                workspace.clone(),
+                settings.clone(),
+                vec![root.clone()],
+                open.clone(),
+                &mut cache,
+            )
+            .unwrap();
+            let has = |code: &str| {
+                result.diagnostics[&path]
+                    .iter()
+                    .any(|d| d.code == Some(NumberOrString::String(code.into())))
+            };
+            assert!(has("event-timeline.overlap"));
+            assert_eq!(has("event-timeline.gap"), *end == "invalid");
+            assert_eq!(has("agenda.invalid-time"), *end == "invalid");
+            assert!(result.diagnostics[&path]
+                .iter()
+                .all(|d| d.severity == Some(lsp_types::DiagnosticSeverity::WARNING)));
+            let fresh = compute(
+                workspace.clone(),
+                settings.clone(),
+                vec![root.clone()],
+                open.clone(),
+            )
+            .unwrap();
+            assert_eq!(result.diagnostics, fresh.diagnostics);
+        }
     }
 
     #[test]

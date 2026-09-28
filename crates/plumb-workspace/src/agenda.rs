@@ -628,6 +628,8 @@ pub struct CategoryCheckReport {
 #[derive(Debug, Clone, Serialize)]
 pub struct TimelineCheckReport {
     pub complete: bool,
+    /// All documents are available; invalid event times alone do not prevent publication.
+    pub conclusions_available: bool,
     pub checked: usize,
     pub gaps: Vec<TimelineSegment>,
     pub overlaps: Vec<TimelineSegment>,
@@ -846,6 +848,7 @@ impl Workspace {
         let selected = self.selected_check_events(root, now, None, excluded_roots)?;
         let mut report = TimelineCheckReport {
             complete: selected.complete,
+            conclusions_available: selected.complete,
             checked: selected.events.len(),
             gaps: Vec::new(),
             overlaps: Vec::new(),

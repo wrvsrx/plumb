@@ -42,6 +42,7 @@ impl Workspace {
         let input = self.policy_inputs(root, excluded, &mut state.inputs)?;
         let mut report = TimelineCheckReport {
             complete: true,
+            conclusions_available: input.issues.is_empty(),
             checked: 0,
             gaps: Vec::new(),
             overlaps: Vec::new(),
