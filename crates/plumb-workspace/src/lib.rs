@@ -678,6 +678,16 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// A cheap optimistic store stamp for background composed queries.
+    /// Overlay revisions must be guarded separately by the caller.
+    pub fn query_store_version(&self) -> Result<Option<(i64, i64)>, WorkspaceQueryError> {
+        self.disk_store
+            .as_ref()
+            .map(SqliteSemanticStore::read_version)
+            .transpose()
+            .map_err(Into::into)
+    }
+
     fn open_paths(&self) -> Vec<PathBuf> {
         let mut paths = self.documents.keys().cloned().collect::<Vec<_>>();
         paths.sort();
@@ -1366,7 +1376,19 @@ impl Workspace {
             let Some(current) = &entry.current else {
                 continue;
             };
-            for link in current.output.links() {
+            for link in current.output.links().views() {
+                let candidate = match link.target_kind() {
+                    LinkTarget::Anchor { path: None, .. } => entry.path.clone(),
+                    LinkTarget::Anchor {
+                        path: Some(path), ..
+                    }
+                    | LinkTarget::Document { path } => resolve_relative(&entry.path, path),
+                    _ => continue,
+                };
+                if candidate != target_path {
+                    continue;
+                }
+                let link = link.to_owned();
                 collect_reverse_reference(
                     &mut references,
                     &mut document_occurrences,
@@ -1387,11 +1409,13 @@ impl Workspace {
             }
             for task in &current.output.tasks().tasks {
                 for reference in task_reference_fields(&task) {
-                let range = &reference.range;
-                let target = &reference.target;
-                    let (document_range, anchor_range) =
-                        task_reference_component_ranges(reference)
-                            .unwrap_or_else(|| (range.clone(), range.clone()));
+                    let range = &reference.range;
+                    let target = &reference.target;
+                    if task_reference_path(&entry.path, target).as_deref() != Some(&target_path) {
+                        continue;
+                    }
+                    let (document_range, anchor_range) = task_reference_component_ranges(reference)
+                        .unwrap_or_else(|| (range.clone(), range.clone()));
                     collect_reverse_reference(
                         &mut references,
                         &mut document_occurrences,
@@ -1406,12 +1430,22 @@ impl Workspace {
                     );
                 }
             }
-            for event in &current.output.events().events {
-                for reference in
-                    &self.event_task_references_in_output(&entry.path, &current.output, &event)?
-                {
+            for event in current.output.events().events.views() {
+                if !event.task_targets().any(|target| {
+                    task_reference_path(&entry.path, target).as_deref() == Some(&target_path)
+                }) {
+                    continue;
+                }
+                let event = event.to_owned();
+                // Implicit associations are ordinary Links, already collected above.
+                for reference in &event.tasks {
+                    if task_reference_path(&entry.path, &reference.target).as_deref()
+                        != Some(&target_path)
+                    {
+                        continue;
+                    }
                     let (document_range, anchor_range) = task_reference_component_ranges(reference)
-                    .unwrap_or_else(|| (reference.range.clone(), reference.range.clone()));
+                        .unwrap_or_else(|| (reference.range.clone(), reference.range.clone()));
                     collect_reverse_reference(
                         &mut references,
                         &mut document_occurrences,
@@ -4052,6 +4086,15 @@ fn resolved_document_path(target: ResolvedTarget) -> Option<PathBuf> {
     }
 }
 
+fn task_reference_path(from: &Path, target: &TaskReferenceTarget) -> Option<PathBuf> {
+    match target {
+        TaskReferenceTarget::Internal { .. } => Some(normalize(from)),
+        TaskReferenceTarget::External { path, .. } | TaskReferenceTarget::Document { path } => {
+            Some(resolve_relative(from, path))
+        }
+        TaskReferenceTarget::Invalid => None,
+    }
+}
 #[allow(clippy::too_many_arguments)]
 fn collect_reverse_reference(
     references: &mut DocumentReverseReferences,

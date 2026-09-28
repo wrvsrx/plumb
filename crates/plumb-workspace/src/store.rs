@@ -387,6 +387,25 @@ impl SqliteSemanticStore {
         Ok(result)
     }
 
+    /// Optimistic read stamp: detects writes through this connection and other connections.
+    /// Compare before and after a composed query; a changed stamp invalidates its result.
+    pub fn read_version(&self) -> StoreResult<(i64, i64)> {
+        #[derive(QueryableByName)]
+        struct Version {
+            #[diesel(sql_type = BigInt)]
+            data_version: i64,
+        }
+        #[derive(QueryableByName)]
+        struct Changes {
+            #[diesel(sql_type = BigInt)]
+            changes: i64,
+        }
+        let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
+        let version = diesel::sql_query("PRAGMA data_version").get_result::<Version>(&mut *connection)?;
+        let changes = diesel::sql_query("SELECT total_changes() AS changes").get_result::<Changes>(&mut *connection)?;
+        Ok((version.data_version, changes.changes))
+    }
+
     pub fn readonly_snapshot(&self) -> StoreResult<Self> {
         let mut source = self
             .connection

@@ -6718,3 +6718,80 @@ fn explicit_id_on_property_targets_its_owner() {
     workspace.insert("work.plumb", 3, "`- Work\n `@ work\n `= key value\n");
     assert_eq!(workspace.add_explicit_id("work.plumb", 23), Err(ExplicitIdError::IdAlreadyExists));
 }
+
+#[test]
+fn batched_reverse_references_keep_explicit_events_and_deduplicate_implicit_links() {
+    let mut workspace = Workspace::new();
+    workspace.open_document("target.plumb", 1, "`- Target\n `+ task\n `@ target\n");
+    workspace.open_document("events.plumb", 1,
+        "`= date 2026-09-28\n`= timezone +08:00\n\n`- 10:00 `->{target.plumb#target}\n `+ event\n\n`- 11:00 Explicit\n `+ event\n `= tasks target.plumb#target\n\n`- 12:00 `->{elsewhere.plumb#missing}\n `+ event\n");
+    let ids = HashSet::from(["target".to_owned()]);
+    let batched = workspace
+        .reverse_references_for_document("target.plumb", &ids)
+        .unwrap()
+        .value;
+    assert_eq!(batched.document.len(), 2);
+    assert_eq!(batched.anchors["target"].len(), 2);
+    assert_eq!(
+        batched.document.len(),
+        workspace
+            .references_to_document("target.plumb")
+            .unwrap()
+            .value
+            .len()
+    );
+    assert_eq!(
+        batched.anchors["target"].len(),
+        workspace
+            .references_to("target.plumb", "target")
+            .unwrap()
+            .value
+            .len()
+    );
+}
+
+#[test]
+fn reverse_query_does_not_decode_unrelated_target_anchors() {
+    let store = SqliteSemanticStore::open_in_memory().unwrap();
+    let mut workspace = Workspace::with_sqlite_store(store.clone());
+    workspace
+        .insert_disk("unrelated.plumb", 1, "`- Broken\n `+ task\n `@ broken\n")
+        .unwrap();
+    store
+        .execute_batch_for_test("UPDATE anchors SET record = X'FF'")
+        .unwrap();
+    workspace.open_document("target.plumb", 1, "`# Target\n `@ target\n");
+    workspace.open_document("source.plumb", 1,
+        "`= date 2026-09-28\n`= timezone +08:00\n\n`- 10:00 `->{unrelated.plumb#broken}\n `+ event\n\n`- Task\n `+ task\n `= depends unrelated.plumb#broken\n\n`- 11:00 Explicit\n `+ event\n `= tasks unrelated.plumb#broken\n");
+    let reverse = workspace
+        .reverse_references_for_document("target.plumb", &HashSet::from(["target".to_owned()]))
+        .unwrap()
+        .value;
+    assert!(reverse.document.is_empty());
+    assert!(reverse.anchors.is_empty());
+    assert!(workspace
+        .anchors_named(Path::new("unrelated.plumb"), "broken")
+        .is_err());
+}
+
+#[test]
+fn query_store_version_detects_local_and_other_connection_writes() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("index.sqlite");
+    let store = SqliteSemanticStore::open(&path).unwrap();
+    let other = SqliteSemanticStore::open(&path).unwrap();
+    let workspace = Workspace::with_sqlite_store(store.clone());
+    let before = workspace.query_store_version().unwrap();
+    assert_eq!(before, workspace.query_store_version().unwrap());
+    store
+        .execute_batch_for_test(
+            "CREATE TABLE version_probe (value INTEGER); INSERT INTO version_probe VALUES (1)",
+        )
+        .unwrap();
+    let local = workspace.query_store_version().unwrap();
+    assert_ne!(before, local);
+    other
+        .execute_batch_for_test("UPDATE version_probe SET value = 2")
+        .unwrap();
+    assert_ne!(local, workspace.query_store_version().unwrap());
+}
