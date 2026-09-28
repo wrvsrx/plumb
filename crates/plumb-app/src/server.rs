@@ -1217,16 +1217,19 @@ fn apply_content_changes(
     mut line_index: LineIndex,
     changes: Vec<TextDocumentContentChangeEvent>,
 ) -> Result<(String, LineIndex, Option<SourceChange>), String> {
-    let single_change = changes.len() == 1;
-    let mut source_change = None;
+    let mut source_change: Option<SourceChange> = None;
     for change in changes {
         let Some(range) = change.range else {
-            if single_change {
-                source_change = Some(SourceChange {
-                    old_range: 0..text.len(),
-                    new_range: 0..change.text.len(),
-                });
-            }
+            let next = SourceChange {
+                old_range: 0..text.len(),
+                new_range: 0..change.text.len(),
+            };
+            source_change = Some(match source_change {
+                Some(previous) => previous
+                    .followed_by(&next)
+                    .ok_or("byte change range overflow")?,
+                None => next,
+            });
             text = change.text;
             line_index = LineIndex::new(&text);
             continue;
@@ -1248,12 +1251,16 @@ fn apply_content_changes(
                 ));
             }
         }
-        if single_change {
-            source_change = Some(SourceChange {
-                old_range: start..end,
-                new_range: start..start + change.text.len(),
-            });
-        }
+        let next = SourceChange {
+            old_range: start..end,
+            new_range: start..start + change.text.len(),
+        };
+        source_change = Some(match source_change {
+            Some(previous) => previous
+                .followed_by(&next)
+                .ok_or("byte change range overflow")?,
+            None => next,
+        });
         line_index.apply_edit(start..end, &change.text);
         text.replace_range(start..end, &change.text);
     }
@@ -4813,7 +4820,7 @@ mod tests {
         let (text, lines, change) = apply_content_changes(text, lines, changes).unwrap();
         assert_eq!(text, "alphax\nsecond!\n");
         assert_eq!(lines, LineIndex::new(&text));
-        assert!(change.is_none());
+        assert_eq!(change, Some(SourceChange { old_range: 0..12, new_range: 0..14 }));
     }
 
     #[test]
@@ -4839,7 +4846,7 @@ mod tests {
         let (text, lines, change) = apply_content_changes(text, lines, changes).unwrap();
         assert_eq!(text, "first\nnext");
         assert_eq!(lines, LineIndex::new(&text));
-        assert!(change.is_none());
+        assert_eq!(change, Some(SourceChange { old_range: 0..3, new_range: 0..10 }));
     }
 
     #[test]
