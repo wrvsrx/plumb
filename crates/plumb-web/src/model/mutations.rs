@@ -48,7 +48,7 @@ impl WebWorkspace {
         let timestamp = Local::now()
             .fixed_offset()
             .to_rfc3339_opts(SecondsFormat::Secs, false);
-        let operation_workspace = self.operation_workspace(path)?;
+        let operation_workspace = self.operation_workspace_with_entry(entry.clone());
         let edit = match locator {
             WebTaskLocator::Document => operation_workspace.set_document_task_status(path, status, &timestamp),
             WebTaskLocator::Id { id } => {
@@ -129,7 +129,7 @@ impl WebWorkspace {
         let timestamp = Local::now()
             .fixed_offset()
             .to_rfc3339_opts(SecondsFormat::Secs, false);
-        let operation_workspace = self.operation_workspace(path)?;
+        let operation_workspace = self.operation_workspace_with_entry(entry.clone());
         let edit = match locator {
             WebTaskLocator::Document => {
                 if focus {
@@ -198,8 +198,7 @@ impl WebWorkspace {
         let timestamp = Local::now()
             .fixed_offset()
             .to_rfc3339_opts(SecondsFormat::Secs, false);
-        let edit = self
-            .operation_workspace(path)?
+        let edit = operation_workspace
             .create_task(path, &input, &placement, &timestamp)
             .map_err(task_authoring_error)?;
         self.write_workspace_edit(path, source, edit, "task")
@@ -284,12 +283,22 @@ impl WebWorkspace {
         let target_path = self
             .document_path(&reference.document_id)
             .ok_or_else(|| "unknown task reference document".to_string())?;
-        let entry = self
-            .document_entry(target_path)?
-            .and_then(|entry| entry.current.as_ref())
-            .ok_or_else(|| "task reference is no longer available".to_string())?;
         let task = self
-            .task_for_locator(entry.output.as_ref(), &reference.locator)
+            .workspace
+            .document_tasks(target_path)
+            .map_err(|e| e.to_string())?
+            .value
+            .into_iter()
+            .find(|task| match &reference.locator {
+                WebTaskLocator::Document => task.owner == plumb_semantics::TaskOwner::Document,
+                WebTaskLocator::Id { id } => {
+                    task.id.as_ref().is_some_and(|field| field.value == *id)
+                }
+                WebTaskLocator::Offset { offset } => {
+                    task.owner == plumb_semantics::TaskOwner::ListItem
+                        && task.range.start == *offset
+                }
+            })
             .ok_or_else(|| "task reference is no longer available".to_string())?;
         if task.owner == plumb_semantics::TaskOwner::Document {
             return relative_web_path(source_path, target_path)
@@ -372,16 +381,16 @@ impl WebWorkspace {
         let path = self
             .document_path(document_id)
             .ok_or_else(|| format!("unknown {kind} document"))?;
-        let entry = self
-            .document_entry(path)?
-            .filter(|entry| entry.current.is_some())
+        let document = self
+            .documents
+            .get(path)
             .ok_or_else(|| format!("{kind} document is invalid"))?;
-        if entry.revision.to_string() != revision {
+        if document.revision.to_string() != revision {
             return Err(format!("{kind} document changed; refresh before retrying"));
         }
         let disk_source = std::fs::read_to_string(path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        if disk_source != entry.parsed.source() {
+        if disk_source != document.source.as_ref() {
             return Err(format!(
                 "{kind} document changed on disk; refresh before retrying"
             ));
@@ -397,7 +406,8 @@ impl WebWorkspace {
         kind: &str,
     ) -> Result<(), String> {
         let revision = self
-            .document_entry(path)?
+            .documents
+            .get(path)
             .ok_or_else(|| format!("{kind} document is no longer indexed"))?
             .revision;
         let updated = apply_guarded_edit(source, path, revision, edit, kind)?;
