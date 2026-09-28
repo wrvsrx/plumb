@@ -983,6 +983,18 @@ impl SqliteSemanticStore {
             .collect()
     }
 
+    /// A search result carries its selection range, not the task source key.
+    pub fn task_at_selection(&self, path: &Path, start: usize) -> StoreResult<Option<TaskRecord>> {
+        let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
+        let bytes = tasks::table
+            .filter(tasks::path.eq(path_bytes(&normalize(path))))
+            .filter(tasks::selection_start.eq(to_i64(start)?))
+            .select(tasks::record)
+            .first::<Vec<u8>>(&mut *connection)
+            .optional()?;
+        bytes.map(|bytes| Ok(bincode::deserialize(&bytes)?)).transpose()
+    }
+
     pub fn tasks_by_keys(
         &self,
         keys: &[StoredTaskKey],

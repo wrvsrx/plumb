@@ -1,3 +1,4 @@
+mod indexed_documents;
 mod agenda;
 pub use agenda::*;
 mod config;
