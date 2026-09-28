@@ -15,6 +15,15 @@ pub(super) struct PolicyState {
     last_status: Option<String>,
 }
 
+impl PolicyState {
+    pub(super) fn pending(&self) -> bool {
+        self.settings
+            .values()
+            .any(|settings| settings.event_category.enabled || settings.event_timeline.enabled)
+            && (self.running || self.dirty)
+    }
+}
+
 pub(crate) struct PolicyDiagnosticsResult {
     generation: u64,
     result: Result<PolicyPublication, String>,
@@ -93,12 +102,8 @@ impl ServerState {
     pub(super) fn schedule_policy_diagnostics(&mut self) {
         self.policy.generation = self.policy.generation.wrapping_add(1);
         self.policy.dirty = true;
-        let had_results = !self.policy.diagnostics.is_empty();
+        // Invalidate internal results without publishing an intermediate list.
         self.policy.diagnostics.clear();
-        if had_results {
-            // Invalidation clears diagnostics in *all* affected open documents immediately.
-            self.publish_all_open_diagnostics_reusing_context();
-        }
         self.start_policy_diagnostics();
     }
 
@@ -275,6 +280,67 @@ fn project_location(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn policy_pending_does_not_publish_a_partial_list_and_failure_finishes_the_round() {
+        let messages = super::super::diagnostic_tests::publications(|state| {
+            let root = PathBuf::from("/notes");
+            let path = root.join("day.plumb");
+            state.roots = vec![root.clone()];
+            state.index_complete = true;
+            let mut settings = DiagnosticSettings::default();
+            settings.event_category.enabled = true;
+            state.policy.settings.insert(root, settings);
+            state
+                .workspace
+                .open_document(&path, 1, "`- 2026-09-22T10:00:00Z Work\n `+ event\n");
+            state
+                .open_documents
+                .insert(Url::from_file_path(&path).unwrap(), path.clone());
+            let complete = compute(
+                state.workspace.clone(),
+                state.policy.settings.clone(),
+                state.roots.clone(),
+                HashSet::from([path]),
+            )
+            .unwrap();
+            let _ = state.finish_policy_diagnostics(PolicyDiagnosticsResult {
+                generation: 0,
+                result: Ok(complete),
+            });
+            // Hold a worker open so invalidation and publication attempts are deterministic.
+            state.policy.running = true;
+            state.schedule_policy_diagnostics();
+            assert!(state.policy.diagnostics.is_empty());
+            state.publish_all_open_diagnostics();
+            // The current job has started. An obsolete result must not be installed.
+            state.policy.dirty = false;
+            let _ = state.finish_policy_diagnostics(PolicyDiagnosticsResult {
+                generation: 0,
+                result: Err("obsolete failure".into()),
+            });
+            assert!(state.policy.last_status.is_none());
+            state.policy.running = true;
+            let _ = state.finish_policy_diagnostics(PolicyDiagnosticsResult {
+                generation: state.policy.generation,
+                result: Err("query failed".into()),
+            });
+            assert!(!state.policy.pending());
+            assert!(state
+                .policy
+                .last_status
+                .as_ref()
+                .unwrap()
+                .contains("query failed"));
+        })
+        .await;
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert_eq!(
+            messages[0]["diagnostics"][0]["code"],
+            "event-category.missing"
+        );
+        assert_eq!(messages[1]["diagnostics"], serde_json::json!([]));
+    }
 
     #[test]
     fn incomplete_index_defers_policy_without_status_notifications() {

@@ -215,7 +215,7 @@ rangeLength 必须精确对应 source boundary，不得沿用 editor query 的 c
 文本悄然分叉。空 contentChanges 同样不建立 revision。该传输优化不改变 strict parser authority；最终 bytes
 必须产生与同 source fresh parse 等价的 recovered tree、diagnostics 与 valid view。
 
-Semantic generation pending 时，workspace-wide semantic query 明确为 partial；adapter 不把旧 current output 冒充新 revision，也不回退到同 path 的 persistent generation。只依赖 current ParsedDocument 的上述 editor requests 继续可用。Pending revision 立即发布 current syntax diagnostics并清除旧 semantic diagnostics；成功安装 semantic output 后才重新发布该 generation 的 semantic/workspace diagnostics，并触发受影响的 refresh。
+Semantic generation pending 时，workspace-wide semantic query 明确为 partial；adapter 不把旧 current output 冒充新 revision，也不回退到同 path 的 persistent generation。只依赖 current ParsedDocument 的上述 editor requests 继续可用。Pending revision 不发布中间诊断列表；成功安装 semantic output 后，等待 diagnostics reference 所定义的 Local 或 Workspace 范围完成，再发布该 generation 的结果。受影响的其它 editor refresh 仍按各自契约触发。
 
 Definition、references 与 hover 等没有标准 refresh request 的显式 semantic navigation 不能把 pending revision 投影为 temporary empty result。若 request source 的 current-valid output 尚未安装，LSP adapter 在处理该 request 时同步完成同一 ParsedDocument 的 document-local analysis，以相同 path、revision 与 allocation identity guard 安装结果，并取消该 generation 尚未发布的 background result；随后才执行 workspace resolution。目标 document 已经作为 open pending revision 存在且 anchor resolution 依赖其 output 时，也采用相同规则后重试 resolution。 该 fallback 可以让抢先到达的 request 承担一次完整 document-local analysis latency，但不得回退到旧 output、 等待没有协议保证的 client retry，或在 event loop 中等待只能由同一 event loop 安装的 background notification。
 
@@ -333,7 +333,7 @@ revision 的后续请求也立即失败，直到新的 revision 或显式 naviga
 
 LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的 `"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能改变跨文档 task dependency facts 的open-document/watched-file revision replacement都触发refresh。不声明support的client不接收未知request。
 
-valid open-document revision进入background analysis时，adapter只发布该document的current syntax diagnostics，不提前
+valid open-document revision进入background analysis时，adapter不发布中间diagnostics，不提前
 重算其它open documents或发送workspace CodeLens/Folding refresh。安装后CodeLens按引用输入/source positions判断，
 Folding按structure/positions/label inputs独立判断；exported summary相等不能抑制这些consumer-specific变化或pending恢复。
 diagnostics publication scope按下文record delta与context恢复规则决定，并完成该revision的等待请求。invalid revision与
@@ -461,8 +461,8 @@ initialize 时错误配置返回 InvalidParams；运行中错误配置通过 win
 不把任意客户端 settings JSON 当作第二种配置语法。配置只以已保存磁盘文件为准。配置删除恢复默认值和 overrides。
 open/change/close、后台语义完成、磁盘 watched-file 变化、初始索引完成与配置变化都触发可选规则 round。
 规则计算在后台使用 detached readonly workspace snapshot，连续请求合并，旧 generation 结果不得覆盖新状态。
-同一 round 只计算一次全工作区结果，不按每个打开文件重复计算；关闭规则立即清空旧诊断。
-未完成索引或存在 pending semantic revision 时不发布可选语义结论；已有可选结果清除，完成后重新计算。初始索引未开始／进行中是正常等待，不发送 diagnostics.incomplete；索引不完整时继续发布单文件诊断，完整后重新发送合并列表。规则不完整本身不产生通知或日志，真实查询失败才通过 window/logMessage Warning 记录具体原因，不发送弹窗提示；运行中配置错误仍使用 window/showMessage Error。索引失败后的 watched-file 变化触发完整重扫，成功后恢复规则诊断，不能通过累积 false 永久停用规则。
+同一 round 只计算一次全工作区结果，不按每个打开文件重复计算；关闭规则使旧规则结果立即失效，下一次当前范围完整 publication 移除其诊断。
+未完成索引时发布 Local 范围诊断；索引完成后存在 pending semantic revision 或 policy generation 时等待，不清空客户端已有结果，完成后发布合并列表。初始索引未开始／进行中是正常等待，不发送 diagnostics.incomplete；索引不完整时继续发布单文件诊断，完整后重新发送合并列表。规则不完整本身不产生通知或日志，真实查询失败才通过 window/logMessage Warning 记录具体原因，不发送弹窗提示；运行中配置错误仍使用 window/showMessage Error。索引失败后的 watched-file 变化触发完整重扫，成功后恢复规则诊断，不能通过累积 false 永久停用规则。
 syntax-invalid 当前文档不使用 last-valid events；结果不完整时暂不发布受影响规则的结论，不能冒充通过。
 LSP 对打开的 plumb 文档发布规则诊断，保留基础 diagnostics，并投影为 UTF-16 ranges 与跨文件 relatedInformation。
 closed related source 读取时验证与 snapshot content hash 一致，失败不可使用错误坐标；下一次有效 round 可恢复。
@@ -513,20 +513,17 @@ Targeted diagnostic publication 已实现：有 previous valid output、graph in
 depends/prev 和 Event tasks，不执行 resolution、不读 disk/store，也不能只使用当前已解析成功的 reverse
 references。implicit Event associations 由其 source links 覆盖。无法取得 candidate current output 时保守包含；
 idless records 不产生跨文档目标。重复 id 不合并 semantic records，但同一目标只需要一次 publication。
-graph inputs 变化、invalid/valid transition、context 缺失或存在 pending document 时仍全量 publication；
+graph inputs 变化、invalid/valid transition 或 context 缺失时仍全量 publication；存在 pending document 时延后到范围就绪；
 只有可能受影响集合的计算可以收敛，diagnostic 内容仍由同一 workspace diagnostic query 产生。
 全文替换或其它无法证明 record correspondence 的 revision 可以产生更宽的 removed/added 集合，从而保守
 扩大 publication scope；已知局部 edit 应保留未重解析 shards 的对应关系。
 
-当任一有效文档的 semantic analysis 尚在 pending 时，diagnostic publication 可以使用当前可用 facts 构造临时
-context，但不得将该 context 缓存供后续 revision 复用。pending 文档完成后，即使 exported summary 未变化，
-若没有可复用 context，也必须重新发布所有 open documents 的 diagnostics，恢复期间缺失的跨文档依赖事实。
-
-Pending publication cache rule 已实现：上述限制同样适用于此前已缓存的完整 context。任何单文档或
-批量 semantic diagnostic publication 发现有效 pending document 时，先清除旧缓存，再用当前可用 facts
-构造不缓存的临时 context；不能因缓存来自较早的完整 revision 就继续保留。所有 pending analysis 完成后，
-即使最后一次安装只改变 Event 或 exported summary 相等，也必须恢复全量诊断，清除期间的临时 unresolved
-等结果。只发布 syntax diagnostics 不需要建立 context。
+诊断 publication readiness 与范围遵循 diagnostics reference。Workspace 范围存在有效 pending document 时，
+先使旧 diagnostic context 缓存失效，但不构造或发布 partial facts 的临时 context；等待全部 document analysis
+完成后重建一次 context。即使最后一次安装只改变 Event 或 exported summary 相等，也必须恢复此前延后的
+所有 open documents publication。Local 范围不查询 workspace context，也不等待其它文档。policy 失效只清理
+内部结果；其当前 generation 完成前不发布缺少 policy 的 Workspace 列表。语法无效的当前文档可以独立发布
+其最终 syntax 结果。
 
 diagnostic 是可定位的 source problem；query failure 是请求无法完成；cancellation 不是 failure； runtime failure 不应伪装成 source diagnostic。
 

@@ -10,14 +10,30 @@ ranges。missing token 不作为 synthetic lossless leaf。
 
 `# 2. Publication
 
-每个 revision 都发布 recovered tree 的 syntax diagnostics。只有 current revision syntax-valid 时才合并同
+每次发布包含 current revision recovered tree 的 syntax diagnostics。只有 current revision syntax-valid 时才合并同
 revision semantic diagnostics。last-valid semantic outputs 可以继续服务 cross-file queries，但不能伪装成
 current diagnostics。export 与 authoritative edits 只接受 ValidDocument；completion/folding 可以显式查询
 recovered view。
 
 LSP 在 workspace index 未完成时只发布当前 revision 的 syntax 与 document-local semantic diagnostics，不使用 partial index 推导引用不存在、依赖关系或可选规则结论。protocol-neutral document_local_diagnostics 不查询 workspace graph 或磁盘，只读取 resident document 的当前语法与语义输出；pending 或 syntax-invalid revision 不沿用 last-valid diagnostics。
 
-索引完成后主动重新发布打开文档的完整诊断列表，合并仍有效的单文件结果与跨文件结果；publishDiagnostics 替换整份列表，不是追加。每次编辑立即清除失效结果，后台结果受 revision/generation 保护。索引等待、语法错误引起的规则不完整属于正常状态，不产生 diagnostics.incomplete 通知或日志；真实 I/O 或查询失败记录具体原因，文件修复后重新检查。不完整的可选规则不发布该规则的推断结论。
+索引完成后主动重新发布打开文档的完整诊断列表，合并仍有效的单文件结果与跨文件结果；publishDiagnostics 替换整份列表，不是追加。每次编辑立即使内部结果失效，但不通过中间空列表清除客户端显示；后台结果受 revision/generation 保护。索引等待、语法错误引起的规则不完整属于正常状态，不产生 diagnostics.incomplete 通知或日志；真实 I/O 或查询失败记录具体原因，文件修复后重新检查。不完整的可选规则不发布该规则的推断结论。
+
+诊断范围与计算状态分离：Local 范围由 workspace index 未就绪决定，包含 syntax 与 document-local
+semantics；Workspace 范围由 index 就绪决定，包含跨文档检查与已启用 policy。每个范围内只有完成的当前
+快照才能发布。有效文档的 analysis pending 或 policy pending 不改变范围，不发布 syntax-only、临时 unresolved
+或缺少 policy 的中间列表。Local 范围只等待该文档；Workspace 范围等待所有有效 pending documents 与当前
+policy generation 完成。等待期间客户端保留最近一次发布的列表，服务端不把旧结果作为 current diagnostics。
+
+语法无效的当前文档不适用 semantic checks，syntax 列表就是其完整结果，可立即发布；无效依赖导致某项
+规则不能得出结论属于已完成但不完整的检查，不是 pending，仍按规则排除这些结论。真实查询失败沿用降级
+与日志策略，不伪装成计算成功。文档关闭仍立即清空诊断。索引、配置或相关文档变化使旧后台结果失效；
+过期结果不得发布，最终列表携带对应 document version。
+
+例如 index 未完成时编辑有效 event，先等待 Local analysis，再发布本地结果；index 完成后发布合并结果。
+之后只改 event 描述，即使 warnings 不变，也不得在两次完整结果之间发布空列表或缺少 event warnings 的列表。
+跨文档 anchor 的有效 pending revision 不得让引用方暂时收到 unresolved warning；修复真实语法错误后必须
+重新发布当前范围结果，即使 exported facts 与 last-valid 相等。
 
 一次 workspace diagnostic round 必须只构造一次全局 task dependency graph 与 cycle context，并在同一
 workspace snapshot 的所有 document diagnostics 之间复用；不能按文档重复构造全库上下文。复用不得改变

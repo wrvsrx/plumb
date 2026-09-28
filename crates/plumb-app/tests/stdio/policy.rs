@@ -413,19 +413,65 @@ fn policy_incomplete_timeline_waits_for_syntax_repair_without_publishing_false_g
     open(&mut s, &a, first);
     open(&mut s, &b, "`broken{");
     s.wait_for_next(|m| publication(m, &b) && has(m, "syntax.unclosed-inline-group"));
+    let incomplete = s.wait_for_next(|m| publication(m, &a));
+    assert!(!has(&incomplete, "event-timeline.gap"));
     // Fixing to an unrelated document establishes a real gap on the next full round.
     change(&mut s, &b, 2, "Fixed\n");
     s.wait_for_next(|m| publication(m, &a) && has(m, "event-timeline.gap"));
     let messages = stop(s);
-    let repair = messages
-        .iter()
-        .position(|m| publication(m, &b) && m["params"]["version"] == 2)
-        .unwrap();
-    assert!(!messages[..repair]
+    let incomplete_position = messages.iter().position(|m| m == &incomplete).unwrap();
+    assert!(!messages[..=incomplete_position]
         .iter()
         .any(|m| has(m, "event-timeline.gap")));
     assert!(!messages.iter().any(|m| m["params"]["message"]
         .as_str()
         .is_some_and(|s| s.contains("diagnostics.incomplete"))));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn policy_description_edits_publish_complete_revisions_without_clearing_warnings() {
+    let root = unique_temp_dir();
+    configure(
+        &root,
+        "[diagnostics.event-category]\nenabled=true\n[diagnostics.event-timeline]\nenabled=true",
+    );
+    let path = root.join("day.plumb");
+    let source = "`= title One\n`= title Two\n`- 2026-09-22T10:00:00Z--11:00 中文😀\n `+ event\n`- 2026-09-22T12:00:00Z--13:00 Next\n `+ event\n";
+    std::fs::write(&path, source).unwrap();
+    let mut s = start(&[&root], &[]);
+    open(&mut s, &path, source);
+    s.wait_for_next(|m| publication(m, &path) && has(m, "event-timeline.gap"));
+    for version in 2..=5 {
+        change(
+            &mut s,
+            &path,
+            version,
+            &source.replace("中文😀", &format!("描述😀 {version}")),
+        );
+        s.wait_for_next(|m| publication(m, &path) && m["params"]["version"] == version);
+    }
+    // Superseded jobs must not publish an incomplete final revision either.
+    change(&mut s, &path, 6, &source.replace("Next", "Interim"));
+    change(&mut s, &path, 7, &source.replace("Next", "Final"));
+    s.wait_for_next(|m| publication(m, &path) && m["params"]["version"] == 7);
+    let messages = stop(s);
+    let mut last_version = 0;
+    for message in messages.iter().filter(|m| publication(m, &path)) {
+        let version = message["params"]["version"].as_i64().unwrap();
+        assert!(version >= last_version, "{message}");
+        last_version = version;
+        for code in [
+            "metadata.duplicate-key",
+            "event-category.missing",
+            "event-timeline.gap",
+        ] {
+            assert!(
+                has(message, code),
+                "revision {version} lost {code}: {message}"
+            );
+        }
+    }
+    assert_eq!(last_version, 7);
     std::fs::remove_dir_all(root).unwrap();
 }

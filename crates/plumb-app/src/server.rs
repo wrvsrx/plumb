@@ -73,9 +73,18 @@ use crate::symbols::{
     insert_all as insert_document_symbols, metadata as metadata_symbol, tasks as task_symbols,
 };
 
+/// Index availability selects the scope; unfinished work never lowers it.
+enum DiagnosticPublication {
+    Pending,
+    Local,
+    Workspace(Arc<WorkspaceDiagnosticContext>),
+}
+
 mod code_lens;
 mod completion;
 mod decorations;
+#[cfg(test)]
+mod diagnostic_tests;
 mod policy;
 pub(crate) use policy::PolicyDiagnosticsResult;
 
@@ -266,8 +275,10 @@ impl ServerState {
         self.open_documents.insert(uri.clone(), path.clone());
         self.schedule_policy_diagnostics();
         if semantic_analysis_pending {
-            self.publish_syntax_diagnostics(&uri, &path);
-        } else if rebound && background {
+            // Keep the client's last completed snapshot while this revision is pending.
+            return;
+        }
+        if rebound && background {
             self.publish_open_document_diagnostics(&path);
         } else {
             self.publish_all_open_diagnostics();
@@ -372,18 +383,23 @@ impl ServerState {
         self.publish_all_open_diagnostics_reusing_context();
     }
 
-    fn diagnostic_publication_context(&mut self) -> Option<Arc<WorkspaceDiagnosticContext>> {
+    fn diagnostic_publication_context(&mut self) -> DiagnosticPublication {
         if !self.roots.is_empty() && !self.index_complete {
             self.diagnostic_context = None;
-            return None;
+            return DiagnosticPublication::Local;
         }
-        let pending = self
+        if self
             .workspace
             .documents()
-            .any(|entry| entry.parsed.is_valid() && entry.current.is_none());
-        // Partial publication needs recovery even if the eventual exported facts are equal.
-        if pending {
+            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+        {
+            // Recovery must include all deferred documents even if the last
+            // installation has unchanged exported facts.
             self.diagnostic_context = None;
+            return DiagnosticPublication::Pending;
+        }
+        if self.policy.pending() {
+            return DiagnosticPublication::Pending;
         }
         let context = match &self.diagnostic_context {
             Some(context) => Arc::clone(context),
@@ -391,20 +407,18 @@ impl ServerState {
                 Ok(context) => Arc::new(context),
                 Err(error) => {
                     tracing::error!(%error, "workspace diagnostic context query failed");
-                    return None;
+                    return DiagnosticPublication::Local;
                 }
             },
         };
-        if !pending {
-            self.diagnostic_context = Some(Arc::clone(&context));
-        }
-        Some(context)
+        self.diagnostic_context = Some(Arc::clone(&context));
+        DiagnosticPublication::Workspace(context)
     }
 
     fn publish_all_open_diagnostics_reusing_context(&mut self) {
         let context = self.diagnostic_publication_context();
         for (uri, path) in &self.open_documents {
-            self.publish(uri, path, context.as_deref());
+            self.publish(uri, path, &context);
         }
     }
 
@@ -417,7 +431,7 @@ impl ServerState {
         else {
             return;
         };
-        self.publish(uri, path, context.as_deref());
+        self.publish(uri, path, &context);
     }
 
     fn publish_diagnostics_for_targets(&mut self, changed: &Path, ids: &HashSet<String>) {
@@ -430,7 +444,7 @@ impl ServerState {
                     .workspace
                     .document_may_reference_targets(path, changed, ids)
             {
-                self.publish(uri, path, context.as_deref());
+                self.publish(uri, path, &context);
             }
         }
     }
@@ -463,9 +477,22 @@ impl ServerState {
             });
     }
 
-    fn publish(&self, uri: &Url, path: &Path, context: Option<&WorkspaceDiagnosticContext>) {
+    fn publish(&self, uri: &Url, path: &Path, publication: &DiagnosticPublication) {
         let Some(entry) = self.workspace.get(path) else {
             return;
+        };
+        if !entry.parsed.is_valid() {
+            // Syntax-invalid is complete, not a pending semantic analysis.
+            self.publish_syntax_diagnostics(uri, path);
+            return;
+        }
+        if entry.current.is_none() {
+            return;
+        }
+        let context = match publication {
+            DiagnosticPublication::Pending => return,
+            DiagnosticPublication::Local => None,
+            DiagnosticPublication::Workspace(context) => Some(context.as_ref()),
         };
         let mut diagnostics = match context {
             Some(context) => match self.workspace.diagnostics_with_context(path, context) {
@@ -4369,22 +4396,18 @@ mod tests {
             .workspace
             .begin_document_revision(b, 2, source_b)
             .unwrap();
-        let temporary = state.diagnostic_publication_context().unwrap();
+        assert!(matches!(
+            state.diagnostic_publication_context(),
+            DiagnosticPublication::Pending
+        ));
         assert!(state.diagnostic_context.is_none());
-        assert!(!Arc::ptr_eq(&cached, &temporary));
+        // The old complete graph still contains the cycle, but cannot be used
+        // for a publication while a new document revision is pending.
         let stale = state
             .workspace
             .diagnostics_with_context(a, &cached)
             .unwrap();
         assert!(stale
-            .value
-            .iter()
-            .any(|diagnostic| diagnostic.code == "task.dependency-cycle"));
-        let current = state
-            .workspace
-            .diagnostics_with_context(a, &temporary)
-            .unwrap();
-        assert!(!current
             .value
             .iter()
             .any(|diagnostic| diagnostic.code == "task.dependency-cycle"));
@@ -4429,15 +4452,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn completion_clears_temporary_diagnostics_after_every_pending_publication_path() {
-        async fn run(scope: usize, title: &'static str) {
-            use std::io::{BufRead, Read};
-            struct Run;
-            struct Stop;
-            let (server, client) = async_lsp::MainLoop::new_server(|client| {
-                let completion = client.clone();
-                let mut router = async_lsp::router::Router::new(ServerState::new(client));
-                router.event::<Run>(move |state, _| {
+    async fn pending_analysis_never_publishes_temporary_unresolved_diagnostics() {
+        for scope in 0..4 {
+            for title in ["Old", "New"] {
+                let publications = super::diagnostic_tests::publications(move |state| {
                     let path = PathBuf::from("/tmp/plumb-context-event.plumb");
                     let other = PathBuf::from("/tmp/plumb-context-other.plumb");
                     let source = "`- 2026-09-07T10:00:00Z Old\n `+ event\n `@ event\n";
@@ -4464,66 +4482,24 @@ mod tests {
                         3 => state.publish_diagnostics_for_targets(&path, &HashSet::new()),
                         _ => unreachable!(),
                     }
-                    let result = state.finish_document_analysis(DocumentAnalysisResult {
+                    let _ = state.finish_document_analysis(DocumentAnalysisResult {
                         path,
                         generation,
                         analysis: Ok(pending.analyze()),
                     });
                     assert!(state.diagnostic_context.is_some());
-                    completion.emit(Stop).unwrap();
-                    result
-                });
-                router.event::<Stop>(|_, _| ControlFlow::Break(Ok(())));
-                router
-            });
-            client.emit(Run).unwrap();
-            let mut output = Vec::new();
-            tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                server.run_buffered(futures::io::Cursor::new(Vec::<u8>::new()), &mut output),
-            )
-            .await
-            .unwrap()
-            .unwrap();
-            let mut input = std::io::Cursor::new(output);
-            let mut publications = Vec::new();
-            while input.position() < input.get_ref().len() as u64 {
-                let mut header = String::new();
-                input.read_line(&mut header).unwrap();
-                let length: usize = header
-                    .trim()
-                    .strip_prefix("Content-Length: ")
-                    .unwrap()
-                    .parse()
-                    .unwrap();
-                let mut separator = [0; 2];
-                input.read_exact(&mut separator).unwrap();
-                assert_eq!(&separator, b"\r\n");
-                let mut body = vec![0; length];
-                input.read_exact(&mut body).unwrap();
-                let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
-                if message["method"] == "textDocument/publishDiagnostics"
-                    && message["params"]["uri"] == "file:///tmp/plumb-context-other.plumb"
-                {
-                    publications.push(message["params"]["diagnostics"].clone());
-                }
-            }
-            assert_eq!(publications[0], serde_json::json!([]));
-            assert!(publications[1]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|diagnostic| diagnostic["code"] == "link.unresolved-anchor"));
-            assert_eq!(
-                publications.last().unwrap(),
-                &serde_json::json!([]),
-                "scope={scope} title={title}: recovery must clear the temporary unresolved warning"
-            );
-            assert_eq!(publications.len(), 3);
-        }
-        for scope in 0..4 {
-            for title in ["Old", "New"] {
-                run(scope, title).await;
+                })
+                .await;
+                let diagnostics = publications
+                    .iter()
+                    .filter(|message| message["uri"] == "file:///tmp/plumb-context-other.plumb")
+                    .map(|message| message["diagnostics"].clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    diagnostics,
+                    vec![serde_json::json!([]), serde_json::json!([])],
+                    "scope={scope} title={title}: pending work must not publish a temporary warning"
+                );
             }
         }
     }

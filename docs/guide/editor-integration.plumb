@@ -6,6 +6,10 @@
 
 `"plumb lsp" 提供 diagnostics、document symbols、definition、references、hover、completion、rename、 CodeAction、CodeLens、semantic tokens、folding ranges、formatting、range formatting 和 workspace search。
 
+索引未完成时，diagnostics 提供当前文档的语法与本地语义检查；索引完成后自动补充跨文件与已启用的
+规则检查。正常编辑会保留上一次诊断显示，直到新版本的检查完成后整体替换，避免后台分析阶段之间
+反复清空 warnings。真实语法错误可立即显示。详细规则见 `->{诊断参考 ../reference/diagnostics.plumb}。
+
 LSP protocol 由 editor client 选择 `"rootUri"/`"workspaceFolders"。plumb server 不向上查找 marker，也 不向 client 声明 marker；client integration 应优先使用 `".plumb"，再 fallback 到 editor 自己的 project marker。workspace 与 ignore 行为见 `->{{workspace 指南} workspace.plumb}。
 
 当前官方 editor integration 只覆盖 Neovim 0.12。未来其它 editor 应复用相同的 LSP 与 workspace contract，并在本文增加同级章节。
