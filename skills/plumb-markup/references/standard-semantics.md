@@ -226,7 +226,11 @@ titles need no group.
 ```
 
 Schedules accept a point, `START--END`, or a running `START--` interval; document/ancestor `date` and
-`timezone` provide context. Task and event facets conflict on one item.
+`timezone` provide context. A valid `START--` always emits an `event.ongoing` warning,
+even when its start is in the future; no clock is consulted. Open events are excluded
+from duration accounting and timeline checks without making reports incomplete.
+Supplying a valid end clears the warning and includes the event in those queries.
+Task and event facets conflict on one item.
 
 Events can inherit `event-category` values from directly linked list items or whole plumb
 documents (including ordinary documents). Reusable activities are ordinary anchored list items, without an `activity`

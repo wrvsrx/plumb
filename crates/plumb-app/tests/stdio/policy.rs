@@ -481,3 +481,56 @@ fn policy_description_edits_publish_complete_revisions_without_clearing_warnings
     assert_eq!(last_version, 7);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn ongoing_event_warning_is_clock_independent_and_clears_on_closure() {
+    for timeline in [false, true] {
+        let root = unique_temp_dir();
+        configure(
+            &root,
+            &format!("[diagnostics.event-timeline]\nenabled={timeline}\n"),
+        );
+        let path = root.join("day.plumb");
+        let source = "`- 2999-01-01T08:00:00Z-- 工作😀\r\n `+ event\r\n`- 2999-01-01T10:00:00Z--11:00 Plan\r\n `+ event\r\n";
+        std::fs::write(&path, source).unwrap();
+        let mut session = start(&[&root], &[]);
+        open(&mut session, &path, source);
+        let published =
+            session.wait_for_next(|m| publication(m, &path) && m["params"]["version"] == 1);
+        let diagnostics = published["params"]["diagnostics"].as_array().unwrap();
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        let warning = &diagnostics[0];
+        assert_eq!(warning["code"], "event.ongoing");
+        assert_eq!(warning["severity"], 2);
+        assert_eq!(
+            warning["message"],
+            "event has no end time; excluded from accounting and timeline checks"
+        );
+        let title_start = source.find("工作").unwrap();
+        assert_eq!(
+            warning["range"],
+            json!({
+                "start":{"line":0,"character":title_start},
+                "end":{"line":0,"character":title_start + 4}
+            })
+        );
+        change(
+            &mut session,
+            &path,
+            2,
+            &source.replace("-- 工作", "--10:00 工作"),
+        );
+        let closed =
+            session.wait_for_next(|m| publication(m, &path) && m["params"]["version"] == 2);
+        assert_eq!(closed["params"]["diagnostics"], json!([]));
+        change(&mut session, &path, 3, source);
+        let reopened =
+            session.wait_for_next(|m| publication(m, &path) && m["params"]["version"] == 3);
+        assert_eq!(
+            reopened["params"]["diagnostics"],
+            published["params"]["diagnostics"]
+        );
+        stop(session);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

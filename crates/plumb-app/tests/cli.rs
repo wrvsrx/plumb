@@ -1387,3 +1387,65 @@ fn check_configuration_uses_discovered_workspace_root() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn ongoing_events_warn_without_failing_check_or_entering_summary() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("day.plumb");
+    let source = "`- 2000-01-01T08:00:00Z-- Open\n `+ event\n`- 2999-01-01T08:00:00Z-- Future\n `+ event\n`- 2000-01-01T10:00:00Z--11:00 Closed\n `+ event\n `= event-category work\n";
+    std::fs::write(&path, source).unwrap();
+    let cache = root.join("cache");
+    let mut expected = None;
+    for extra in [&[][..], &[][..], &["--no-cache"][..]] {
+        let checked = plumb_command()
+            .args(["check", "--root"])
+            .arg(&root)
+            .args(["--config", "diagnostics.event-timeline.enabled=true"])
+            .args(extra)
+            .env("PLUMB_CACHE_DIR", &cache)
+            .output()
+            .unwrap();
+        assert!(
+            checked.status.success(),
+            "{}",
+            String::from_utf8_lossy(&checked.stdout)
+        );
+        let output = String::from_utf8(checked.stdout).unwrap();
+        assert_eq!(output.lines().count(), 2, "{output}");
+        assert_eq!(output.matches("warning[event.ongoing]").count(), 2);
+        if let Some(expected) = &expected {
+            assert_eq!(&output, expected);
+        } else {
+            expected = Some(output);
+        }
+        let summary = plumb_command()
+            .args(["event", "summary", "--root"])
+            .arg(&root)
+            .args([
+                "--from",
+                "2000-01-01T08:00:00Z",
+                "--to",
+                "2000-01-01T12:00:00Z",
+                "--json",
+            ])
+            .args(extra)
+            .env("PLUMB_CACHE_DIR", &cache)
+            .output()
+            .unwrap();
+        assert!(
+            summary.status.success(),
+            "{}",
+            String::from_utf8_lossy(&summary.stderr)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&summary.stdout).unwrap();
+        assert_eq!(json["complete"], true);
+        assert_eq!(json["issues"], serde_json::json!([]));
+        assert_eq!(json["allocations"].as_array().unwrap().len(), 1);
+        assert_eq!(json["accumulated_seconds"], 3600.0);
+        assert_eq!(json["covered_seconds"], 3600.0);
+        assert_eq!(json["categories"][0]["seconds"], 3600.0);
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+    std::fs::remove_dir_all(root).unwrap();
+}
