@@ -1315,19 +1315,6 @@ fn apply_content_changes(
         if start > end {
             return Err(format!("range start {start} follows end {end}"));
         }
-        if let Some(expected) = change.range_length {
-            let actual = text[start..end].encode_utf16().count() as u32;
-            // Neovim counts the synthetic EOF line separator in ranged
-            // changes against a noeol buffer. The byte range is already
-            // validated above; accept this one-unit discrepancy only when
-            // the range terminates at the virtual EOF position.
-            let virtual_eof = line_index.is_virtual_eof(&text, range.end);
-            if actual != expected && !(virtual_eof && expected == actual + 1) {
-                return Err(format!(
-                    "rangeLength {expected} does not match replaced UTF-16 length {actual}"
-                ));
-            }
-        }
         let next = SourceChange {
             old_range: start..end,
             new_range: start..start + change.text.len(),
@@ -4825,31 +4812,26 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_incremental_ranges_and_lengths() {
+    fn rejects_invalid_incremental_ranges_but_ignores_deprecated_lengths() {
         let text = "a😀\n";
-        for change in [
-            TextDocumentContentChangeEvent {
+        let invalid = TextDocumentContentChangeEvent {
                 range: Some(lsp_types::Range::new(
                     lsp_types::Position::new(0, 2),
                     lsp_types::Position::new(0, 3),
                 )),
                 range_length: None,
                 text: String::new(),
-            },
-            TextDocumentContentChangeEvent {
+            };
+        assert!(apply_content_changes(text.to_string(), LineIndex::new(text), vec![invalid]).is_err());
+        let mismatched_length = TextDocumentContentChangeEvent {
                 range: Some(lsp_types::Range::new(
                     lsp_types::Position::new(0, 1),
                     lsp_types::Position::new(0, 3),
                 )),
                 range_length: Some(1),
                 text: String::new(),
-            },
-        ] {
-            assert!(
-                apply_content_changes(text.to_string(), LineIndex::new(text), vec![change])
-                    .is_err()
-            );
-        }
+            };
+        assert!(apply_content_changes(text.to_string(), LineIndex::new(text), vec![mismatched_length]).is_ok());
     }
 
     #[test]

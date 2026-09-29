@@ -47,12 +47,6 @@ impl LineIndex {
         (character == position.character).then_some(line_end)
     }
 
-    pub(crate) fn is_virtual_eof(&self, text: &str, position: Position) -> bool {
-        usize::try_from(position.line).ok() == Some(self.line_starts.len())
-            && position.character == 0
-            && self.position_to_offset(text, position) == Some(text.len())
-    }
-
     pub(crate) fn apply_edit(&mut self, replaced: std::ops::Range<usize>, replacement: &str) {
         let removed = replaced.end - replaced.start;
         let inserted = replacement.len();
