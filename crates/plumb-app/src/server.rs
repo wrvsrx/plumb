@@ -4848,6 +4848,36 @@ mod tests {
     }
 
     #[test]
+    fn accepts_virtual_eof_line_after_terminal_newline() {
+        let text = "first\nsecond\n";
+        let change = TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range::new(
+                lsp_types::Position::new(1, 0),
+                lsp_types::Position::new(2, 0),
+            )),
+            range_length: Some(7),
+            text: String::new(),
+        };
+        let (updated, _, _) = apply_content_changes(text.to_string(), LineIndex::new(text), vec![change]).unwrap();
+        assert_eq!(updated, "first\n");
+    }
+
+    #[test]
+    fn accepts_editor_eof_line_for_noeol_source() {
+        let text = "first\nsecond";
+        let change = TextDocumentContentChangeEvent {
+            range: Some(lsp_types::Range::new(
+                lsp_types::Position::new(1, 0),
+                lsp_types::Position::new(2, 0),
+            )),
+            range_length: Some(6),
+            text: String::new(),
+        };
+        let (updated, _, _) = apply_content_changes(text.to_string(), LineIndex::new(text), vec![change]).unwrap();
+        assert_eq!(updated, "first\n");
+    }
+
+    #[test]
     fn rejects_a_change_batch_without_returning_a_partially_updated_document() {
         let text = "first\nsecond\n";
         let changes = vec![

@@ -19,6 +19,12 @@ impl LineIndex {
 
     pub(crate) fn position_to_offset(&self, text: &str, position: Position) -> Option<usize> {
         let line = usize::try_from(position.line).ok()?;
+        // Editors commonly represent EOF after a terminal line ending as the
+        // empty line immediately following it. Accept that virtual boundary
+        // when the character is zero; it maps to the physical EOF byte.
+        if line == self.line_starts.len() && position.character == 0 {
+            return Some(text.len());
+        }
         let line_start = *self.line_starts.get(line)?;
         let mut line_end = self
             .line_starts
