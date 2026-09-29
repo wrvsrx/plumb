@@ -101,6 +101,8 @@ official profile 至少区分：
 semantic diagnostic 指向最小 source-backed field；cross-document problem 可以携带 related locations。adapter
 不得用 guessed offset 替代 syntax/semantic layer 的 precise range。
 
+event.ongoing 是 document-local semantic Warning：合法开放事件 START-- 不论 start 位于过去或未来都发布一次，range 使用 event.selection_range，message 为 event has no end time; excluded from accounting and timeline checks。该提醒不读取 clock，不依赖 workspace policy 开关，不属于 invalid-time，也不改变 syntax validity、query completeness 或 CLI 成功退出码。补齐合法 end 后移除；非法 schedule 保留原有具体时间诊断，不追加 ongoing。
+
 `# 7. Optional workspace checks
 
 check 与 LSP 共享的 event-category 与 event-timeline 是默认禁用的 workspace policy queries，不改变 syntax

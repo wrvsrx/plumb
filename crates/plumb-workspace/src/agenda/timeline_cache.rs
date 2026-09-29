@@ -99,7 +99,7 @@ impl Workspace {
                 };
                 for event in node.events() {
                     state.extracted_events += 1;
-                    if event.at_datetime().is_some() {
+                    if event.at_datetime().is_some() || event.is_running() {
                         continue;
                     }
                     let range = event.selection_range.start - node.offset()

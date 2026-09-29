@@ -504,6 +504,16 @@ fn collect_event_diagnostics(
     time_error: Option<EventWhenError>,
     output: &mut EventOutput,
 ) {
+    if event.is_running() {
+        output.diagnostics.push(Diagnostic {
+            code: "event.ongoing",
+            severity: DiagnosticSeverity::Warning,
+            message: "event has no end time; excluded from accounting and timeline checks"
+                .to_string(),
+            range: event.selection_range.clone(),
+            related: Vec::new(),
+        });
+    }
     if event.when.is_none() {
         output.diagnostics.push(Diagnostic {
             code: "event.missing-time",
@@ -733,20 +743,50 @@ mod tests {
     }
 
     #[test]
-    fn open_schedule_resolves_start_without_inventing_end() {
-        for time in ["08", "08:00", "08:00:30", "2026-07-30T08:00", "2026-07-30T08:00:00+08:00"] {
-            let source = format!("`= date 2026-07-30\n`= timezone +08:00\n\n`- {time}-- Working\n `+ event\n");
+    fn open_schedule_warns_without_inventing_end_or_reading_clock() {
+        for time in [
+            "08",
+            "08:00",
+            "08:00:30",
+            "2026-07-30T08:00",
+            "2026-07-30T08:00:00+08:00",
+        ] {
+            let source =
+                format!("`= date 2026-07-30\n`= timezone +08:00\n\n`- {time}-- Working\n `+ event\n");
             let output = analyze(&source);
-            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
             let event = output.events.get(0).unwrap();
+            assert_eq!(output.diagnostics.len(), 1, "{:?}", output.diagnostics);
+            let diagnostic = output.diagnostics.iter().next().unwrap();
+            assert_eq!(diagnostic.code, "event.ongoing");
+            assert_eq!(diagnostic.severity, DiagnosticSeverity::Warning);
+            assert_eq!(diagnostic.range, event.selection_range);
+            assert_eq!(&source[diagnostic.range.clone()], "Working");
+            assert_eq!(
+                diagnostic.message,
+                "event has no end time; excluded from accounting and timeline checks"
+            );
             assert!(event.is_running());
             assert!(!event.is_point());
             assert!(event.start_datetime().is_some());
             assert!(event.end.is_none());
         }
+        for start in ["1900-01-01T08:00:00Z", "2999-01-01T08:00:00Z"] {
+            let source = format!("`- {start}-- Working\n `+ event\n");
+            let output = analyze(&source);
+            assert_eq!(output.diagnostics.len(), 1);
+            assert_eq!(
+                output.diagnostics.iter().next().unwrap().code,
+                "event.ongoing"
+            );
+            let closed = analyze(&source.replace("-- Working", "--09:00 Working"));
+            assert!(closed.diagnostics.is_empty(), "{:?}", closed.diagnostics);
+        }
         for schedule in ["--", "--09:00", "08:00----", "25:00--"] {
-            let output = analyze(&format!("`= date 2026-07-30\n`= timezone +08:00\n`- {schedule} Bad\n `+ event\n"));
+            let output = analyze(&format!(
+                "`= date 2026-07-30\n`= timezone +08:00\n`- {schedule} Bad\n `+ event\n"
+            ));
             assert!(!output.diagnostics.is_empty(), "{schedule}");
+            assert!(output.diagnostics.iter().all(|d| d.code != "event.ongoing"));
         }
         let output = analyze("`- 08:00-- Missing context\n `+ event\n");
         assert!(!output.diagnostics.is_empty());

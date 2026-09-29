@@ -422,13 +422,12 @@ fn continuity_sweep_handles_nested_and_duplicate_intervals_without_false_gaps() 
 }
 
 #[test]
-fn continuity_is_independent_of_references_but_invalid_and_open_times_are_incomplete() {
+fn continuity_is_independent_of_references_but_invalid_times_are_incomplete() {
     let mut w = Workspace::new();
     w.insert("/notes/day.plumb", 0, EVENT);
     assert!(continuity(&w).passed());
     for source in [
         "`- tomorrow Invalid\n `+ event\n",
-        "`- 2026-09-22T10:00:00Z-- Open\n `+ event\n",
         "`- 2026-09-22T10:00:00Z--2026-09-22T09:00:00Z Reversed\n `+ event\n",
         "`broken{",
     ] {
@@ -1365,4 +1364,120 @@ fn invalid_time_keeps_timeline_conclusions_available_but_check_incomplete() {
             .unwrap();
         assert_eq!(report.deferred_rules, ["event-timeline"]);
     }
+}
+
+#[test]
+fn ongoing_events_are_excluded_from_accounting_and_timeline_without_clock_dependency() {
+    for persistent in [false, true] {
+        let mut workspace = if persistent {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else {
+            Workspace::new()
+        };
+        let root = Path::new("/notes");
+        workspace.insert_disk("/notes/open.plumb", 0,
+            "`- 2026-09-22T10:15:00Z-- Open\n `+ event\n`- 2999-01-01T10:00:00Z-- Future\n `+ event\n").unwrap();
+        let only_open = workspace.check_event_timeline(root, dt(START)).unwrap();
+        assert!(only_open.passed());
+        assert_eq!(only_open.checked, 2);
+        let empty = report(&workspace, true);
+        assert!(empty.complete);
+        assert!(empty.allocations.is_empty());
+        assert_eq!(empty.accumulated_seconds, 0.0);
+        assert_eq!(empty.covered_seconds, 0.0);
+        assert_eq!(empty.gaps.len(), 1);
+        // Open events must neither fill this gap nor overlap either closed event.
+        workspace.insert_disk("/notes/closed.plumb", 0,
+            "`= event-category work\n`- 2026-09-22T10:00:00Z--10:15 First\n `+ event\n`- 2026-09-22T10:45:00Z--11:00 Last\n `+ event\n").unwrap();
+        let mut state = plumb_workspace::TimelineCheckState::default();
+        let mut expected = None;
+        for (round, now) in ["1900-01-01T00:00:00Z", END, "3000-01-01T00:00:00Z"]
+            .into_iter()
+            .enumerate()
+        {
+            let summary = workspace
+                .agenda_report(root, dt(START), dt(END), dt(now), None, true)
+                .unwrap();
+            assert!(summary.complete, "{:?}", summary.issues);
+            assert_eq!(summary.allocations.len(), 2);
+            assert_eq!(summary.accumulated_seconds, 1800.0);
+            assert_eq!(summary.covered_seconds, 1800.0);
+            assert_eq!(summary.categories[0].seconds, 1800.0);
+            assert!(summary.overlaps.is_empty());
+            let full = workspace.check_event_timeline(root, dt(now)).unwrap();
+            let cached = workspace
+                .check_event_timeline_incremental(root, dt(now), &mut state)
+                .unwrap();
+            assert!(cached.complete);
+            assert_eq!(cached.gaps.len(), 1);
+            assert_eq!(cached.gaps[0].start, dt("2026-09-22T10:15:00Z"));
+            assert_eq!(cached.gaps[0].end, dt("2026-09-22T10:45:00Z"));
+            assert!(cached.overlaps.is_empty());
+            assert_eq!(
+                serde_json::to_value(&cached).unwrap(),
+                serde_json::to_value(full).unwrap()
+            );
+            if round > 0 {
+                assert_eq!(state.extracted_events, 0);
+                assert_eq!(state.recomputed_segments, 0);
+            }
+            let current = (
+                serde_json::to_value(summary).unwrap(),
+                serde_json::to_value(cached).unwrap(),
+            );
+            if let Some(expected) = &expected {
+                assert_eq!(&current, expected);
+            } else {
+                expected = Some(current);
+            }
+        }
+        // Closing the record immediately brings its interval into both queries.
+        workspace.open_document(
+            "/notes/open.plumb",
+            1,
+            "`= event-category work\n`- 2026-09-22T10:15:00Z--11:00 Finished\n `+ event\n",
+        );
+        let closed = workspace
+            .check_event_timeline_incremental(root, dt(START), &mut state)
+            .unwrap();
+        assert!(closed.complete);
+        assert!(closed.gaps.is_empty());
+        assert_eq!(closed.overlaps.len(), 1);
+        assert_eq!(report(&workspace, true).accumulated_seconds, 4500.0);
+    }
+}
+
+#[test]
+fn ongoing_warning_is_cached_and_follows_open_overlay_closure() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("index.sqlite");
+    let path = Path::new("/notes/open.plumb");
+    let source = "`- 2999-01-01T10:00:00Z-- 工作😀\n `+ event\n";
+    let mut workspace = Workspace::with_sqlite_store(SqliteSemanticStore::open(&database).unwrap());
+    workspace.insert_disk(path, 0, source).unwrap();
+    drop(workspace);
+    let mut workspace = Workspace::with_sqlite_store(SqliteSemanticStore::open(&database).unwrap());
+    assert!(workspace.get(path).is_none());
+    let diagnostics = |workspace: &Workspace| {
+        workspace
+            .check_diagnostics_with_context(path, &workspace.diagnostic_context().unwrap())
+            .unwrap()
+            .value
+    };
+    let original = diagnostics(&workspace);
+    assert_eq!(original.len(), 1);
+    assert_eq!(original[0].code, "event.ongoing");
+    assert_eq!(
+        original[0].severity,
+        plumb_syntax::DiagnosticSeverity::Warning
+    );
+    assert_eq!(&source[original[0].range.clone()], "工作😀");
+    workspace.open_document(path, 1, source.replace("-- 工作", "--11:00 工作"));
+    assert!(diagnostics(&workspace).is_empty());
+    workspace.open_document(path, 2, format!("\n{source}"));
+    let moved = diagnostics(&workspace);
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0].range.start, original[0].range.start + 1);
+    workspace.close_document(path);
+    assert_eq!(diagnostics(&workspace), original);
 }

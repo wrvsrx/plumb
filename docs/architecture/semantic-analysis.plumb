@@ -395,6 +395,8 @@ includeDeclaration 为 true 时声明仍在首项，其余 references 保持 wor
 事件祖先分类继承：semantic EventRecord.category 保存事件自身或 shard 内最近结构祖先的声明及相对来源范围，未声明时为空；不把跨 shard 的文档范围塞入局部 record。shared workspace event_accounting 在该字段缺省时读取当前事件所属文档的根分类，然后才回退到引用事项。祖先修改使 owning shard 重算；文档默认值每次从当前 output/store 读取；同一 immutable DocumentOutput 按需缓存根分类，避免每个事件重扫所有 shards，新的 revision 不复用旧来源范围，overlay、关闭恢复、持久缓存与 fresh analysis 必须一致。schema epoch 更新使旧的无祖先分类 event records 失效。check、LSP、summary 与 vdir 共用此解析，不在适配层推导。非法有效分类的问题指向声明本身；完全缺失仍指向事件。
 文档级 event-category 从既有 GreenDocument 的根层声明提取，包含普通文档，不重解析。persistent store 保存文档分类及来源范围；schema epoch 更新必须使旧 category 语义缓存失效。document 分类修改立即影响当前查询，memory、disk cache 与 open overlay 结果一致。
 
+event.ongoing 由 Event analysis 在合法 Running schedule 上产生，local diagnostic range 为 title selection range；memory、disk generation 与 open overlay 一致。持久缓存的语义 epoch 必须更新，防止旧缓存遗漏新增 warning。
+
 agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影结果。 event-category 与 direct title reference inputs 来自同一 syntax-valid revision 的 semantic records，不能由 adapter 重新 parse；persistent、memory 与 open overlay 查询必须等价，引用目标分类变化后不能返回旧分类。
 
 summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 category、item、task 汇总。 返回逐事件分摊依据、汇总、覆盖时间、问题与 completeness，支持结构化 JSON。分摊保留精度到展示边界。 完整汇总可能选择同一文档数万个 events；store 按 source keys 加载记录时必须去重并分批绑定参数， 不能因 SQLite 单条语句的变量上限而失败。分批不改变 source ordering，也不解码未选中的 records。
@@ -404,7 +406,7 @@ summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 
 要求边界内每一 instant 恰好一个 interval 覆盖。使用 interval sweep，不只比较相邻事件；返回全部内部
 空档与带 source identities 的重叠，嵌套重叠不能制造假空档。跨文件、跨日期的事件属于同一时间轴。
 合法 point events 不提供覆盖，也不扩大边界；空集合、只有 points 或单个有效区间通过。
-invalid time、未能解析出有限 end 的事件或 incomplete index 不能通过。分类与引用问题不参与 timeline。
+合法开放事件 START-- 不参与核算或 timeline，不贡献边界；只由 document-local semantics 发布 event.ongoing Warning，timeline report 保持 complete。invalid time 或 incomplete index 不能通过。分类与引用问题不参与 timeline。
 summary 继续接受显式 window，空 window selection 的 gap 仍是整个 window，与连续性检查不同。
 这些规则默认禁用，启用后作为 workspace diagnostics，不改变 syntax validity。
 
@@ -416,7 +418,7 @@ event-category 与 event-timeline 提供跨轮增量检查；原有 full check �
 
 Category 按 event 缓存核算分类结论，记录 event 的有效分类、核算引用、tasks override 与引用目标依赖。仅修改无关 title text 或 event 时间不使分类结论失效；修改 title 内参与核算的链接必须失效。目标有效分类、身份、task 身份、解析歧义或存在性变化，必须重新计算依赖该目标的 events，包含此前无法解析的引用。文档根层和祖先分类变化按其实际继承依赖失效；显式非法声明的 barrier 语义保持不变。成功结论按文档路径、immutable shard identity 和 node-relative provenance 复用；不按 event ordinal 匹配。非法输入保守重算 issues 以保留精确位置；新增文档不改变其它文档的 event identities。
 
-Timeline 维护有限 interval 的有序边界与参与事件集合。新增、删除或时间变化只更新对应边界，并重新计算受影响时间区域的 gap/overlap；不能仅查看 start 排序的相邻两个 events。跨越受影响区域的长区间、nested overlap、相等边界、point、open interval 和 invalid time 均与 full check 一致。分类和引用变化不重建时间覆盖结果。
+Timeline 维护有限 interval 的有序边界与参与事件集合。新增、删除或时间变化只更新对应边界，并重新计算受影响时间区域的 gap/overlap；不能仅查看 start 排序的相邻两个 events。跨越受影响区域的长区间、nested overlap、相等边界、point、open interval 和 invalid time 均与 full check 一致。分类和引用变化不重建时间覆盖结果。开放事件的排除和 ongoing warning 均只依赖 source，不读取 now；仅 query clock 改变时不重新提取或重建 timeline。
 
 Source geometry 与规则结论分离。文件开头插入空行或前方 owner 长度变化时，保留不变的分类/覆盖结论，但所有 source locations 与 related locations 必须重绑定当前 revision；不得发布旧 byte ranges。不能可靠匹配的新旧 events 可以局部或完整重建，不得误用缓存。
 
@@ -475,7 +477,7 @@ open/change/close、后台语义完成、磁盘 watched-file 变化、初始索�
 未完成索引时发布 Local 范围诊断；索引完成后存在 pending semantic revision 或 policy generation 时等待，不清空客户端已有结果，完成后发布合并列表。初始索引未开始／进行中是正常等待，不发送 diagnostics.incomplete；索引不完整时继续发布单文件诊断，完整后重新发送合并列表。规则不完整本身不产生通知或日志，真实查询失败才通过 window/logMessage Warning 记录具体原因，不发送弹窗提示；运行中配置错误仍使用 window/showMessage Error。索引失败后的 watched-file 变化触发完整重扫，成功后恢复规则诊断，不能通过累积 false 永久停用规则。
 语义分析在 invalid revision 期间不发布 last-valid events，但保留最近完成的 valid semantic output 作为内部增量基线；后续恢复 valid 时按稳定 syntax shard identity 和累计变更复用未受影响节点。跨 invalid 状态不能使局部语义增量退化为全量分析。
 syntax-invalid 当前文档不使用 last-valid events；缺失文档语义或索引不完整时暂不发布受影响规则的结论，不能冒充通过。
-Timeline 仅对当前有效的有限时间区间计算 gap/overlap。单个事件时间无效、缺少有限 end 或 end 不晚于 start 时跳过该事件，保留 agenda.invalid-time 警告，但不阻止其余有效事件的 gap/overlap 发布。gap 表示当前有效事件之间的空档；修复时间后重新计算，期间允许出现随后被修复事件填补的 gap。
+Timeline 仅对当前有效的有限时间区间计算 gap/overlap。合法开放事件不参与检查且不产生 invalid-time。单个事件时间无效或显式 end 不晚于 start 时跳过该事件，保留 agenda.invalid-time 警告，但不阻止其余有效事件的 gap/overlap 发布。gap 表示当前有效事件之间的空档；修复时间后重新计算，期间允许出现随后被修复事件填补的 gap。
 规则结果分别记录检查完整性与结论发布资格：invalid-time 仍使检查不完整、CLI 不通过，但不单独阻止 timeline 结论发布；若同时存在 syntax-invalid 文档，仍抑制该 root 的 timeline 结论。全量与增量查询必须保持这两种状态一致。
 LSP 对打开的 plumb 文档发布规则诊断，保留基础 diagnostics，并投影为 UTF-16 ranges 与跨文件 relatedInformation。
 closed related source 读取时验证与 snapshot content hash 一致，失败不可使用错误坐标；下一次有效 round 可恢复。

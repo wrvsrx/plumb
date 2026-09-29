@@ -512,6 +512,9 @@ impl Workspace {
                     }
                     continue;
                 }
+                if event.is_running() {
+                    continue;
+                }
                 let (Some(start), Some(end)) = (event.start_datetime(), event.end_datetime())
                 else {
                     report.issues.push(issue(
@@ -857,7 +860,7 @@ impl Workspace {
         let mut sources = Vec::new();
         let mut boundaries = BTreeMap::<DateTime<FixedOffset>, (Vec<usize>, Vec<usize>)>::new();
         for (path, event) in selected.events {
-            if event.at_datetime().is_some() {
+            if event.at_datetime().is_some() || event.is_running() {
                 continue;
             }
             let source = location(&path, event.selection_range.clone());

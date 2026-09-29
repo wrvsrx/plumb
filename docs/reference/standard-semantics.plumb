@@ -313,7 +313,7 @@ list item 通过 direct `"+ event" facet 成为 event，与 task facet mutually 
   `= tasks #write-parser
 
 first head positional element是 nonempty plain schedule，所有 remaining head elements共同形成 nonempty title；event 不再使用
-kind-specific pipe parser。body children details。schedule 是 point START、half-open START--END 或开放区间 START--。开放区间只投影 start，没有 at/end，表示进行中的事件；不自动使用当前时间或下一事件补 end。例：08:00-- 工作，继承 date/timezone，与 08:00 时间点不同。空 start、重复 -- 仍非法。START 接受
+kind-specific pipe parser。body children details。schedule 是 point START、half-open START--END 或开放区间 START--。开放区间只投影 start，没有 at/end，表示记录尚未结束的进行中事件；不读取当前时间，不使用 now、下一事件或正无穷补 end。合法 START-- 固定发布 event.ongoing warning，range 为 event title 的 selection range；过去与未来 start 使用同一规则。补齐合法 end 后不再发布该 warning。例：08:00-- 工作，继承 date/timezone，与 08:00 时间点不同。空 start、重复 -- 仍非法。START 接受
 HH/HH:MM/HH:MM:SS、YYYY-MM-DDTTIME 或 full RFC 3339；END 接受 TIME/date-time 并继承 start offset，time-only
 end 早于 start 时 rollover next day。resolved end 必须 later。
 
@@ -348,7 +348,7 @@ event 显式 tasks 声明优先定义核算事项集合，保持现有 task targ
  `- 2026-09-22T12:00:00Z Third
   `+ event
 
-用时只来自有效有限 event interval，不使用 task focused history。开放区间可显示于 agenda，Web 时间标签使用 START--now（例如 08:00--now），但未结束前不推测核算时长，核算报告标记非有限时间问题；vdir export 明确拒绝仍在进行中的事件。point event 不推测时长。 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、 索引不完整均显式呈现。笔记多值 tags 与 event-category 无隐式转换。
+用时只来自有效有限 event interval，不使用 task focused history。开放区间可显示于 agenda，Web 时间标签使用 START--now（例如 08:00--now），但结束时间为空时不参与用时核算、覆盖时长或时间轴空档／重叠检查，也不贡献时间轴边界。开放事件不产生 agenda.invalid-time、不使报告 incomplete；其余完整事件继续正常检查。独立 event.ongoing warning 只提醒补充 end，不导致 check 失败。例如 08:00-- 与未来 10:00--11:00 共存时，前者不参与 overlap 判断；补齐 08:00--10:30 后才报告 10:00--10:30 重叠；vdir export 明确拒绝仍在进行中的事件。point event 不推测时长。 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、 索引不完整均显式呈现。笔记多值 tags 与 event-category 无隐式转换。
 
 vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保持原始 event-category spelling；未知份额不伪造分类。 该集合不编码权重，不能据此复原均分；精确核算消费者必须使用 summary JSON 中的 shares/categories。 无法完成分类解析时 export 明确失败，不静默丢弃分类或重新推断标题前缀。
 
