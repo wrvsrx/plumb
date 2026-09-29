@@ -212,6 +212,7 @@ LSP 宣告 incremental text document sync。一个 didChange notification 的 co
 替换全文，并可作为同一 sequence 后续 ranged changes 的新基准。Range 的 line、UTF-16 character、顺序与可选
 rangeLength 必须精确对应 source boundary，不得沿用 editor query 的 clamping projection。带 terminal LF 的 source
 允许使用 line == physical line count、character == 0 表示 EOF 的 virtual empty line（包括 noeol source）；该位置只映射到 source EOF。
+若 editor 在该 virtual EOF range 的 rangeLength 中额外计算一个 synthetic line separator，adapter 可以接受且仅接受一个 UTF-16 unit 的差异；其它 rangeLength mismatch 仍拒绝。
 任一 change 无效时，
 整个 notification 不建立新 revision snapshot；adapter 记录 protocol warning 并保留前一 source，防止 client/server
 文本悄然分叉。空 contentChanges 同样不建立 revision。该传输优化不改变 strict parser authority；最终 bytes

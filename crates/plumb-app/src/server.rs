@@ -1317,7 +1317,12 @@ fn apply_content_changes(
         }
         if let Some(expected) = change.range_length {
             let actual = text[start..end].encode_utf16().count() as u32;
-            if actual != expected {
+            // Neovim counts the synthetic EOF line separator in ranged
+            // changes against a noeol buffer. The byte range is already
+            // validated above; accept this one-unit discrepancy only when
+            // the range terminates at the virtual EOF position.
+            let virtual_eof = line_index.is_virtual_eof(&text, range.end);
+            if actual != expected && !(virtual_eof && expected == actual + 1) {
                 return Err(format!(
                     "rangeLength {expected} does not match replaced UTF-16 length {actual}"
                 ));
@@ -4870,7 +4875,7 @@ mod tests {
                 lsp_types::Position::new(1, 0),
                 lsp_types::Position::new(2, 0),
             )),
-            range_length: Some(6),
+            range_length: Some(7),
             text: String::new(),
         };
         let (updated, _, _) = apply_content_changes(text.to_string(), LineIndex::new(text), vec![change]).unwrap();
