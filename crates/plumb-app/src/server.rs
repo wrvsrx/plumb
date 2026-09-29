@@ -2464,23 +2464,6 @@ impl LanguageServer for ServerState {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(entry.parsed.source(), params.range.start);
                 let selection_end = position_to_offset(entry.parsed.source(), params.range.end);
-                if document_task_action_context(entry.parsed.green(), offset) {
-                    let existing = self.workspace.document_task(&path).is_some();
-                    let edit = if existing {
-                        self.workspace.remove_document_task(&path)
-                    } else {
-                        self.workspace.mark_document_task_at(&path, &timestamp, Some(offset))
-                    };
-                    if let Some(edit) = edit.ok().and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit)) {
-                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                            title: if existing { "Remove document task facet" } else { "Mark document as task" }.into(),
-                            kind: Some(CodeActionKind::REFACTOR_REWRITE),
-                            edit: Some(edit),
-                            ..CodeAction::default()
-                        }));
-                    }
-                }
-
                 if let Some(title) = path.file_stem().and_then(|stem| stem.to_str()) {
                     if let Some(edit) = self
                         .workspace
@@ -2493,6 +2476,23 @@ impl LanguageServer for ServerState {
                             kind: Some(CodeActionKind::REFACTOR_REWRITE),
                             edit: Some(edit),
                             is_preferred: Some(true),
+                            ..CodeAction::default()
+                        }));
+                    }
+                }
+                if document_task_action_context(entry.parsed.green(), offset)
+                    && self.workspace.document_task(&path).is_none()
+                {
+                    if let Some(edit) = self
+                        .workspace
+                        .mark_document_task_at(&path, &timestamp, Some(offset))
+                        .ok()
+                        .and_then(|edit| workspace_edit_to_lsp(&self.workspace, edit))
+                    {
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Convert document to task".into(),
+                            kind: Some(CodeActionKind::REFACTOR_REWRITE),
+                            edit: Some(edit),
                             ..CodeAction::default()
                         }));
                     }
@@ -2556,7 +2556,7 @@ impl LanguageServer for ServerState {
                 }
                 for (title, edit) in [
                     (
-                        "Convert to task",
+                        "Convert list item to task",
                         self.workspace
                             .convert_list_item_to_task(&path, offset, &timestamp),
                     ),

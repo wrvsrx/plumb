@@ -182,6 +182,11 @@ fn inserts_metadata_code_action_only_for_valid_documents_without_metadata() {
         .iter()
         .find(|action| action["title"] == "Insert document metadata")
         .unwrap();
+    let metadata_index = actions.iter().position(|action| action["title"] == "Insert document metadata").unwrap();
+    let conversion_index = actions.iter().position(|action| action["title"] == "Convert document to task").unwrap();
+    assert!(metadata_index < conversion_index);
+    assert_eq!(metadata["isPreferred"], true);
+    assert_ne!(actions[conversion_index]["isPreferred"], true);
     assert_eq!(metadata["kind"], "refactor.rewrite");
     let change = &metadata["edit"]["documentChanges"][0];
     assert_eq!(change["textDocument"]["version"], 3);
@@ -734,7 +739,7 @@ fn offers_task_authoring_refactor_actions() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|action| action["title"] == "Convert to task")
+        .find(|action| action["title"] == "Convert list item to task")
         .unwrap();
     assert_eq!(conversion["kind"], "refactor.rewrite");
     let inserted = conversion["edit"]["documentChanges"][0]["edits"][0]["newText"]
@@ -1165,7 +1170,7 @@ fn document_task_actions_use_root_declarations_without_capturing_child_tasks() {
         ];
         let output = run_server(&messages);
         let actions = response(&output, 2)["result"].as_array().unwrap();
-        assert_eq!(actions.iter().any(|action| action["title"] == "Remove document task facet"), document);
+        assert!(!actions.iter().any(|action| matches!(action["title"].as_str(), Some("Remove document task facet" | "Convert document to task"))));
         if line == 3 {
             assert!(!actions.iter().any(|action| matches!(action["title"].as_str(), Some("Focus task" | "Complete task" | "Cancel task"))));
             continue;

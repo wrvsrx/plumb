@@ -167,6 +167,8 @@ plumb-edit 提供 root declaration 的 owned mutation，跨 shards 返回 non-ov
 
 LSP、CLI 和 Web 使用同一 document task locator 与 revision guard。document task 不提供列表的 parent、position 或 recur 编辑；通用 task delete/move 不能隐式删除或移动文件。Web 以真实 document task 替代虚拟 file row，展开与选中使用独立 controls；无 task facet 的文件保持虚拟行。显示树沿用 focused 排序、unfocused siblings 整体分组与按树边统一缩进，focused 标识不同于 selection 样式，不恢复 Web Next 页面。筛选中的结构性父节点不计入实际匹配数量。
 
+LSP 将文档转换命名为 Convert document to task，将列表项转换命名为 Convert list item to task。文档转换仅在原有 document action context 且尚非文档任务时提供；不提供 Remove document task facet code action。当 Insert document metadata 与文档转换同时可用时，response 中 metadata 在前，并保留 preferred 标记；客户端可自行排序。
+
 `## 10.1 Root declaration transaction
 
 已实现的 edit_green_root_declarations 接受同一 valid GreenDocument 与 ordered SetProperty/RemoveProperty/SetFacet intents。它只 ownership 根层声明，不 ownership 正文或伪造容器。相同 property value 与已存在 facet 的设置是 no-op；重复同 key property 的设置失败，显式 removal 删除全部匹配声明。child-bearing property 以完整 head 为 key，不将未知多词 key 误认为 task field。
