@@ -26,10 +26,15 @@ fn all_time_totals_share_agenda_rules_across_midnight_overlaps_and_categories() 
                 DurationValue::Seconds(3600.0),
                 DurationValue::Seconds(4800.0),
                 DurationValue::Seconds(4800.0),
+                DurationValue::Seconds(4800.0),
                 DurationValue::Seconds(0.0),
             ]
         );
-        assert!(lenses.iter().all(|l| l.kind == DurationKind::Task));
+        assert_eq!(lenses[3].kind, DurationKind::Item);
+        assert!(lenses
+            .iter()
+            .enumerate()
+            .all(|(i, l)| i == 3 || l.kind == DurationKind::Task));
         assert_eq!(lenses[0].range, 0..0);
         assert_eq!(
             lenses[1].sources.len(),
@@ -191,7 +196,7 @@ fn batch_totals_match_document_annotations_without_resident_target_documents() {
         (0, TaskOwner::Document, None),
         (1, TaskOwner::ListItem, Some("a")),
         (2, TaskOwner::ListItem, Some("b")),
-        (3, TaskOwner::ListItem, None),
+        (4, TaskOwner::ListItem, None),
     ] {
         assert_eq!(
             DurationValue::Seconds(totals.seconds_for(path, owner, id).unwrap()),
@@ -211,4 +216,38 @@ fn batch_totals_match_document_annotations_without_resident_target_documents() {
     assert!(!disk.task_duration_totals().unwrap().complete);
     disk.complete_pending_document_analysis("/notes/day.plumb");
     assert_eq!(disk.task_duration_totals().unwrap(), totals);
+}
+
+#[test]
+fn ordinary_items_require_finite_accounting_and_do_not_roll_up_or_become_tasks() {
+    let mut w = Workspace::new();
+    let items = "`- Parent\n `@ parent\n `. Child\n  `@ child\n`- Unused\n `@ unused\n`- No id\n`# Heading\n `@ heading\n";
+    w.insert("/notes/items.plumb", 0, items);
+    for excluded in [
+        "`- 2026-10-01T10:00:00Z-- `->{items.plumb#child}\n `+ event\n",
+        "`- 2026-10-01T10:00:00Z `->{items.plumb#child}\n `+ event\n",
+        "`- 2026-10-01T10:00:00Z--11:00 Work\n `+ event\n Details `->{items.plumb#child}\n",
+    ] {
+        w.insert("/notes/day.plumb", 0, excluded);
+        assert!(w
+            .document_durations(Path::new("/notes/items.plumb"))
+            .unwrap()
+            .value
+            .is_empty());
+    }
+    w.insert(
+        "/notes/day.plumb",
+        1,
+        "`- 2026-10-01T10:00:00Z--11:00 `->{items.plumb#child}\n `+ event\n",
+    );
+    let annotations = w
+        .document_durations(Path::new("/notes/items.plumb"))
+        .unwrap()
+        .value;
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(annotations[0].kind, DurationKind::Item);
+    assert_eq!(annotations[0].value, DurationValue::Seconds(3600.0));
+    assert_eq!(annotations[0].range.start, items.find("`.").unwrap());
+    assert_eq!(annotations[0].sources.len(), 1);
+    assert!(w.task_duration_totals().unwrap().seconds.is_empty());
 }

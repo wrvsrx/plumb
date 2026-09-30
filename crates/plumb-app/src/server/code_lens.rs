@@ -116,6 +116,31 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_item_duration_uses_total_label() {
+        let mut workspace = super::super::Workspace::new();
+        workspace.insert("/notes/items.plumb", 0, "😀\r\n`- Item\r\n `@ item\r\n");
+        workspace.insert(
+            "/notes/day.plumb",
+            0,
+            "`- 2026-10-01T10:00:00Z--10:20 `->{items.plumb#item}\n `+ event\n",
+        );
+        let result = lenses(&workspace, std::path::Path::new("/notes/items.plumb"))
+            .unwrap()
+            .unwrap();
+        let total = result
+            .iter()
+            .find(|lens| lens.command.as_ref().unwrap().title == "total 20m")
+            .unwrap();
+        assert_eq!(total.range.start, lsp_types::Position::new(1, 0));
+        let command = total.command.as_ref().unwrap();
+        assert_eq!(command.command, "plumb.showReferences");
+        assert_eq!(
+            command.arguments.as_ref().unwrap()[2][0]["uri"],
+            "file:///notes/day.plumb"
+        );
+    }
+
+    #[test]
     fn duration_geometry_covers_owners_contributions_and_category_issue_locations() {
         for body in [
             "`- Task\n `+ task\n",
@@ -389,7 +414,7 @@ fn duration_title(
     value: plumb_workspace::DurationValue,
 ) -> String {
     use plumb_workspace::{DurationKind, DurationValue};
-    let prefix = if kind == DurationKind::Task {
+    let prefix = if matches!(kind, DurationKind::Task | DurationKind::Item) {
         "total"
     } else {
         "duration"

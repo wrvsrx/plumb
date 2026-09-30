@@ -1,10 +1,11 @@
-//! All-time task accounting and local event durations for decorative consumers.
+//! All-time item accounting and local event durations for decorative consumers.
 use super::*;
 use crate::QueryResult;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DurationKind {
     Task,
+    Item,
     Event,
 }
 
@@ -74,7 +75,7 @@ struct TaskAccounting {
 impl Workspace {
     /// Aggregate current memory/store facts once, without exporting event collections.
     pub fn task_duration_totals(&self) -> Result<TaskDurationTotals, String> {
-        let mut totals = self.task_accounting(None, false)?.totals;
+        let mut totals = self.task_accounting(None, false, true)?.totals;
         totals.complete &= self.query_result(()).is_complete();
         Ok(totals)
     }
@@ -83,6 +84,7 @@ impl Workspace {
         &self,
         path: Option<&Path>,
         include_sources: bool,
+        tasks_only: bool,
     ) -> Result<TaskAccounting, String> {
         let selected = self.selected_events_in_scope(|_| true)?;
         let mut issues = selected.issues;
@@ -101,7 +103,7 @@ impl Workspace {
                     )?;
                     issues.extend(event_issues);
                     for share in shares {
-                        if !share.is_task {
+                        if tasks_only && !share.is_task {
                             continue;
                         }
                         if let Some(item) = share
@@ -144,7 +146,7 @@ impl Workspace {
         })
     }
 
-    /// Batch all task totals in one document over current workspace event facts.
+    /// Batch task and associated ordinary-item totals over current workspace event facts.
     /// Pending generations remain partial; invalid facts produce explicit incomplete values.
     /// Closed documents are read from semantic storage, never reparsed.
     pub fn document_durations(
@@ -158,9 +160,46 @@ impl Workspace {
             return Ok(result);
         };
         let mut annotations = Vec::new();
-        if !output.tasks().tasks.is_empty() {
-            let accounting = self.task_accounting(Some(&path), true)?;
+        if !output.tasks().tasks.is_empty() || output.anchors().iter().any(|a| a.list_item) {
+            let accounting = self.task_accounting(Some(&path), true, false)?;
             let issue_sources = accounting.issues;
+            let specialized_owners: BTreeSet<_> = output
+                .tasks()
+                .tasks
+                .views()
+                .map(|task| task.range().start)
+                .chain(output.events().events.iter().map(|event| event.range.start))
+                .collect();
+            for anchor in output.anchors().iter().filter(|a| a.list_item) {
+                if specialized_owners.contains(&anchor.range.start) {
+                    continue;
+                }
+                let item = AgendaItem {
+                    path: path.clone(),
+                    id: Some(anchor.id.value.clone()),
+                };
+                let Some(total) = accounting.totals.seconds.get(&item) else {
+                    continue;
+                };
+                annotations.push(DurationAnnotation {
+                    range: anchor.range.start..anchor.range.start,
+                    kind: DurationKind::Item,
+                    value: if issue_sources.is_empty() {
+                        DurationValue::Seconds(*total)
+                    } else {
+                        DurationValue::Incomplete
+                    },
+                    sources: if issue_sources.is_empty() {
+                        accounting
+                            .sources
+                            .get(&item)
+                            .map(|s| s.iter().cloned().collect())
+                            .unwrap_or_default()
+                    } else {
+                        issue_sources.clone()
+                    },
+                });
+            }
             for task in output.tasks().tasks.views() {
                 let identity = (task.owner() == TaskOwner::Document || task.id_value().is_some())
                     .then(|| AgendaItem {
