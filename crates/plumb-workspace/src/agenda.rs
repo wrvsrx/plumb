@@ -1,7 +1,10 @@
 //! Protocol-neutral agenda accounting and exact-coverage queries.
 mod category_cache;
 mod duration;
+mod duration_index;
 pub use duration::*;
+pub(crate) use duration_index::DurationCache;
+pub use duration_index::DurationWork;
 mod interval_tree;
 mod policy_inputs;
 mod timeline_cache;
@@ -131,6 +134,102 @@ struct AccountingContext {
     tasks: BTreeMap<PathBuf, BTreeSet<Option<String>>>,
 }
 
+#[derive(Clone)]
+struct AccountingTarget {
+    valid: bool,
+    is_task: bool,
+    category: Category,
+    path: PathBuf,
+}
+struct AccountingEvent {
+    category: Category,
+    selection_range: Range<usize>,
+    tasks_override: bool,
+    references: Vec<(TaskReferenceTarget, String, Range<usize>)>,
+}
+trait AccountingReader {
+    fn document_category(&mut self, workspace: &Workspace, path: &Path)
+        -> Result<Category, String>;
+    fn target(
+        &mut self,
+        workspace: &Workspace,
+        from: &Path,
+        target: &TaskReferenceTarget,
+    ) -> Result<AccountingTarget, String>;
+}
+impl AccountingReader for AccountingContext {
+    fn document_category(
+        &mut self,
+        workspace: &Workspace,
+        path: &Path,
+    ) -> Result<Category, String> {
+        AccountingContext::document_category(self, workspace, path)
+    }
+    fn target(
+        &mut self,
+        workspace: &Workspace,
+        from: &Path,
+        target: &TaskReferenceTarget,
+    ) -> Result<AccountingTarget, String> {
+        let identity = accounting_identity(from, target);
+        let resolved = if let Some(cached) = identity.as_ref().and_then(|key| self.targets.get(key))
+        {
+            cached.clone()
+        } else {
+            let resolved = workspace
+                .resolve_task_reference_target(from, target)
+                .map_err(|e| e.to_string())?;
+            if let Some(identity) = identity {
+                self.targets.insert(identity, resolved.clone());
+            }
+            resolved
+        };
+        let mut result = AccountingTarget {
+            valid: false,
+            is_task: false,
+            category: Category::default(),
+            path: from.to_owned(),
+        };
+        match resolved {
+            ResolvedTarget::Anchor { path, id, anchor } if anchor.list_item => {
+                result.valid = true;
+                result.is_task = self.is_task(workspace, &path, Some(&id))?;
+                result.category = if anchor.category.declarations.is_empty() {
+                    self.document_category(workspace, &path)?
+                } else {
+                    anchor.category
+                };
+                result.path = path;
+            }
+            ResolvedTarget::Document { path } => {
+                result.valid = true;
+                result.is_task = self.is_task(workspace, &path, None)?;
+                result.category = self.document_category(workspace, &path)?;
+                result.path = path;
+            }
+            _ => {}
+        }
+        Ok(result)
+    }
+}
+fn accounting_identity(from: &Path, target: &TaskReferenceTarget) -> Option<AgendaItem> {
+    match target {
+        TaskReferenceTarget::Internal { id } => Some(AgendaItem {
+            path: from.to_owned(),
+            id: Some(id.clone()),
+        }),
+        TaskReferenceTarget::External { path, id } => Some(AgendaItem {
+            path: resolve_relative(from, path),
+            id: Some(id.clone()),
+        }),
+        TaskReferenceTarget::Document { path } => Some(AgendaItem {
+            path: resolve_relative(from, path),
+            id: None,
+        }),
+        TaskReferenceTarget::Invalid => None,
+    }
+}
+
 impl AccountingContext {
     fn document_category(
         &mut self,
@@ -251,7 +350,23 @@ impl Workspace {
         path: &Path,
         event: &EventRecord,
         duration_seconds: f64,
-        context: &mut AccountingContext,
+        context: &mut impl AccountingReader,
+    ) -> Result<(Vec<AgendaShare>, Vec<AgendaIssue>), String> {
+        let input = AccountingEvent {
+            category: event.category.clone(),
+            selection_range: event.selection_range.clone(),
+            tasks_override: event.tasks_override,
+            references: self.accounting_references(path, event)?,
+        };
+        self.allocate_event(path, input, duration_seconds, context)
+    }
+
+    fn allocate_event(
+        &self,
+        path: &Path,
+        event: AccountingEvent,
+        duration_seconds: f64,
+        context: &mut impl AccountingReader,
     ) -> Result<(Vec<AgendaShare>, Vec<AgendaIssue>), String> {
         let path = normalize(path);
         let source = location(&path, event.selection_range.clone());
@@ -261,36 +376,19 @@ impl Workspace {
             event.category.clone()
         };
         let mut issues = Vec::new();
-        if event.tasks_override && event.tasks.is_empty() {
+        if event.tasks_override && event.references.is_empty() {
             issues.push(issue(
                 "agenda.invalid-item",
                 "explicit tasks declaration is empty",
                 source.clone(),
             ));
         }
-        let refs = self.accounting_references(&path, event)?;
+        let refs = event.references;
         let mut seen = BTreeSet::new();
         let mut shares = Vec::new();
         let mut item_categories = Vec::new();
         for (target, spelling, range) in refs {
-            let identity = match &target {
-                TaskReferenceTarget::Internal { id } => Some(AgendaItem {
-                    path: path.clone(),
-                    id: Some(id.clone()),
-                }),
-                TaskReferenceTarget::External {
-                    path: target_path,
-                    id,
-                } => Some(AgendaItem {
-                    path: resolve_relative(&path, target_path),
-                    id: Some(id.clone()),
-                }),
-                TaskReferenceTarget::Document { path: target_path } => Some(AgendaItem {
-                    path: resolve_relative(&path, target_path),
-                    id: None,
-                }),
-                TaskReferenceTarget::Invalid => None,
-            };
+            let identity = accounting_identity(&path, &target);
             let key = (
                 identity.clone(),
                 identity.is_none().then_some(spelling.clone()),
@@ -298,54 +396,14 @@ impl Workspace {
             if !seen.insert(key) {
                 continue;
             }
-            let mut category = Category::default();
-            let mut category_source = None;
-            let mut is_task = false;
-            let mut valid = false;
-            let resolved =
-                if let Some(cached) = identity.as_ref().and_then(|key| context.targets.get(key)) {
-                    cached.clone()
-                } else {
-                    let resolved = self
-                        .resolve_task_reference_target(&path, &target)
-                        .map_err(|e| e.to_string())?;
-                    if let Some(identity) = &identity {
-                        context.targets.insert(identity.clone(), resolved.clone());
-                    }
-                    resolved
-                };
-            match resolved {
-                ResolvedTarget::Anchor {
-                    path: target_path,
-                    id,
-                    anchor,
-                } if anchor.list_item => {
-                    is_task = context.is_task(self, &target_path, Some(&id))?;
-                    valid = !event.tasks_override || is_task;
-                    category = anchor.category;
-                    if category.declarations.is_empty() {
-                        // A list item without a local declaration inherits the
-                        // target document's root category. This matters when
-                        // the target anchor is projected from an independent
-                        // syntax shard.
-                        category = self.agenda_document_category(&target_path)?;
-                    }
-                    category_source = category
-                        .declarations
-                        .first()
-                        .map(|r| location(&target_path, r.clone()));
-                }
-                ResolvedTarget::Document { path: target_path } => {
-                    is_task = context.is_task(self, &target_path, None)?;
-                    valid = !event.tasks_override || is_task;
-                    category = context.document_category(self, &target_path)?;
-                    category_source = category
-                        .declarations
-                        .first()
-                        .map(|r| location(&target_path, r.clone()));
-                }
-                _ => {}
-            }
+            let resolved = context.target(self, &path, &target)?;
+            let is_task = resolved.is_task;
+            let valid = resolved.valid && (!event.tasks_override || is_task);
+            let category = resolved.category;
+            let category_source = category
+                .declarations
+                .first()
+                .map(|r| location(&resolved.path, r.clone()));
             if !valid {
                 issues.push(issue(
                     "agenda.invalid-item",

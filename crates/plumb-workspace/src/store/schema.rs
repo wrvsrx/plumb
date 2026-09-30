@@ -149,3 +149,17 @@ diesel::table! {
         value -> Text,
     }
 }
+
+diesel::table! {
+    generation_clock (id) {
+        id -> Integer,
+        sequence -> BigInt,
+        identity -> Binary,
+    }
+}
+diesel::table! {
+    generation_changes (path) {
+        path -> Binary,
+        sequence -> BigInt,
+    }
+}

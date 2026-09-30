@@ -52,6 +52,32 @@ check. Resolve every mismatch, update guides and bundled skills only after the
 behavior is available, and remove any "not implemented" status from the
 authoritative specification only after the required verification passes.
 
+## Incremental interactive queries
+
+New or changed interactive features must declare their input dependencies,
+invalidation rules, update granularity, cold-start behavior, and work bounds in
+an authoritative architecture document before implementation. A refresh flag or
+memoized full-workspace scan is not incremental computation.
+
+- Interactive adapters request indexed identities, document-local results, or
+  bounded pages. They must not enumerate the workspace to decorate a page.
+- Cross-document derived state belongs to `plumb-workspace`. Use tracked input
+  reads and reverse dependencies, including missing/ambiguous resolutions.
+  Aggregates replace source contributions (retract old, insert new); do not
+  rescan all contributors after each edit.
+- Separate value inputs from source geometry. Equal inputs stop propagation.
+  Publish updates atomically with snapshot provenance; invalid/pending inputs
+  must not silently reuse a last-valid result.
+- Cold bootstrap and explicit rebuild may enumerate all facts. Warm reads and
+  local updates must be proportional to requested output, changed document
+  facts, and actual dependent fanout, not unrelated workspace size. Moving a
+  scan to a worker or clearing the whole cache does not satisfy this rule.
+- Add deterministic work-count tests for repeat reads, unrelated edits, local
+  changes, and growth of unrelated data, plus parity against cold rebuilding.
+  Include overlay, deletion, missing-target recovery, and snapshot isolation.
+  Database paths must use indexed change/identity lookups. Run timing benchmarks
+  as additional evidence, not as a substitute for these tests.
+
 ## Unified editing boundary
 
 All authoritative source changes go through `plumb-edit`. `plumb-syntax` remains

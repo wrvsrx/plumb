@@ -26,7 +26,7 @@ pub struct DurationAnnotation {
     pub sources: Vec<AgendaLocation>,
 }
 
-fn event_duration(event: &EventRecord) -> Option<DurationValue> {
+pub(super) fn event_duration(event: &EventRecord) -> Option<DurationValue> {
     if event.at_datetime().is_some() {
         return None;
     }
@@ -70,79 +70,86 @@ struct TaskAccounting {
     totals: TaskDurationTotals,
     sources: BTreeMap<AgendaItem, BTreeSet<AgendaLocation>>,
     issues: Vec<AgendaLocation>,
+    pending: bool,
 }
 
 impl Workspace {
-    /// Aggregate current memory/store facts once, without exporting event collections.
+    /// Explicit whole-result projection; interactive pages use task_durations_for.
     pub fn task_duration_totals(&self) -> Result<TaskDurationTotals, String> {
-        let mut totals = self.task_accounting(None, false, true)?.totals;
-        totals.complete &= self.query_result(()).is_complete();
-        Ok(totals)
+        self.with_duration_index(|index| TaskDurationTotals {
+            seconds: index.task_totals(),
+            complete: index.complete(),
+        })
     }
 
-    fn task_accounting(
+    /// Only materialize totals for requested identities, never all workspace tasks.
+    pub fn task_durations_for(
         &self,
-        path: Option<&Path>,
-        include_sources: bool,
-        tasks_only: bool,
-    ) -> Result<TaskAccounting, String> {
-        let selected = self.selected_events_in_scope(|_| true)?;
-        let mut issues = selected.issues;
-        let mut context = AccountingContext::default();
-        let mut totals = BTreeMap::<AgendaItem, f64>::new();
-        let mut sources = BTreeMap::<AgendaItem, BTreeSet<AgendaLocation>>::new();
-        for (event_path, event) in selected.events {
-            let source = location(&event_path, event.selection_range.clone());
-            match event_duration(&event) {
-                Some(DurationValue::Seconds(duration)) => {
-                    let (shares, event_issues) = self.event_accounting_with_context(
-                        &event_path,
-                        &event,
-                        duration,
-                        &mut context,
-                    )?;
-                    issues.extend(event_issues);
-                    for share in shares {
-                        if tasks_only && !share.is_task {
-                            continue;
-                        }
-                        if let Some(item) = share
-                            .item
-                            .filter(|item| path.is_none_or(|path| item.path == path))
-                        {
-                            *totals.entry(item.clone()).or_default() += share.seconds;
-                            if include_sources {
-                                sources.entry(item).or_default().insert(source.clone());
-                            }
-                        }
+        items: impl IntoIterator<Item = AgendaItem>,
+    ) -> Result<TaskDurationTotals, String> {
+        self.with_duration_index(|index| TaskDurationTotals {
+            seconds: items
+                .into_iter()
+                .map(|mut item| {
+                    item.path = normalize(&item.path);
+                    let total = index.total(&item, true).unwrap_or_default();
+                    (item, total)
+                })
+                .collect(),
+            complete: index.complete(),
+        })
+    }
+
+    fn document_accounting(&self, path: &Path) -> Result<TaskAccounting, String> {
+        let output = self
+            .current_output(path)
+            .expect("current duration document");
+        let event_owners = output
+            .events()
+            .events
+            .iter()
+            .map(|e| e.range.start)
+            .collect::<BTreeSet<_>>();
+        let items = output
+            .anchors()
+            .iter()
+            .filter(|a| a.list_item && !event_owners.contains(&a.range.start))
+            .map(|a| AgendaItem {
+                path: path.to_owned(),
+                id: Some(a.id.value),
+            })
+            .chain(
+                output
+                    .tasks()
+                    .tasks
+                    .views()
+                    .filter(|t| t.owner() == TaskOwner::Document)
+                    .map(|_| AgendaItem {
+                        path: path.to_owned(),
+                        id: None,
+                    }),
+            )
+            .collect::<BTreeSet<_>>();
+        self.with_duration_index(|index| {
+            let mut seconds = BTreeMap::new();
+            let mut sources = BTreeMap::new();
+            for item in items {
+                if let Some(total) = index.total(&item, false) {
+                    seconds.insert(item.clone(), total);
+                    if index.complete() {
+                        sources.insert(item.clone(), index.sources(&item).into_iter().collect());
                     }
                 }
-                Some(DurationValue::Unavailable) => issues.push(issue(
-                    "agenda.invalid-time",
-                    "event has no valid finite interval",
-                    source,
-                )),
-                _ => {}
             }
-        }
-        let complete = issues.is_empty();
-        let issues = if include_sources {
-            issues
-                .into_iter()
-                .map(|issue| issue.source)
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect()
-        } else {
-            Vec::new()
-        };
-        Ok(TaskAccounting {
-            totals: TaskDurationTotals {
-                seconds: totals,
-                complete,
-            },
-            sources,
-            issues,
+            TaskAccounting {
+                totals: TaskDurationTotals {
+                    seconds,
+                    complete: index.complete(),
+                },
+                sources,
+                issues: index.issue_sources(),
+                pending: index.pending(),
+            }
         })
     }
 
@@ -160,8 +167,9 @@ impl Workspace {
             return Ok(result);
         };
         let mut annotations = Vec::new();
+        let accounting = self.document_accounting(&path)?;
+        let pending = accounting.pending;
         if !output.tasks().tasks.is_empty() || output.anchors().iter().any(|a| a.list_item) {
-            let accounting = self.task_accounting(Some(&path), true, false)?;
             let issue_sources = accounting.issues;
             let specialized_owners: BTreeSet<_> = output
                 .tasks()
@@ -248,7 +256,7 @@ impl Workspace {
             }
         }
         annotations.sort_by_key(|annotation| annotation.range.start);
-        Ok(self.query_result(annotations))
+        Ok(self.query_result_with_pending(annotations, pending))
     }
 }
 

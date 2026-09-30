@@ -131,7 +131,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 24;
+const SCHEMA_VERSION: i64 = 25;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -404,6 +404,47 @@ impl SqliteSemanticStore {
         let version = diesel::sql_query("PRAGMA data_version").get_result::<Version>(&mut *connection)?;
         let changes = diesel::sql_query("SELECT total_changes() AS changes").get_result::<Changes>(&mut *connection)?;
         Ok((version.data_version, changes.changes))
+    }
+
+    /// Indexed, transactionally consistent latest changes, including deletion tombstones.
+    pub(crate) fn generation_changes_since(
+        &self,
+        after: i64,
+    ) -> StoreResult<(Vec<u8>, i64, Vec<PathBuf>)> {
+        use schema::{generation_changes as changes, generation_clock as clock};
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        connection.transaction::<_, StoreError, _>(|connection| {
+            let (identity, sequence) = clock::table
+                .select((clock::identity, clock::sequence))
+                .first::<(Vec<u8>, i64)>(connection)?;
+            let paths = changes::table
+                .filter(changes::sequence.gt(after))
+                .select(changes::path)
+                .order(changes::sequence)
+                .load::<Vec<u8>>(connection)?
+                .into_iter()
+                .map(path_from_bytes)
+                .collect::<StoreResult<Vec<_>>>()?;
+            Ok((identity, sequence, paths))
+        })
+    }
+
+    pub(crate) fn anchors_for_path(&self, path: &Path) -> StoreResult<Vec<AnchorRecord>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = anchors::table
+            .filter(anchors::path.eq(path_bytes(path)))
+            .select(anchors::record)
+            .order(anchors::start)
+            .load::<Vec<u8>>(&mut *connection)?;
+        rows.into_iter()
+            .map(|bytes| Ok(bincode::deserialize(&bytes)?))
+            .collect()
     }
 
     pub fn readonly_snapshot(&self) -> StoreResult<Self> {
@@ -3228,4 +3269,53 @@ fn register_functions(connection: &mut SqliteConnection) -> StoreResult<()> {
         },
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod generation_change_tests {
+    use super::*;
+    #[test]
+    fn change_cursor_is_indexed_compacted_transactional_and_preserves_deletions() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let initial = store.generation_changes_since(0).unwrap();
+        assert_eq!(initial.1, 0);
+        let mut workspace = crate::Workspace::with_sqlite_store(store.clone());
+        workspace.insert_disk("/a.plumb", 1, "One\n").unwrap();
+        let first = store.generation_changes_since(0).unwrap();
+        workspace.insert_disk("/a.plumb", 2, "Two\n").unwrap();
+        workspace.insert_disk("/a.plumb", 3, "Three\n").unwrap();
+        workspace.insert_disk("/b.plumb", 1, "Other\n").unwrap();
+        workspace.remove_disk("/a.plumb").unwrap();
+        let changes = store.generation_changes_since(first.1).unwrap();
+        assert_eq!(changes.0, initial.0);
+        assert_eq!(changes.2.len(), 2);
+        assert!(changes.2.contains(&PathBuf::from("/a.plumb")));
+        assert!(!store.document_exists(Path::new("/a.plumb")).unwrap());
+        let result: Result<(), StoreError> = store.isolated_update(|| {
+            store.remove(Path::new("/b.plumb"))?;
+            Err(diesel::result::Error::RollbackTransaction.into())
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            store.generation_changes_since(changes.1).unwrap().1,
+            changes.1
+        );
+        assert!(store
+            .generation_changes_since(changes.1)
+            .unwrap()
+            .2
+            .is_empty());
+        assert!(store.document_exists(Path::new("/b.plumb")).unwrap());
+        #[derive(QueryableByName)]
+        struct Plan {
+            #[diesel(sql_type = Text)]
+            detail: String,
+        }
+        let mut connection = store.connection.lock().unwrap();
+        let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT path FROM generation_changes WHERE sequence > 5 ORDER BY sequence")
+            .load::<Plan>(&mut *connection).unwrap();
+        assert!(plan.iter().any(|p| p
+            .detail
+            .contains("SEARCH generation_changes USING INDEX generation_changes_sequence")));
+    }
 }

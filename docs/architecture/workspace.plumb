@@ -2,6 +2,38 @@
 
 本页定义 document snapshots、persistent semantic store、open overlay、workspace queries、cache lifecycle 与 batch indexing 的实现 contract。crate/data-flow 总览见 `->{{architecture overview} overview.plumb}。
 
+`# Incremental derived graph
+
+以下 contract 正在实现，完成工作量与一致性验证后移除此状态。
+
+workspace 拥有静态类型的派生图：input key 对应事实值，derived key 对应依赖读取集合与派生结果，
+reverse edges 找到受影响节点，contribution index 保存每个来源对各目标的贡献及目标聚合值。
+核心由 DerivedGraph 的 set/read/evaluate 和 ContributionIndex 的 replace/get 描述，tracked context 不暴露 workspace 枚举。
+DerivedState 是静态组合的统一 lifecycle 入口，新增 consumer 在这里接入 document_changed/fork，
+不能复制各 document adapter 的失效通知。
+派生计算只能通过 tracked read context 读取输入；读取不存在的 key 也登记依赖。更新相等事实不传播，
+重新计算后相等输出不修改聚合；来源贡献替换先撤销旧值再加入新值。数据结构支持结构共享的 snapshot clone，
+修改新快照不扫描或复制全部旧节点。同一 revision 的 worker clones 共享已完成查询状态，
+新 overlay revision 与新 disk snapshot 分离状态；writer 串行计算但不在计算期间持有状态发布锁，编辑线程不等待核算。
+失败不发布半个更新；store generation 与 overlay facts 来自同一可验证快照。
+
+首个 consumer 是用时：事件数值输入、目标解析/任务身份/分类与 source geometry 分离；
+事件输出是目标份额与问题，按来源替换聚合。事件内部 key 使用文档 path 与 ordinal，
+不以 byte offset 或可缺省的 explicit id 为内部 identity；
+同一文档的插入/删除允许重新匹配该文档事件，但不扫描其它文档。普通正文修改只比较该文档事实，
+未变的核算输入不重新分摊。未解析或歧义目标也作为输入结果，创建、删除和身份改变能恢复相关事件。
+
+持久化 store 提供带单调序号、按序号索引的文档变更关系，保留删除 tombstone；更新与原 generation 同事务。
+每个文档只保留最近变更，不保存无界编辑历史。warm 同步只读取游标以后的变化，open overlay 遮盖 disk；
+新 workspace 的 cold bootstrap 可读取全部事实，之后 CodeLens 与 Web 不调用全量事件查询。
+新 Web snapshot 继承派生图并消费 store delta；查询当前页时只请求该页目标总量。
+
+工作量 contract：重复查询不核算事件；无关正文编辑不核算事件；改变一个事件只重新分摊该事件，
+改变目标输入只核算登记了该依赖的事件；总量读取不枚举全部贡献。返回贡献 locations 的成本允许随实际输出增长。
+数值变化与位置变化分开，位置调整更新跳转而不重新分摊。pending/invalid 状态使用增量状态集合维护，
+不能为检查 completeness 再扫描所有事件。测试必须记录核算次数、变化文档读取数与贡献更新数，
+同时验证冷重建一致性、负依赖恢复、overlay、删除、失败重试及新旧快照隔离。
+
 `# Task/Event/List item duration query
 
 共享 document_durations query 返回当前文档每个任务、有关联份额的普通列表项及非 point event 的 byte 位置、typed 用时状态和贡献事件位置。
@@ -29,8 +61,9 @@ total unavailable (incomplete)，locations 是问题来源。不新增 server-si
 事件 interval、核算引用、target membership、分类有效性以及 lens/source geometry 变化触发 refresh；
 仅 task focused/状态或 event title/details 改变且不影响引用、位置、时长与有效性时不额外刷新。
 
-Web task duration：workspace 的 task_duration_totals 返回全部任务身份的累计秒数与完整性，
-和 document_durations 共用一次批量核算实现；不要求目标任务文档驻留或重解析。零份额可由完整结果中的缺省身份推导，
+Web task duration：workspace 的 task_durations_for 只返回所请求任务身份的累计秒数与完整性；
+task_duration_totals 仅供显式全结果投影，不进入交互页面路径。两者
+和 document_durations 共用增量派生索引；不要求目标任务文档驻留或重解析。零份额可由完整结果中的缺省身份推导，
 无 id 的列表任务显示零。公开批量总量不携带无界事件或贡献位置列表，Web 不自行求和或重新实现关联规则。
 
 `# CLI disk snapshot contract

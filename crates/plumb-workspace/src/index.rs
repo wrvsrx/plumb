@@ -339,6 +339,7 @@ impl Workspace {
                     .get(&path)
                     .and_then(|entry| entry.last_valid.clone());
                 let last_valid = current.clone().or(previous_last_valid);
+                self.derived.document_changed(path.clone());
                 self.documents.insert(
                     path.clone(),
                     crate::DocumentEntry {
@@ -351,8 +352,14 @@ impl Workspace {
                 );
             }
             if options.prune_missing {
-                self.documents
-                    .retain(|path, _| paths.binary_search(path).is_ok());
+                self.documents.retain(|path, _| {
+                    if paths.binary_search(path).is_ok() {
+                        true
+                    } else {
+                        self.derived.document_changed(path.clone());
+                        false
+                    }
+                });
             }
         }
 

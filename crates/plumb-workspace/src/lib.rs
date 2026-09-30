@@ -40,6 +40,7 @@ fn parse(source: impl Into<String>) -> ParsedDocument {
 mod bibliography;
 mod cache;
 mod completion;
+mod derived;
 mod diagnostics;
 mod disk;
 mod documents;
@@ -677,6 +678,7 @@ pub struct WorkspaceDiagnosticContext {
 pub struct Workspace {
     documents: HashMap<PathBuf, DocumentEntry>,
     disk_store: Option<SqliteSemanticStore>,
+    derived: derived::DerivedState,
 }
 
 impl Workspace {

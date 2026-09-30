@@ -20,10 +20,32 @@ impl Workspace {
         Self {
             documents: Default::default(),
             disk_store: Some(store),
+            derived: Default::default(),
+        }
+    }
+
+    /// Reuse derived nodes across a snapshot replacement. Store lineage is checked
+    /// during synchronization; overlays are explicitly rebound to this snapshot.
+    pub fn inherit_derived_state(&mut self, previous: &Self) {
+        self.derived = previous.derived.fork();
+        for path in previous.documents.keys().chain(self.documents.keys()) {
+            self.derived.document_changed(path.clone());
+        }
+    }
+    /// Preserve structurally shared derived state when publishing a new disk snapshot.
+    pub fn with_updated_store(&self, store: crate::SqliteSemanticStore) -> Self {
+        Self {
+            documents: self.documents.clone(),
+            disk_store: Some(store),
+            derived: self.derived.fork(),
         }
     }
 
     pub(crate) fn query_result<T>(&self, value: T) -> QueryResult<T> {
+        self.query_result_with_pending(value, self.semantic_generation_pending())
+    }
+
+    pub(crate) fn query_result_with_pending<T>(&self, value: T, pending: bool) -> QueryResult<T> {
         let provenance = match (self.disk_store.is_some(), self.documents.is_empty()) {
             (false, _) => QueryProvenance::Memory,
             (true, true) => QueryProvenance::Persistent,
@@ -31,7 +53,7 @@ impl Workspace {
         };
         QueryResult {
             value,
-            completeness: if self.semantic_generation_pending() {
+            completeness: if pending {
                 QueryCompleteness::Partial
             } else {
                 QueryCompleteness::Complete
@@ -88,6 +110,7 @@ impl Workspace {
 
     pub fn close_document(&mut self, path: impl AsRef<Path>) -> Option<DocumentEntry> {
         if self.disk_store.is_some() {
+            self.derived.document_changed(normalize(path.as_ref()));
             self.documents.remove(&normalize(path.as_ref()))
         } else {
             None
@@ -99,6 +122,7 @@ impl Workspace {
         if let Some(store) = &self.disk_store {
             store.remove(&path)?;
         } else {
+            self.derived.document_changed(path.clone());
             self.documents.remove(&path);
         }
         Ok(())
@@ -186,6 +210,7 @@ impl Workspace {
             .documents
             .get(&path)
             .and_then(|entry| entry.last_valid.clone());
+        self.derived.document_changed(path.clone());
         self.documents.insert(
             path.clone(),
             DocumentEntry {
@@ -326,6 +351,7 @@ impl Workspace {
         });
         entry.current = Some(Arc::clone(&current));
         entry.last_valid = Some(current);
+        self.derived.document_changed(analysis.path.clone());
         Some(crate::DocumentAnalysisImpact {
             exported: change,
             reference_inputs_changed,
@@ -461,10 +487,12 @@ impl Workspace {
     }
 
     pub fn overlay_document_entry(&mut self, entry: DocumentEntry) {
+        self.derived.document_changed(normalize(&entry.path));
         self.documents.insert(normalize(&entry.path), entry);
     }
 
     pub fn remove(&mut self, path: impl AsRef<Path>) -> Option<DocumentEntry> {
+        self.derived.document_changed(normalize(path.as_ref()));
         self.documents.remove(&normalize(path.as_ref()))
     }
 

@@ -159,6 +159,7 @@ impl Workspace {
     /// Detach mutable database state before a background diagnostic round.
     pub fn readonly_diagnostic_snapshot(&self) -> Result<Self, String> {
         Ok(Self {
+            derived: self.derived.fork(),
             documents: self.documents.clone(),
             disk_store: self
                 .disk_store
