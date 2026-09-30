@@ -53,14 +53,20 @@ impl WebWorkspace {
             }, &retained_documents)
             .map_err(task_query_failure)?
             .value;
-        let durations = self.task_duration_totals().map_err(|message| QueryFailure {
-            source: "workspace".to_string(),
-            message,
-        })?;
+        let durations = self
+            .workspace
+            .task_durations_for(page.tasks.iter().map(|item| plumb_workspace::AgendaItem {
+                path: item.path.clone(),
+                id: item.task.id.as_ref().map(|id| id.value.clone()),
+            }))
+            .map_err(|message| QueryFailure {
+                source: "workspace".to_string(),
+                message,
+            })?;
         let mut tasks = page
             .tasks
             .into_iter()
-            .filter_map(|task| self.web_task(task, durations))
+            .filter_map(|task| self.web_task(task, &durations))
             .collect::<Vec<_>>();
         assign_task_parents(&mut tasks);
         Ok(TaskQuerySnapshot {

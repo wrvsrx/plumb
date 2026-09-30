@@ -4,8 +4,6 @@
 
 `# Incremental derived graph
 
-以下 contract 正在实现，完成工作量与一致性验证后移除此状态。
-
 workspace 拥有静态类型的派生图：input key 对应事实值，derived key 对应依赖读取集合与派生结果，
 reverse edges 找到受影响节点，contribution index 保存每个来源对各目标的贡献及目标聚合值。
 核心由 DerivedGraph 的 set/read/evaluate 和 ContributionIndex 的 replace/get 描述，tracked context 不暴露 workspace 枚举。

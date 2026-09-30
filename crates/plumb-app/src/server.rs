@@ -3239,6 +3239,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn code_lens_workers_share_incremental_duration_state_with_the_current_revision() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (_main, client) =
+            async_lsp::MainLoop::new_server(|_| async_lsp::router::Router::new(()));
+        let mut state = ServerState::new(client);
+        state.index_complete = true;
+        let root = Path::new("/tmp/plumb-duration-workers");
+        state
+            .workspace
+            .open_document(root.join("task.plumb"), 1, "`- Task\n `+ task\n `@ a\n");
+        let event = "`- 2026-10-01T10:00:00Z--11:00 `->{task.plumb#a}\n `+ event\n";
+        state
+            .workspace
+            .open_document(root.join("day.plumb"), 1, event);
+        let params: CodeLensParams = serde_json::from_value(serde_json::json!({"textDocument":{"uri":Url::from_file_path(root.join("task.plumb")).unwrap()}})).unwrap();
+        for expected in [1, 0] {
+            let lenses = runtime
+                .block_on(state.code_lens(params.clone()))
+                .unwrap()
+                .unwrap();
+            assert!(lenses
+                .iter()
+                .any(|lens| lens.command.as_ref().unwrap().title == "total 1h"));
+            assert_eq!(state.workspace.duration_work().events_recomputed, expected);
+        }
+        state.workspace.open_document(
+            root.join("day.plumb"),
+            2,
+            event.replace("--11:00", "--12:00"),
+        );
+        let lenses = runtime.block_on(state.code_lens(params)).unwrap().unwrap();
+        assert!(lenses
+            .iter()
+            .any(|lens| lens.command.as_ref().unwrap().title == "total 2h"));
+        assert_eq!(state.workspace.duration_work().documents_read, 1);
+        assert_eq!(state.workspace.duration_work().events_recomputed, 1);
+    }
+
+    #[test]
     fn code_lens_projection_ignores_anchor_extent_and_link_editing_spelling() {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         for (old, new, equal) in [

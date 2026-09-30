@@ -295,7 +295,9 @@ Link target保守覆盖implicit event-task association，
 pending恢复的合并规则继续适用。
 
 CodeLens reference-input invalidation 已实现：document title及event的日期、时区、时间、title/details变化
-本身不影响引用。用时 CodeLens 另消费 workspace duration inputs，具体 contract 见 workspace 的 Task/Event duration query。
+本身不影响引用。用时 CodeLens 另消费 workspace duration inputs，具体 contract 见 workspace 的 Incremental derived graph 与 Task/Event/List item duration query。
+refresh impact 仅决定 client 刷新，不能替代派生图的 dependency tracking；用时查询按变化事实更新贡献，
+同一 revision 的 worker clone 共用完成的派生状态，避免每次请求从空图重建。
 workspace impact独立报告reference inputs是否变化；
 Event仅比较owner range、tasks override与显式task references的source、target及range，保留implicit Link containment。
 LSP将该结果与source position变化及既有pending恢复需求合并；不能因当前revision的引用输入未变而丢弃其它

@@ -123,9 +123,10 @@ Web task 用时展示：每个真实 task 的列表行及详情都显示 Time sp
 服务端查询失败仍走现有错误响应。显示时才按秒四舍五入，以 h/m/s 表达；非零小于一秒显示 <1s。
 focused 的关注时长及历史保持独立，不累计为工作用时。进行中事件不增加实时秒数。
 
-每个 immutable WebWorkspace snapshot 至多计算一次共享批量总量，分页、筛选、详情及 task snapshot 共用；
+每个 immutable WebWorkspace snapshot 共用 workspace 增量派生图，分页、筛选与详情只读取所请求任务的总量；
 不随当前筛选或分页截断累计事件，不把无界 event 集合传给浏览器，不 materialize 关闭文档语法树。
-changed-document replacement 和 workspace watcher 发布新 revision 时清除用时缓存；正在读取的旧快照保持旧值。
+changed-document replacement 和 workspace watcher 发布新 revision 时继承结构共享的派生状态，
+按 store 变更游标只更新受影响贡献；正在读取的旧快照保持旧值。
 事件起止、引用、任务身份与核算有效性改变后，列表和当前详情随现有 revision 刷新协议更新，不能保留旧累计值。
 
 Web Tasks 只提供一棵任务树，不提供 Next 页面或 Web next query；CLI / LSP 的 shared next 不受影响。grouped focus presentation 只改变浏览器中的可见性，不产生 authoritative source edits。

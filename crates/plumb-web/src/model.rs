@@ -471,7 +471,6 @@ pub struct WebWorkspace {
     paths_by_document_id: HashMap<String, PathBuf>,
     titles: HashMap<PathBuf, String>,
     resource_index: Arc<OnceLock<Result<ResourceIndex, String>>>,
-    task_durations: Arc<OnceLock<Result<plumb_workspace::TaskDurationTotals, String>>>,
 }
 
 #[derive(Debug)]
@@ -648,8 +647,11 @@ impl WebWorkspace {
             paths_by_document_id,
             titles,
             resource_index: Arc::new(OnceLock::new()),
-            task_durations: Arc::new(OnceLock::new()),
         })
+    }
+
+    pub(crate) fn inherit_derived_state(&mut self, previous: &Self) {
+        self.workspace.inherit_derived_state(&previous.workspace);
     }
 
     pub fn root(&self) -> &Path {
@@ -724,7 +726,7 @@ impl WebWorkspace {
             materializations: Default::default(),
         };
         self.documents.insert(path.clone(), Arc::new(document));
-        self.workspace = Workspace::with_sqlite_store(
+        self.workspace = self.workspace.with_updated_store(
             index_store
                 .readonly_snapshot()
                 .map_err(|error| error.to_string())?,
@@ -746,7 +748,6 @@ impl WebWorkspace {
             .map(|record| (record.path, record.title))
             .collect();
         self.resource_index = Arc::new(OnceLock::new());
-        self.task_durations = Arc::new(OnceLock::new());
         Ok(())
     }
 
@@ -760,13 +761,6 @@ impl WebWorkspace {
 
     pub fn resources(&self) -> Result<impl Iterator<Item = &ResourceRecord>, String> {
         Ok(self.resource_index()?.resources.values())
-    }
-
-    fn task_duration_totals(&self) -> Result<&plumb_workspace::TaskDurationTotals, String> {
-        self.task_durations
-            .get_or_init(|| self.workspace.task_duration_totals())
-            .as_ref()
-            .map_err(Clone::clone)
     }
 
     pub fn tasks(&self) -> Result<TaskSnapshot, String> {
@@ -790,6 +784,20 @@ impl WebWorkspace {
             )
             .map_err(|error| error.to_string())?
             .value;
+        let durations = self.workspace.task_durations_for(
+            records
+                .items
+                .iter()
+                .filter(|record| {
+                    retained.is_none_or(|retained| {
+                        retained.contains(&(record.relative_path.clone(), record.range.start))
+                    })
+                })
+                .map(|record| plumb_workspace::AgendaItem {
+                    path: record.path.clone(),
+                    id: record.id.clone(),
+                }),
+        )?;
         let mut tasks = Vec::new();
         for record in records.items {
             if retained.is_some_and(|retained| {
@@ -870,7 +878,7 @@ impl WebWorkspace {
                 focused,
                 focused_since,
                 focus_intervals,
-                time_spent_seconds: self.task_duration_totals()?.seconds_for(
+                time_spent_seconds: durations.seconds_for(
                     &record.path,
                     task.owner,
                     task.id.as_ref().map(|id| id.value.as_str()),
@@ -1925,7 +1933,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn task_duration_totals_survive_paging_and_refresh_without_materializing_documents() {
+    fn watcher_reload_reuses_duration_graph_and_reads_only_new_generations() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("task.plumb"), "`+ task\n`= title Target\n").unwrap();
+        let event = "`- 2026-10-01T10:00:00Z--11:00 Work\n `+ event\n `= tasks task.plumb\n";
+        std::fs::write(root.join("day.plumb"), event).unwrap();
+        let old = WebWorkspace::load(&root).unwrap();
+        assert_eq!(
+            old.query_tasks(&WebQuery::default()).unwrap().tasks[0].time_spent_seconds,
+            Some(3600.0)
+        );
+        std::fs::write(root.join("day.plumb"), event.replace("--11:00", "--12:00")).unwrap();
+        let mut next = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        next.inherit_derived_state(&old);
+        assert_eq!(
+            next.query_tasks(&WebQuery::default()).unwrap().tasks[0].time_spent_seconds,
+            Some(7200.0)
+        );
+        assert_eq!(next.workspace.duration_work().documents_read, 1);
+        assert_eq!(next.workspace.duration_work().events_recomputed, 1);
+        assert_eq!(
+            old.query_tasks(&WebQuery::default()).unwrap().tasks[0].time_spent_seconds,
+            Some(3600.0)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn task_duration_pages_share_incremental_state_without_materializing_documents() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("a.plumb"), "`+ task\n`= title Project\n`- Alpha\n `+ task\n `@ a\n `= focused 2026-09-01T00:00:00Z--\n`- No id\n `+ task\n").unwrap();
@@ -1938,7 +1974,7 @@ mod tests {
         let events = "`- 2026-10-01T10:00:00Z--11:00 `->{a.plumb#a} `->{a.plumb#a} `->{b.plumb#b} `->{b.plumb#c}\n `+ event\n`- 2026-10-01T12:00:00Z--12:30 `->{a.plumb}\n `+ event\n`- 2026-10-01T13:00:00Z-- `->{a.plumb#a}\n `+ event\n";
         std::fs::write(&event_path, events).unwrap();
         let mut workspace = WebWorkspace::load(&root).unwrap();
-        assert!(workspace.task_durations.get().is_none());
+        assert_eq!(workspace.workspace.duration_work().events_recomputed, 0);
         let duration = |tasks: &[WebTask], title: &str| {
             tasks
                 .iter()
@@ -1955,7 +1991,7 @@ mod tests {
             assert_eq!(duration(&tasks, "Project"), Some(1800.0));
             assert_eq!(duration(&tasks, "No id"), Some(0.0));
         }
-        let cache = workspace.task_duration_totals().unwrap();
+        assert_eq!(workspace.workspace.duration_work().events_recomputed, 0);
         let filtered = workspace
             .query_tasks(&WebQuery {
                 query: "Alpha".into(),
@@ -1978,10 +2014,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(duration(&next.tasks, "Beta"), Some(1200.0));
-        assert!(std::ptr::eq(
-            cache,
-            workspace.task_duration_totals().unwrap()
-        ));
+        assert_eq!(workspace.workspace.duration_work().events_recomputed, 0);
         assert_eq!(workspace.workspace.documents().count(), 0);
         assert!(workspace
             .documents
@@ -1991,7 +2024,7 @@ mod tests {
         let old = workspace.clone();
         std::fs::write(&event_path, events.replace("--11:00", "--12:00")).unwrap();
         workspace.refresh_document(&event_path, 2).unwrap();
-        assert!(workspace.task_durations.get().is_none());
+
         assert_eq!(
             duration(
                 &workspace.query_tasks(&WebQuery::default()).unwrap().tasks,
@@ -1999,6 +2032,8 @@ mod tests {
             ),
             Some(2400.0)
         );
+        assert_eq!(workspace.workspace.duration_work().events_recomputed, 1);
+        assert_eq!(workspace.workspace.duration_work().documents_read, 1);
         assert_eq!(
             duration(
                 &old.query_tasks(&WebQuery::default()).unwrap().tasks,

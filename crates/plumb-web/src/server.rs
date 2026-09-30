@@ -505,10 +505,11 @@ async fn update_event(
         let workspace = state.workspace.read().await;
         (workspace.root().to_path_buf(), workspace.revision() + 1)
     };
-    let refreshed = match WebWorkspace::load_with_revision(root, revision) {
+    let mut refreshed = match WebWorkspace::load_with_revision(root, revision) {
         Ok(workspace) => workspace,
         Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
     };
+    refreshed.inherit_derived_state(&**state.workspace.read().await);
     let selected = if action == "delete" {
         None
     } else {
@@ -861,7 +862,8 @@ fn spawn_watcher(state: AppState) {
             }
             let revision = state.workspace.read().await.revision() + 1;
             match WebWorkspace::load_with_revision(&root, revision) {
-                Ok(workspace) => {
+                Ok(mut workspace) => {
+                    workspace.inherit_derived_state(&**state.workspace.read().await);
                     if let Err(error) =
                         workspace.graph_excluding(&GraphQuery::default(), state.exclude.as_deref())
                     {
