@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { missingTaskProperties, taskPropertyHasValue } from './task-ui.js';
+import { missingTaskProperties, taskPropertyHasValue, taskTimeSpent } from './task-ui.js';
 
 test('task properties distinguish editable values from missing fields', () => {
   const task = { created: '2026-08-02T12:00:00Z', priority: 0, depends: [], prev: null };
@@ -37,4 +37,14 @@ test('task reference property editing reuses the searchable task form', async ()
   const app = await readFile(new URL('./app.js', import.meta.url), 'utf8');
   assert.doesNotMatch(app, /ensureTaskCandidates/);
   assert.match(app, /property === 'prev' \|\| property === 'depends'[\s\S]*await renderTaskForm\(task\)/);
+});
+
+
+test('time spent formats allocated seconds independently of focus and rejects incomplete totals', () => {
+  for (const [seconds, expected] of [[0, '0s'], [1 / 3, '<1s'], [59.6, '1m'], [4801, '1h 20m 1s'], [90000, '25h']]) {
+    assert.equal(taskTimeSpent({ timeSpentSeconds: seconds, focused: true, focusedSince: '2020-01-01T00:00:00Z' }), expected);
+  }
+  for (const seconds of [null, undefined, NaN, Infinity, -1, '60']) {
+    assert.equal(taskTimeSpent({ timeSpentSeconds: seconds }), 'Unavailable (incomplete)');
+  }
 });

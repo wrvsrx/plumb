@@ -15,7 +15,7 @@ import {
   currentTimeInsertionIndex,
   localDateKey,
 } from './agenda-state.js';
-import { EDITABLE_TASK_PROPERTIES, missingTaskProperties } from './task-ui.js';
+import { EDITABLE_TASK_PROPERTIES, missingTaskProperties, taskTimeSpent } from './task-ui.js';
 import { revealTask, taskListItems } from './task-tree.js';
 import { captureTaskContext, reconcileTaskContext, reconcileTaskViewport, taskQueryScope, queryTaskContext } from './task-context.js';
 import {
@@ -1558,6 +1558,13 @@ import {
     const source = document.createElement('small');
     source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
     identity.append(title, source);
+    const spent = document.createElement('small');
+    spent.className = 'task-time-spent';
+    spent.textContent = `Time spent: ${taskTimeSpent(task)}`;
+    spent.title = task.timeSpentSeconds === null
+      ? 'Event accounting is incomplete; no total is available.'
+      : 'Allocated time from finite events; excludes ongoing events and focus history.';
+    identity.append(spent);
     if (isFocused(task)) identity.append(focusAgeBadge(task));
     else if (item.focusedCount > 0) identity.append(containsFocusBadge(item.focusedCount));
     if (item.collapsed && item.hiddenCount > 0) {
@@ -1834,6 +1841,7 @@ import {
     stateLabel.className = `task-detail-state state-${task.state}`;
     if (isFocused(task)) stateLabel.after(focusAgeBadge(task));
     const fields = taskPanel.querySelector('.task-fields');
+    addTaskField(fields, 'Time spent', taskTimeSpent(task));
     addTaskField(fields, 'Created', task.created, { editable: true, property: 'created', task });
     addTaskField(fields, 'Due', task.due, { editable: true, property: 'due', task });
     addTaskField(fields, 'Priority', task.priority, { editable: true, property: 'priority', task });

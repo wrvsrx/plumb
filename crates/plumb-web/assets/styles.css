@@ -185,6 +185,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .state-canceled { color: var(--muted); }
 .state-conflicted, .task-state.blocked { color: var(--red); }
 .task-identity { min-width: 0; display: grid; gap: 3px; }
+.task-time-spent { font-variant-numeric: tabular-nums; }
 .task-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-identity small, .task-row time { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-row time { font-size: 12px; text-align: right; }

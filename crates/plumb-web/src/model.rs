@@ -123,7 +123,7 @@ pub enum WebTaskLocator {
     Offset { offset: usize },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebTask {
     pub matched: bool,
@@ -145,6 +145,8 @@ pub struct WebTask {
     pub focused: bool,
     pub focused_since: Option<String>,
     pub focus_intervals: Vec<WebFocusInterval>,
+    /// All-time allocated event duration; null means accounting is incomplete.
+    pub time_spent_seconds: Option<f64>,
     pub recur: Option<String>,
     pub prev: Option<String>,
     pub prev_on: Option<String>,
@@ -178,7 +180,7 @@ pub fn web_focus_intervals(task: &TaskRecord) -> Vec<WebFocusInterval> {
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskSnapshot {
     pub revision: u64,
@@ -354,7 +356,7 @@ pub struct QueryFailure {
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskQuerySnapshot {
     pub revision: u64,
@@ -469,6 +471,7 @@ pub struct WebWorkspace {
     paths_by_document_id: HashMap<String, PathBuf>,
     titles: HashMap<PathBuf, String>,
     resource_index: Arc<OnceLock<Result<ResourceIndex, String>>>,
+    task_durations: Arc<OnceLock<Result<plumb_workspace::TaskDurationTotals, String>>>,
 }
 
 #[derive(Debug)]
@@ -645,6 +648,7 @@ impl WebWorkspace {
             paths_by_document_id,
             titles,
             resource_index: Arc::new(OnceLock::new()),
+            task_durations: Arc::new(OnceLock::new()),
         })
     }
 
@@ -742,6 +746,7 @@ impl WebWorkspace {
             .map(|record| (record.path, record.title))
             .collect();
         self.resource_index = Arc::new(OnceLock::new());
+        self.task_durations = Arc::new(OnceLock::new());
         Ok(())
     }
 
@@ -755,6 +760,13 @@ impl WebWorkspace {
 
     pub fn resources(&self) -> Result<impl Iterator<Item = &ResourceRecord>, String> {
         Ok(self.resource_index()?.resources.values())
+    }
+
+    fn task_duration_totals(&self) -> Result<&plumb_workspace::TaskDurationTotals, String> {
+        self.task_durations
+            .get_or_init(|| self.workspace.task_duration_totals())
+            .as_ref()
+            .map_err(Clone::clone)
     }
 
     pub fn tasks(&self) -> Result<TaskSnapshot, String> {
@@ -858,6 +870,11 @@ impl WebWorkspace {
                 focused,
                 focused_since,
                 focus_intervals,
+                time_spent_seconds: self.task_duration_totals()?.seconds_for(
+                    &record.path,
+                    task.owner,
+                    task.id.as_ref().map(|id| id.value.as_str()),
+                ),
                 recur: task.recur.as_ref().map(|field| field.value.clone()),
                 prev: task.prev.as_ref().map(|field| field.value.clone()),
                 prev_on,
@@ -1906,6 +1923,108 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
+
+    #[test]
+    fn task_duration_totals_survive_paging_and_refresh_without_materializing_documents() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.plumb"), "`+ task\n`= title Project\n`- Alpha\n `+ task\n `@ a\n `= focused 2026-09-01T00:00:00Z--\n`- No id\n `+ task\n").unwrap();
+        std::fs::write(
+            root.join("b.plumb"),
+            "`- Beta\n `+ task\n `@ b\n`- Ordinary\n `@ c\n",
+        )
+        .unwrap();
+        let event_path = root.join("day.plumb");
+        let events = "`- 2026-10-01T10:00:00Z--11:00 `->{a.plumb#a} `->{a.plumb#a} `->{b.plumb#b} `->{b.plumb#c}\n `+ event\n`- 2026-10-01T12:00:00Z--12:30 `->{a.plumb}\n `+ event\n`- 2026-10-01T13:00:00Z-- `->{a.plumb#a}\n `+ event\n";
+        std::fs::write(&event_path, events).unwrap();
+        let mut workspace = WebWorkspace::load(&root).unwrap();
+        assert!(workspace.task_durations.get().is_none());
+        let duration = |tasks: &[WebTask], title: &str| {
+            tasks
+                .iter()
+                .find(|task| task.title == title)
+                .unwrap()
+                .time_spent_seconds
+        };
+        for tasks in [
+            workspace.tasks().unwrap().tasks,
+            workspace.query_tasks(&WebQuery::default()).unwrap().tasks,
+        ] {
+            assert_eq!(duration(&tasks, "Alpha"), Some(1200.0));
+            assert_eq!(duration(&tasks, "Beta"), Some(1200.0));
+            assert_eq!(duration(&tasks, "Project"), Some(1800.0));
+            assert_eq!(duration(&tasks, "No id"), Some(0.0));
+        }
+        let cache = workspace.task_duration_totals().unwrap();
+        let filtered = workspace
+            .query_tasks(&WebQuery {
+                query: "Alpha".into(),
+                limit: Some(1),
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(duration(&filtered.tasks, "Alpha"), Some(1200.0));
+        let first = workspace
+            .query_tasks(&WebQuery {
+                limit: Some(1),
+                ..WebQuery::default()
+            })
+            .unwrap();
+        let next = workspace
+            .query_tasks(&WebQuery {
+                limit: Some(1),
+                cursor: Some(first.next_cursor.expect("second document page")),
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(duration(&next.tasks, "Beta"), Some(1200.0));
+        assert!(std::ptr::eq(
+            cache,
+            workspace.task_duration_totals().unwrap()
+        ));
+        assert_eq!(workspace.workspace.documents().count(), 0);
+        assert!(workspace
+            .documents
+            .values()
+            .all(|doc| doc.materializations.load(Ordering::Relaxed) == 0));
+
+        let old = workspace.clone();
+        std::fs::write(&event_path, events.replace("--11:00", "--12:00")).unwrap();
+        workspace.refresh_document(&event_path, 2).unwrap();
+        assert!(workspace.task_durations.get().is_none());
+        assert_eq!(
+            duration(
+                &workspace.query_tasks(&WebQuery::default()).unwrap().tasks,
+                "Alpha"
+            ),
+            Some(2400.0)
+        );
+        assert_eq!(
+            duration(
+                &old.query_tasks(&WebQuery::default()).unwrap().tasks,
+                "Alpha"
+            ),
+            Some(1200.0)
+        );
+
+        std::fs::write(&event_path, events.replace("b.plumb#b", "b.plumb#missing")).unwrap();
+        workspace.refresh_document(&event_path, 3).unwrap();
+        let incomplete = workspace.query_tasks(&WebQuery::default()).unwrap();
+        assert!(incomplete
+            .tasks
+            .iter()
+            .all(|task| task.time_spent_seconds.is_none()));
+        let json = serde_json::to_value(&incomplete).unwrap();
+        assert!(json["tasks"][0]["timeSpentSeconds"].is_null());
+
+        std::fs::write(&event_path, events).unwrap();
+        workspace.refresh_document(&event_path, 4).unwrap();
+        assert_eq!(
+            duration(&workspace.tasks().unwrap().tasks, "Alpha"),
+            Some(1200.0)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn closed_document_queries_do_not_materialize_trees_and_operations_release_them() {

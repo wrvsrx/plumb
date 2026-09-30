@@ -53,10 +53,14 @@ impl WebWorkspace {
             }, &retained_documents)
             .map_err(task_query_failure)?
             .value;
+        let durations = self.task_duration_totals().map_err(|message| QueryFailure {
+            source: "workspace".to_string(),
+            message,
+        })?;
         let mut tasks = page
             .tasks
             .into_iter()
-            .filter_map(|task| self.web_task(task))
+            .filter_map(|task| self.web_task(task, durations))
             .collect::<Vec<_>>();
         assign_task_parents(&mut tasks);
         Ok(TaskQuerySnapshot {
@@ -72,7 +76,11 @@ impl WebWorkspace {
         })
     }
 
-    fn web_task(&self, item: WorkspaceTask) -> Option<WebTask> {
+    fn web_task(
+        &self,
+        item: WorkspaceTask,
+        durations: &plumb_workspace::TaskDurationTotals,
+    ) -> Option<WebTask> {
         let document_id = self.document_id(&item.path)?.to_string();
         // The task page may be backed by a semantic index whose fact revision
         // predates the live document snapshot. Mutations are guarded against
@@ -104,6 +112,11 @@ impl WebWorkspace {
             focused,
             focused_since,
             focus_intervals,
+            time_spent_seconds: durations.seconds_for(
+                &item.path,
+                task.owner,
+                task.id.as_ref().map(|id| id.value.as_str()),
+            ),
             recur: task.recur.as_ref().map(|field| field.value.clone()),
             prev: task.prev.as_ref().map(|field| field.value.clone()),
             prev_on: item
