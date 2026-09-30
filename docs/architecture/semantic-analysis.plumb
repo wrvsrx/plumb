@@ -293,7 +293,8 @@ Link selection与target source、task prev/depends与event tasks。Link target�
 pending恢复的合并规则继续适用。
 
 CodeLens reference-input invalidation 已实现：document title及event的日期、时区、时间、title/details变化
-本身不影响引用。workspace impact独立报告reference inputs是否变化；
+本身不影响引用。用时 CodeLens 另消费 workspace duration inputs，具体 contract 见 workspace 的 Task/Event duration query。
+workspace impact独立报告reference inputs是否变化；
 Event仅比较owner range、tasks override与显式task references的source、target及range，保留implicit Link containment。
 LSP将该结果与source position变化及既有pending恢复需求合并；不能因当前revision的引用输入未变而丢弃其它
 pending document留下的恢复请求。无previous current-valid输出、invalid/valid与文件生命周期路径继续保守刷新。
@@ -302,7 +303,7 @@ pending document留下的恢复请求。无previous current-valid输出、invali
 Task reference-input refinement 已实现：Task比较owner range、id、prev value、depends source/target与所有引用
 absolute ranges；record数量/顺序改变保守视为变化。id及Task membership保留implicit event-task关联的目标类型判断，
 Anchor比较继续保护duplicate id与解析唯一性。状态、时间、priority和title不参与引用关系；只有引用输入与source
-positions均未变时才免除CodeLens refresh。添加字段导致range改变仍允许保守刷新，Folding/diagnostics继续使用自身依赖。
+positions及duration inputs均未变时才免除CodeLens refresh。添加字段导致range改变仍允许保守刷新，Folding/diagnostics继续使用自身依赖。
 
 Anchor/Link reference-input refinement 已实现：Anchor比较id value、kind及reference lens的byte位置，inline为
 id range，其余为owner start。owner end、navigation selection及id的raw/decoded source mapping不影响CodeLens。

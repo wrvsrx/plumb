@@ -2,6 +2,30 @@
 
 本页定义 document snapshots、persistent semantic store、open overlay、workspace queries、cache lifecycle 与 batch indexing 的实现 contract。crate/data-flow 总览见 `->{{architecture overview} overview.plumb}。
 
+`# Task/Event duration query
+
+实现状态：以下用时 query 与 CodeLens 尚待实现验证。
+
+共享 document_durations query 返回当前文档每个任务及非 point event 的 byte 位置、typed 用时状态和贡献事件位置。
+任务累计整个已索引 workspace 的所有有效有限事件份额，不限制日期，不递归合并子任务，不使用 focused history；
+文档任务按 path、列表任务按 explicit id 匹配，没有 id 的列表任务没有可引用份额。复用 agenda 的去重、均分、
+分类再分摊及 unresolved denominator 规则；跨日不裁剪，重叠不扣减。一次 query 批量计算全部任务，不能逐任务扫描 workspace。
+例如一小时事件引用 A、A、B 与普通事项 C，A 与 B 各累计 20 分钟；事件自身仍显示一小时。
+open overlay 遮盖 persistent generation，invalid current 不回退 last-valid；无需 materialize 关闭文档 syntax。
+
+事件显示完整 end-start；开放事件显示 ongoing，不累计动态 now；point event 不提供 duration，非法时间显示 unavailable。
+有效零份额任务显示 total 0s。任何 invalid document、非法完整事件或核算问题使任务累计标为 incomplete，
+不得把 partial seconds 显示为完整总数；有效事件自身的时长仍可显示。pending analysis 返回 partial query completeness；
+store failure 是错误，不伪装成零。initial index completeness 继续由索引生命周期边界保障。
+
+LSP 保留已有引用 lenses，追加 total / duration / ongoing lenses，位于 task/event owner 起点，文档任务位于文件起点。
+数值以 h/m/s 显示，最终显示才四舍五入到秒，非零小于一秒显示 <1s；小时不按天取模。
+沿用 plumb.showReferences command：任务 locations 是去重贡献事件，事件 locations 是自身；incomplete 只显示
+total unavailable (incomplete)，locations 是问题来源。不新增 server-side command。
+初始索引或有效 analysis pending 时仍返回 null，恢复后按 client refresh support 刷新。
+事件 interval、核算引用、target membership、分类有效性以及 lens/source geometry 变化触发 refresh；
+仅 task focused/状态或 event title/details 改变且不影响引用、位置、时长与有效性时不额外刷新。
+
 `# CLI disk snapshot contract
 
 check、note（含 interactive）、task query/next/complete/cancel/focus/unfocus、event query/export-vdir 必须

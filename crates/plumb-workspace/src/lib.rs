@@ -407,6 +407,8 @@ pub struct DocumentAnalysisImpact {
     pub exported: ExportedSemanticChange,
     /// Conservative reference/resolution inputs; excludes LSP source-position geometry.
     pub reference_inputs_changed: bool,
+    /// Event intervals, accounting eligibility/categories, and contribution locations.
+    pub duration_inputs_changed: bool,
     /// Anchor/Task/Event records affecting labels or cross-document task workflow; not metadata.
     pub folding_record_inputs_changed: bool,
     pub task_graph_changed: bool,

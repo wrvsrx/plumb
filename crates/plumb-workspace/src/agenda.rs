@@ -1,5 +1,7 @@
 //! Protocol-neutral agenda accounting and exact-coverage queries.
 mod category_cache;
+mod duration;
+pub use duration::*;
 mod interval_tree;
 mod policy_inputs;
 mod timeline_cache;
@@ -653,6 +655,66 @@ struct SelectedEvents {
 }
 
 impl Workspace {
+    fn selected_events_in_scope(
+        &self,
+        in_scope: impl Fn(&Path) -> bool,
+    ) -> Result<SelectedEvents, String> {
+        // Policy checks have no search expression or ranking. Read typed
+        // event facts directly rather than constructing all search results
+        // and then loading the same event records again.
+        let mut paths = BTreeSet::new();
+        paths.extend(self.documents.keys().filter(|p| in_scope(p)).cloned());
+        let stored = self
+            .disk_store
+            .as_ref()
+            .map(|store| store.documents())
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let validity = stored
+            .into_iter()
+            .filter(|doc| in_scope(&doc.path))
+            .map(|doc| (doc.path, doc.valid))
+            .collect::<BTreeMap<_, _>>();
+        paths.extend(validity.keys().cloned());
+        let mut result = SelectedEvents {
+            complete: true,
+            events: Vec::new(),
+            issues: Vec::new(),
+        };
+        for path in paths {
+            let events = if let Some(entry) = self.documents.get(&path) {
+                entry
+                    .current
+                    .as_ref()
+                    .map(|current| current.output.events().events.iter().collect::<Vec<_>>())
+            } else if validity.get(&path) == Some(&true) {
+                Some(
+                    self.disk_store
+                        .as_ref()
+                        .expect("stored path has a store")
+                        .events_for_path(&path)
+                        .map_err(|e| e.to_string())?,
+                )
+            } else {
+                None
+            };
+            if let Some(events) = events {
+                result
+                    .events
+                    .extend(events.into_iter().map(|event| (path.clone(), event)));
+            } else {
+                result.issues.push(issue(
+                    "agenda.invalid-document",
+                    "document has no valid semantic output",
+                    location(&path, 0..0),
+                ));
+            }
+        }
+        result.complete = result.issues.is_empty();
+        Ok(result)
+    }
+
     fn selected_check_events(
         &self,
         root: &Path,
@@ -665,60 +727,7 @@ impl Workspace {
             path.starts_with(&root) && !excluded_roots.iter().any(|r| path.starts_with(r))
         };
         if filter.is_none() {
-            // Policy checks have no search expression or ranking. Read typed
-            // event facts directly rather than constructing all search results
-            // and then loading the same event records again.
-            let mut paths = BTreeSet::new();
-            paths.extend(self.documents.keys().filter(|p| in_scope(p)).cloned());
-            let stored = self
-                .disk_store
-                .as_ref()
-                .map(|store| store.documents())
-                .transpose()
-                .map_err(|e| e.to_string())?
-                .unwrap_or_default();
-            let validity = stored
-                .into_iter()
-                .filter(|doc| in_scope(&doc.path))
-                .map(|doc| (doc.path, doc.valid))
-                .collect::<BTreeMap<_, _>>();
-            paths.extend(validity.keys().cloned());
-            let mut result = SelectedEvents {
-                complete: true,
-                events: Vec::new(),
-                issues: Vec::new(),
-            };
-            for path in paths {
-                let events = if let Some(entry) = self.documents.get(&path) {
-                    entry
-                        .current
-                        .as_ref()
-                        .map(|current| current.output.events().events.iter().collect::<Vec<_>>())
-                } else if validity.get(&path) == Some(&true) {
-                    Some(
-                        self.disk_store
-                            .as_ref()
-                            .expect("stored path has a store")
-                            .events_for_path(&path)
-                            .map_err(|e| e.to_string())?,
-                    )
-                } else {
-                    None
-                };
-                if let Some(events) = events {
-                    result
-                        .events
-                        .extend(events.into_iter().map(|event| (path.clone(), event)));
-                } else {
-                    result.issues.push(issue(
-                        "agenda.invalid-document",
-                        "document has no valid semantic output",
-                        location(&path, 0..0),
-                    ));
-                }
-            }
-            result.complete = result.issues.is_empty();
-            return Ok(result);
+            return self.selected_events_in_scope(in_scope);
         }
         let selected = self
             .search_records_filtered(

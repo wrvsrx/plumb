@@ -103,6 +103,18 @@ pub type EventRecords = SemanticRecords<EventRecord>;
 pub type EventRecordView<'a> = SemanticRecordView<'a, EventRecord>;
 
 impl<'a> EventRecordView<'a> {
+    /// Time/accounting facts and contribution locations used by duration annotations.
+    pub fn duration_inputs_equal(self, other: Self) -> bool {
+        self.start_datetime() == other.start_datetime()
+            && self.end_datetime() == other.end_datetime()
+            && self.at_datetime().is_some() == other.at_datetime().is_some()
+            && self.record.is_running() == other.record.is_running()
+            && self.record.category == other.record.category
+            && self.selection_range() == other.selection_range()
+            && self.record.accounting_links.iter().map(|r| shifted_range(r, self.offset))
+                .eq(other.record.accounting_links.iter().map(|r| shifted_range(r, other.offset)))
+    }
+
     /// Inputs used by explicit task references and implicit contained-Link associations.
     pub fn reference_inputs_equal(self, other: EventRecordView<'_>) -> bool {
         self.range() == other.range()

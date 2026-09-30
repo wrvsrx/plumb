@@ -233,9 +233,10 @@ impl Workspace {
             change,
             dependent_diagnostics_changed,
             reference_inputs_changed,
+            duration_inputs_changed,
             folding_record_inputs_changed,
         ) = analysis.previous_exported_output.as_ref().map_or(
-            (ExportedSemanticChange::Changed, true, true, true),
+            (ExportedSemanticChange::Changed, true, true, true, true),
             |previous| {
                 let kinds = analysis.output.exported_semantic_change_kinds(previous);
                 let change = if kinds.is_empty() {
@@ -278,6 +279,14 @@ impl Workspace {
                     change,
                     kinds.anchors || kinds.tasks,
                     reference_inputs_changed,
+                    reference_inputs_changed
+                        || previous.document_category() != analysis.output.document_category()
+                        || (kinds.anchors && !previous.anchors().views()
+                            .zip(analysis.output.anchors().views())
+                            .all(|(old, new)| old.duration_inputs_equal(new)))
+                        || (kinds.events && !previous.events().events.views()
+                            .zip(analysis.output.events().events.views())
+                            .all(|(old, new)| old.duration_inputs_equal(new))),
                     kinds.anchors || kinds.tasks || kinds.events,
                 )
             },
@@ -320,6 +329,7 @@ impl Workspace {
         Some(crate::DocumentAnalysisImpact {
             exported: change,
             reference_inputs_changed,
+            duration_inputs_changed,
             folding_record_inputs_changed,
             task_graph_changed,
             dependent_diagnostics_changed,
