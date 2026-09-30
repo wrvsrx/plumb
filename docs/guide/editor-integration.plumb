@@ -225,7 +225,17 @@ SpaceRun，不写 pipe。whole/range formatting 使用同一 formatter与 change
 
 params 的 `"kind" 是 `"note"、`"task" 或 `"event"；`"query" 是 fuzzy text，`"filter" 是 CEL，`"limit" 最大 200。result 是 `"schemaVersion = 3"、`"complete" 与 `"items"。每个 item 都有 `"kind"、`"title"、 workspace-relative `"path"、LSP `"location" 和 `"provenance = { source, revision }"；task item 还可有 `"id"、`"state"、`"waitReasons"、`"due"、`"blocked" 与 `"actionable"；event item 还可有 `"id"、 `"start"、`"end" 与 `"tasks"。`"complete = false" 表示 index 或 limit 导致结果不完整。推荐 wrapper 已处理 capability、buffer/client selection、空结果、错误、Location jump 与 cancellation；自选 picker 应复用同一 schema，而不是解析 display label。
 
-`# Reference CodeLens
+`# Reference 与用时 CodeLens
+
+任务行显示整个 workspace 关联事件分摊后的累计用时，例如 `"total 3h 20m"；文档任务显示在文件首行，
+不合并子任务的用时。事件行显示自身完整时长，例如 `"duration 45m"。开放事件显示 `"ongoing"，不计入累计；
+时间点事件不显示时长。任务 focused history 不参与用时计算。重复事项引用去重后均分，跨日不裁剪，重叠事件照常累加。
+
+点击任务用时可通过下述 picker 查看贡献事件；点击事件用时定位该事件。无有效有限事件份额时显示 `"total 0s"。
+无效文档、事件时间或核算引用等问题会使任务显示 `"total unavailable (incomplete)"，点击可查看问题来源；
+不会把不完整结果显示成准确总数。有效事件自身仍显示时长，非法时间显示 `"duration unavailable"。
+等待索引或有效语义分析就绪期间暂不返回 CodeLens；支持 refresh 的客户端会在就绪或关联事件更新后自动刷新。
+用时按秒显示，非零但不足一秒显示 `"<1s"。
 
 metadata 与 explicit anchors 的 CodeLens 返回 `"plumb.showReferences" client command。 `"plumb.codelens.setup()" 将 locations 显示在 quickfix；`"picker = 'snacks'" 使用 Snacks picker，并在 Snacks 不可用时回退 quickfix。
 

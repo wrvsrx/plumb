@@ -4,8 +4,6 @@
 
 `# Task/Event duration query
 
-实现状态：以下用时 query 与 CodeLens 尚待实现验证。
-
 共享 document_durations query 返回当前文档每个任务及非 point event 的 byte 位置、typed 用时状态和贡献事件位置。
 任务累计整个已索引 workspace 的所有有效有限事件份额，不限制日期，不递归合并子任务，不使用 focused history；
 文档任务按 path、列表任务按 explicit id 匹配，没有 id 的列表任务没有可引用份额。复用 agenda 的去重、均分、
