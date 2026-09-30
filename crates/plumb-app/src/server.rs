@@ -350,12 +350,13 @@ impl ServerState {
             return ControlFlow::Continue(());
         };
         if self.supports_code_lens_refresh
-            && !impact.reference_inputs_changed
-            && previous.as_ref().is_some_and(|previous| {
-                self.workspace.get(&result.path).is_some_and(|entry| {
-                    code_lens::positions_changed(previous, entry.parsed.green())
-                })
-            })
+            && (impact.duration_inputs_changed
+                || (!impact.reference_inputs_changed
+                    && previous.as_ref().is_some_and(|previous| {
+                        self.workspace.get(&result.path).is_some_and(|entry| {
+                            code_lens::positions_changed(previous, entry.parsed.green())
+                        })
+                    })))
         {
             self.code_lens_refresh_pending = true;
         }

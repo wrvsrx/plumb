@@ -139,3 +139,21 @@ impl Workspace {
         Ok(self.query_result(annotations))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_failures_are_errors_not_zero_or_incomplete_totals() {
+        let store = crate::SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = Workspace::with_sqlite_store(store.clone());
+        workspace.insert("/notes/task.plumb", 0, "`+ task\n");
+        store
+            .execute_batch_for_test("DROP TABLE documents;")
+            .unwrap();
+        assert!(workspace
+            .document_durations(Path::new("/notes/task.plumb"))
+            .is_err());
+    }
+}

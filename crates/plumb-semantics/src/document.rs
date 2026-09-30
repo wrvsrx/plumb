@@ -79,6 +79,15 @@ impl RelativeSemanticRecord for AnchorRecord {
 }
 
 impl<'a> crate::SemanticRecordView<'a, AnchorRecord> {
+    pub fn category_declaration_ranges(self) -> impl Iterator<Item = Range<usize>> + 'a {
+        let offset = self.offset;
+        self.record
+            .category
+            .declarations
+            .iter()
+            .map(move |range| shifted_range(range, offset))
+    }
+
     /// Accounting target eligibility and category validity affect task totals.
     pub fn duration_inputs_equal(self, other: Self) -> bool {
         self.record.list_item == other.record.list_item

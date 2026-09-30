@@ -709,7 +709,7 @@ fn initial_index_does_not_refresh_code_lenses_for_unsupported_clients() {
 }
 
 #[test]
-fn block_reference_code_lenses_use_block_openers() {
+fn block_reference_and_duration_code_lenses_use_block_openers() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let document = root.join("positions.plumb");
@@ -744,7 +744,7 @@ fn block_reference_code_lenses_use_block_openers() {
 
     let output = run_server_after_initial_index(&messages);
     let lenses = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(lenses.len(), 8);
+    assert_eq!(lenses.len(), 10);
     let line_of = |needle: &str| {
         source
             .lines()
@@ -759,6 +759,8 @@ fn block_reference_code_lenses_use_block_openers() {
         (&lenses[4], line_of("`- Multiline"), 0),
         (&lenses[5], line_of("`node Nested"), 1),
         (&lenses[7], line_of("`()"), 0),
+        (&lenses[8], line_of("`- Task"), 0),
+        (&lenses[9], line_of("`- Multiline"), 0),
     ] {
         assert_eq!(lens["range"]["start"]["line"], expected_line);
         assert_eq!(lens["range"]["start"]["character"], expected_character);
@@ -766,5 +768,102 @@ fn block_reference_code_lenses_use_block_openers() {
     }
     assert_eq!(lenses[6]["range"]["start"]["line"], line_of("Paragraph"));
     assert!(lenses[6]["range"]["start"]["character"].as_u64().unwrap() > 0);
+    assert_eq!(lenses[8]["command"]["title"], "total 0s");
+    assert_eq!(lenses[9]["command"]["title"], "total 0s");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn duration_code_lenses_refresh_task_totals_after_cross_file_interval_changes() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let task_path = root.join("tasks.plumb");
+    let day_path = root.join("day.plumb");
+    let task = "`+ task\n`= title Project\n`- Work\n `+ task\n `@ work\n";
+    let event = "`- 2026-10-01T10:00:00Z--11:00 `->{tasks.plumb#work}\n `+ event\n";
+    std::fs::write(&task_path, task).unwrap();
+    std::fs::write(&day_path, event).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let task_uri = lsp_types::Url::from_file_path(&task_path).unwrap();
+    let day_uri = lsp_types::Url::from_file_path(&day_path).unwrap();
+    let mut session = LspTestSession::new();
+    session.send(
+        &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+            "processId":null,"rootUri":root_uri,
+            "capabilities":{"workspace":{"codeLens":{"refreshSupport":true}}}
+        }}),
+    );
+    session.wait_for_response(&json!(1));
+    session.send(&json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+    session.wait_for(|m| m["method"] == "$/progress" && m["params"]["value"]["kind"] == "end");
+    let refresh = session.wait_for(|m| m["method"] == "workspace/codeLens/refresh");
+    let mut acknowledged = vec![refresh["id"].clone()];
+    session.send(&json!({"jsonrpc":"2.0","id":refresh["id"],"result":null}));
+    for (id, uri, text) in [(2, &task_uri, task), (3, &day_uri, event)] {
+        session.send(
+            &json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+                "textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":text}
+            }}),
+        );
+        // A semantic read synchronizes this revision before decorative queries.
+        session.send(&json!({"jsonrpc":"2.0","id":id,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":uri}}}));
+        session.wait_for_response(&json!(id));
+        let refresh = session.wait_for(|m| {
+            m["method"] == "workspace/codeLens/refresh" && !acknowledged.contains(&m["id"])
+        });
+        acknowledged.push(refresh["id"].clone());
+        session.send(&json!({"jsonrpc":"2.0","id":refresh["id"],"result":null}));
+    }
+    for (version, text, expected) in [
+        (1, event.to_owned(), "total 1h"),
+        (2, event.replace("11:00", "12:30"), "total 2h 30m"),
+        (3, event.replace("--11:00", "--"), "total 0s"),
+        (
+            4,
+            event.replace("#work", "#gone"),
+            "total unavailable (incomplete)",
+        ),
+        (5, event.to_owned(), "total 1h"),
+    ] {
+        if version > 1 {
+            session.send(&json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+                "textDocument":{"uri":day_uri,"version":version},"contentChanges":[{"text":text}]
+            }}));
+            session.send(&json!({"jsonrpc":"2.0","id":version * 10,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":day_uri}}}));
+            session.wait_for_response(&json!(version * 10));
+            let refresh = session.wait_for(|m| {
+                m["method"] == "workspace/codeLens/refresh" && !acknowledged.contains(&m["id"])
+            });
+            acknowledged.push(refresh["id"].clone());
+            session.send(&json!({"jsonrpc":"2.0","id":refresh["id"],"result":null}));
+        }
+        let id = version * 10 + 1;
+        session.send(&json!({"jsonrpc":"2.0","id":id,"method":"textDocument/codeLens","params":{"textDocument":{"uri":task_uri}}}));
+        let response = session.wait_for_response(&json!(id));
+        let lenses = response["result"]
+            .as_array()
+            .expect("complete duration lenses");
+        let total = lenses
+            .iter()
+            .find(|l| l["range"]["start"]["line"] == 2 && l["command"]["title"] == expected)
+            .expect(expected);
+        assert!(
+            lenses
+                .iter()
+                .any(|l| l["command"]["title"] == "total 0s" && l["range"]["start"]["line"] == 0)
+                || expected.contains("incomplete")
+        );
+        if expected == "total 1h" || expected == "total 2h 30m" {
+            assert_eq!(total["command"]["arguments"][2][0]["uri"], day_uri.as_str());
+            assert_eq!(
+                total["command"]["arguments"][2].as_array().unwrap().len(),
+                1
+            );
+        }
+    }
+    session.send(&json!({"jsonrpc":"2.0","id":99,"method":"shutdown","params":null}));
+    session.wait_for_response(&json!(99));
+    session.send(&json!({"jsonrpc":"2.0","method":"exit","params":null}));
+    session.finish();
     std::fs::remove_dir_all(root).unwrap();
 }

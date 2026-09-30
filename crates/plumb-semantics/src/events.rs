@@ -103,6 +103,15 @@ pub type EventRecords = SemanticRecords<EventRecord>;
 pub type EventRecordView<'a> = SemanticRecordView<'a, EventRecord>;
 
 impl<'a> EventRecordView<'a> {
+    pub fn category_declaration_ranges(self) -> impl Iterator<Item = Range<usize>> + 'a {
+        let offset = self.offset;
+        self.record
+            .category
+            .declarations
+            .iter()
+            .map(move |range| shifted_range(range, offset))
+    }
+
     /// Time/accounting facts and contribution locations used by duration annotations.
     pub fn duration_inputs_equal(self, other: Self) -> bool {
         self.start_datetime() == other.start_datetime()
@@ -111,8 +120,16 @@ impl<'a> EventRecordView<'a> {
             && self.record.is_running() == other.record.is_running()
             && self.record.category == other.record.category
             && self.selection_range() == other.selection_range()
-            && self.record.accounting_links.iter().map(|r| shifted_range(r, self.offset))
-                .eq(other.record.accounting_links.iter().map(|r| shifted_range(r, other.offset)))
+            && self
+                .record
+                .accounting_links
+                .iter()
+                .map(|r| shifted_range(r, self.offset))
+                .eq(other
+                    .record
+                    .accounting_links
+                    .iter()
+                    .map(|r| shifted_range(r, other.offset)))
     }
 
     /// Inputs used by explicit task references and implicit contained-Link associations.

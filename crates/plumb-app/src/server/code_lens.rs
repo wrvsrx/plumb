@@ -8,13 +8,14 @@ fn source_ranges(output: &DocumentOutput) -> impl Iterator<Item = Range<usize>> 
     output
         .anchors()
         .views()
-        .map(|anchor| {
-            if anchor.kind() == AnchorKind::Inline {
+        .flat_map(|anchor| {
+            let lens_range = if anchor.kind() == AnchorKind::Inline {
                 anchor.id_range()
             } else {
                 let start = anchor.owner_range().start;
                 start..start
-            }
+            };
+            std::iter::once(lens_range).chain(anchor.category_declaration_ranges())
         })
         .chain(
             output
@@ -22,20 +23,18 @@ fn source_ranges(output: &DocumentOutput) -> impl Iterator<Item = Range<usize>> 
                 .views()
                 .flat_map(|link| [link.selection_range(), link.target_source_range()]),
         )
-        .chain(
-            output
-                .tasks()
-                .tasks
-                .views()
-                .flat_map(|task| task.reference_ranges()),
-        )
-        .chain(
-            output
-                .events()
-                .events
-                .views()
-                .flat_map(|event| event.task_reference_ranges()),
-        )
+        .chain(output.tasks().tasks.views().flat_map(|task| {
+            let start = task.range().start;
+            std::iter::once(start..start).chain(task.reference_ranges())
+        }))
+        .chain(output.events().events.views().flat_map(|event| {
+            let start = event.range().start;
+            [start..start, event.selection_range()]
+                .into_iter()
+                .chain(event.task_reference_ranges())
+                .chain(event.category_declaration_ranges())
+        }))
+        .chain(output.document_category().declarations)
 }
 
 pub(super) fn positions_changed(previous: &DocumentOutput, current: &GreenDocument) -> bool {
@@ -67,6 +66,72 @@ mod tests {
         let syntax = Arc::new(GreenDocument::parse(source));
         plumb_semantics::analyze_green_document(syntax.valid_syntax().unwrap(), Arc::clone(&syntax))
             .unwrap()
+    }
+
+    #[test]
+    fn duration_display_rounds_only_final_totals_and_keeps_long_hours() {
+        for (seconds, expected) in [
+            (0.0, "0s"),
+            (1.0 / 3.0, "<1s"),
+            (59.6, "1m"),
+            (3600.0, "1h"),
+            (4801.0, "1h 20m 1s"),
+            (90000.0, "25h"),
+        ] {
+            assert_eq!(format_duration(seconds), expected);
+        }
+    }
+
+    #[test]
+    fn duration_lenses_project_utf16_owner_positions_and_keep_reference_lenses() {
+        use std::path::Path;
+        let mut workspace = super::super::Workspace::new();
+        let source = "😀\r\n\r\n`- Task\r\n `+ task\r\n `@ task\r\n`- 2026-10-01T10:00:00Z--11:30 `->{#task}\r\n `+ event\r\n`- 2026-10-01T12:00:00Z-- Running\r\n `+ event\r\n`- 2026-10-01T13:00:00Z Point\r\n `+ event\r\n`- invalid Bad\r\n `+ event\r\n";
+        workspace.insert("/notes/day.plumb", 0, source);
+        let result = lenses(&workspace, Path::new("/notes/day.plumb"))
+            .unwrap()
+            .unwrap();
+        let titles = result
+            .iter()
+            .map(|l| l.command.as_ref().unwrap().title.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            &titles[2..],
+            [
+                "total unavailable (incomplete)",
+                "duration 1h 30m",
+                "ongoing",
+                "duration unavailable"
+            ]
+        );
+        assert_eq!(result[2].range.start, lsp_types::Position::new(2, 0));
+        assert_eq!(result[3].range.start, lsp_types::Position::new(5, 0));
+        assert_eq!(result[4].range.start, lsp_types::Position::new(7, 0));
+        assert_eq!(result[5].range.start, lsp_types::Position::new(11, 0));
+        let command = result[3].command.as_ref().unwrap();
+        assert_eq!(command.command, "plumb.showReferences");
+        let locations = &command.arguments.as_ref().unwrap()[2];
+        assert_eq!(locations[0]["range"]["start"]["line"], 5);
+        assert_eq!(locations[0]["uri"], "file:///notes/day.plumb");
+    }
+
+    #[test]
+    fn duration_geometry_covers_owners_contributions_and_category_issue_locations() {
+        for body in [
+            "`- Task\n `+ task\n",
+            "`- 2026-10-01T10:00:00Z--11:00 Work\n `+ event\n",
+            "`= event-category {}\n",
+            "`- Item\n `@ item\n `= event-category {}\n",
+            "`- 2026-10-01T10:00:00Z--11:00 Work\n `+ event\n `= event-category {}\n",
+        ] {
+            let previous = output(&format!("AA\nBB\n\n{body}"));
+            let current = output(&format!("ABCDEF\n{body}"));
+            assert_eq!(
+                previous.exported_semantic_summary(),
+                current.exported_semantic_summary()
+            );
+            assert!(positions_changed(&previous, current.syntax()));
+        }
     }
 
     #[test]
@@ -213,7 +278,6 @@ mod tests {
     }
 }
 
-
 pub(super) fn lenses(
     workspace: &super::Workspace,
     path: &std::path::Path,
@@ -292,5 +356,66 @@ pub(super) fn lenses(
         let range = location_cache.location(&entry.path, &lens_range)?.range;
         Some(reference_code_lens(&uri, range, title, locations))
     }));
+    let durations = workspace
+        .document_durations(&entry.path)
+        .map_err(|message| {
+            async_lsp::ResponseError::new(async_lsp::ErrorCode::INTERNAL_ERROR, message)
+        })?;
+    if !durations.is_complete() {
+        return Ok(None);
+    }
+    for annotation in durations.value {
+        let Some(range) = location_cache
+            .location(&entry.path, &annotation.range)
+            .map(|l| l.range)
+        else {
+            continue;
+        };
+        let title = duration_title(annotation.kind, annotation.value);
+        let locations = annotation
+            .sources
+            .into_iter()
+            .filter_map(|source| {
+                location_cache.location(&source.path, &(source.range.start..source.range.end))
+            })
+            .collect();
+        lenses.push(reference_code_lens(&uri, range, title, locations));
+    }
     Ok(Some(lenses))
+}
+
+fn duration_title(
+    kind: plumb_workspace::DurationKind,
+    value: plumb_workspace::DurationValue,
+) -> String {
+    use plumb_workspace::{DurationKind, DurationValue};
+    let prefix = if kind == DurationKind::Task {
+        "total"
+    } else {
+        "duration"
+    };
+    match value {
+        DurationValue::Seconds(seconds) => format!("{prefix} {}", format_duration(seconds)),
+        DurationValue::Ongoing => "ongoing".into(),
+        DurationValue::Unavailable => format!("{prefix} unavailable"),
+        DurationValue::Incomplete => format!("{prefix} unavailable (incomplete)"),
+    }
+}
+
+fn format_duration(seconds: f64) -> String {
+    if seconds > 0.0 && seconds < 1.0 {
+        return "<1s".into();
+    }
+    let seconds = seconds.round() as u64;
+    let mut parts = Vec::new();
+    if seconds >= 3600 {
+        parts.push(format!("{}h", seconds / 3600));
+    }
+    if seconds % 3600 >= 60 {
+        parts.push(format!("{}m", seconds % 3600 / 60));
+    }
+    if seconds % 60 != 0 || parts.is_empty() {
+        parts.push(format!("{}s", seconds % 60));
+    }
+    parts.join(" ")
 }
