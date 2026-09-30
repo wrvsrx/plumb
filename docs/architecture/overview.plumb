@@ -117,9 +117,9 @@ Web resource endpoint 只为已索引的 workspace-contained resource identity �
 
 `## Web task focus presentation
 
-Web task 用时展示（尚待实现验证）：每个真实 task 的列表行及详情都显示 Time spent，文档任务只显示自身直接份额，
+Web task 用时展示：每个真实 task 的列表行及详情都显示 Time spent，文档任务只显示自身直接份额，
 普通文件分组不显示伪造汇总。timeSpentSeconds 是可空数字：完整核算保留原始浮点秒数，无份额为 0；
-索引或核算不完整时为 null，UI 显示 Time spent unavailable (incomplete)，不能把部分值或 null 当成 0。
+索引或核算不完整时为 null，UI 显示 Time spent: Unavailable (incomplete)，不能把部分值或 null 当成 0。
 服务端查询失败仍走现有错误响应。显示时才按秒四舍五入，以 h/m/s 表达；非零小于一秒显示 <1s。
 focused 的关注时长及历史保持独立，不累计为工作用时。进行中事件不增加实时秒数。
 
