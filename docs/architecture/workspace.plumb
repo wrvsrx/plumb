@@ -24,6 +24,10 @@ total unavailable (incomplete)，locations 是问题来源。不新增 server-si
 事件 interval、核算引用、target membership、分类有效性以及 lens/source geometry 变化触发 refresh；
 仅 task focused/状态或 event title/details 改变且不影响引用、位置、时长与有效性时不额外刷新。
 
+Web task duration 扩展（尚待实现验证）：workspace 的 task_duration_totals 返回全部任务身份的累计秒数与完整性，
+和 document_durations 共用一次批量核算实现；不要求目标任务文档驻留或重解析。零份额可由完整结果中的缺省身份推导，
+无 id 的列表任务显示零。公开批量总量不携带无界事件或贡献位置列表，Web 不自行求和或重新实现关联规则。
+
 `# CLI disk snapshot contract
 
 check、note（含 interactive）、task query/next/complete/cancel/focus/unfocus、event query/export-vdir 必须

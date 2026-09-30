@@ -117,6 +117,17 @@ Web resource endpoint 只为已索引的 workspace-contained resource identity �
 
 `## Web task focus presentation
 
+Web task 用时展示（尚待实现验证）：每个真实 task 的列表行及详情都显示 Time spent，文档任务只显示自身直接份额，
+普通文件分组不显示伪造汇总。timeSpentSeconds 是可空数字：完整核算保留原始浮点秒数，无份额为 0；
+索引或核算不完整时为 null，UI 显示 Time spent unavailable (incomplete)，不能把部分值或 null 当成 0。
+服务端查询失败仍走现有错误响应。显示时才按秒四舍五入，以 h/m/s 表达；非零小于一秒显示 <1s。
+focused 的关注时长及历史保持独立，不累计为工作用时。进行中事件不增加实时秒数。
+
+每个 immutable WebWorkspace snapshot 至多计算一次共享批量总量，分页、筛选、详情及 task snapshot 共用；
+不随当前筛选或分页截断累计事件，不把无界 event 集合传给浏览器，不 materialize 关闭文档语法树。
+changed-document replacement 和 workspace watcher 发布新 revision 时清除用时缓存；正在读取的旧快照保持旧值。
+事件起止、引用、任务身份与核算有效性改变后，列表和当前详情随现有 revision 刷新协议更新，不能保留旧累计值。
+
 Web Tasks 只提供一棵任务树，不提供 Next 页面或 Web next query；CLI / LSP 的 shared next 不受影响。grouped focus presentation 只改变浏览器中的可见性，不产生 authoritative source edits。
 
 shared task page 在分页前按 subtree focused 优先排序；Web 只投影该有序结果。当前筛选结果存在 focused task 时，每层 sibling 中自身及后代均未 focused 的完整子树整体收进一个默认折叠的 Unfocused tasks 分组；完全未 focused 的 document groups 在最外层收进一个 Unfocused files 分组。保留 focused task 及其必要祖先路径，不能逐个折叠未关注任务来代替整体分组，也不复制祖先到第二棵树。没有 focused task 时保持普通展开树。

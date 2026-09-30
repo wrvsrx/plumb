@@ -173,3 +173,42 @@ fn explicit_tasks_override_title_links_and_preserve_fractional_seconds() {
         assert_eq!(lens.sources.len(), 1);
     }
 }
+
+#[test]
+fn batch_totals_match_document_annotations_without_resident_target_documents() {
+    use plumb_semantics::TaskOwner;
+    let mut memory = Workspace::new();
+    let mut disk = Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap());
+    for (path, source) in [("/notes/tasks.plumb", TASKS), ("/notes/day.plumb", EVENT)] {
+        memory.insert(path, 0, source);
+        disk.insert_disk(path, 0, source).unwrap();
+    }
+    let totals = disk.task_duration_totals().unwrap();
+    assert_eq!(totals, memory.task_duration_totals().unwrap());
+    let path = Path::new("/notes/tasks.plumb");
+    let annotations = memory.document_durations(path).unwrap().value;
+    for (index, owner, id) in [
+        (0, TaskOwner::Document, None),
+        (1, TaskOwner::ListItem, Some("a")),
+        (2, TaskOwner::ListItem, Some("b")),
+        (3, TaskOwner::ListItem, None),
+    ] {
+        assert_eq!(
+            DurationValue::Seconds(totals.seconds_for(path, owner, id).unwrap()),
+            annotations[index].value
+        );
+    }
+    assert_eq!(disk.documents().count(), 0);
+    disk.open_document("/notes/day.plumb", 1, "`broken{\n");
+    assert_eq!(
+        disk.task_duration_totals()
+            .unwrap()
+            .seconds_for(path, TaskOwner::ListItem, Some("a")),
+        None
+    );
+    disk.begin_document_revision("/notes/day.plumb", 2, EVENT)
+        .unwrap();
+    assert!(!disk.task_duration_totals().unwrap().complete);
+    disk.complete_pending_document_analysis("/notes/day.plumb");
+    assert_eq!(disk.task_duration_totals().unwrap(), totals);
+}

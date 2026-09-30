@@ -38,7 +38,112 @@ fn event_duration(event: &EventRecord) -> Option<DurationValue> {
     })
 }
 
+/// All-time task allocations. Missing identities mean zero only when complete.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskDurationTotals {
+    pub seconds: BTreeMap<AgendaItem, f64>,
+    pub complete: bool,
+}
+
+impl TaskDurationTotals {
+    pub fn seconds_for(&self, path: &Path, owner: TaskOwner, id: Option<&str>) -> Option<f64> {
+        if !self.complete {
+            return None;
+        }
+        if owner == TaskOwner::ListItem && id.is_none() {
+            return Some(0.0);
+        }
+        Some(
+            self.seconds
+                .get(&AgendaItem {
+                    path: normalize(path),
+                    id: id.map(str::to_owned),
+                })
+                .copied()
+                .unwrap_or_default(),
+        )
+    }
+}
+
+struct TaskAccounting {
+    totals: TaskDurationTotals,
+    sources: BTreeMap<AgendaItem, BTreeSet<AgendaLocation>>,
+    issues: Vec<AgendaLocation>,
+}
+
 impl Workspace {
+    /// Aggregate current memory/store facts once, without exporting event collections.
+    pub fn task_duration_totals(&self) -> Result<TaskDurationTotals, String> {
+        let mut totals = self.task_accounting(None, false)?.totals;
+        totals.complete &= self.query_result(()).is_complete();
+        Ok(totals)
+    }
+
+    fn task_accounting(
+        &self,
+        path: Option<&Path>,
+        include_sources: bool,
+    ) -> Result<TaskAccounting, String> {
+        let selected = self.selected_events_in_scope(|_| true)?;
+        let mut issues = selected.issues;
+        let mut context = AccountingContext::default();
+        let mut totals = BTreeMap::<AgendaItem, f64>::new();
+        let mut sources = BTreeMap::<AgendaItem, BTreeSet<AgendaLocation>>::new();
+        for (event_path, event) in selected.events {
+            let source = location(&event_path, event.selection_range.clone());
+            match event_duration(&event) {
+                Some(DurationValue::Seconds(duration)) => {
+                    let (shares, event_issues) = self.event_accounting_with_context(
+                        &event_path,
+                        &event,
+                        duration,
+                        &mut context,
+                    )?;
+                    issues.extend(event_issues);
+                    for share in shares {
+                        if !share.is_task {
+                            continue;
+                        }
+                        if let Some(item) = share
+                            .item
+                            .filter(|item| path.is_none_or(|path| item.path == path))
+                        {
+                            *totals.entry(item.clone()).or_default() += share.seconds;
+                            if include_sources {
+                                sources.entry(item).or_default().insert(source.clone());
+                            }
+                        }
+                    }
+                }
+                Some(DurationValue::Unavailable) => issues.push(issue(
+                    "agenda.invalid-time",
+                    "event has no valid finite interval",
+                    source,
+                )),
+                _ => {}
+            }
+        }
+        let complete = issues.is_empty();
+        let issues = if include_sources {
+            issues
+                .into_iter()
+                .map(|issue| issue.source)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(TaskAccounting {
+            totals: TaskDurationTotals {
+                seconds: totals,
+                complete,
+            },
+            sources,
+            issues,
+        })
+    }
+
     /// Batch all task totals in one document over current workspace event facts.
     /// Pending generations remain partial; invalid facts produce explicit incomplete values.
     /// Closed documents are read from semantic storage, never reparsed.
@@ -54,55 +159,23 @@ impl Workspace {
         };
         let mut annotations = Vec::new();
         if !output.tasks().tasks.is_empty() {
-            let selected = self.selected_events_in_scope(|_| true)?;
-            let mut issues = selected.issues;
-            let mut context = AccountingContext::default();
-            let mut totals = BTreeMap::<AgendaItem, (f64, BTreeSet<AgendaLocation>)>::new();
-            for (event_path, event) in selected.events {
-                let source = location(&event_path, event.selection_range.clone());
-                match event_duration(&event) {
-                    Some(DurationValue::Seconds(duration)) => {
-                        let (shares, event_issues) = self.event_accounting_with_context(
-                            &event_path,
-                            &event,
-                            duration,
-                            &mut context,
-                        )?;
-                        issues.extend(event_issues);
-                        for share in shares {
-                            if !share.is_task {
-                                continue;
-                            }
-                            if let Some(item) = share.item.filter(|item| item.path == path) {
-                                let (total, sources) = totals.entry(item).or_default();
-                                *total += share.seconds;
-                                sources.insert(source.clone());
-                            }
-                        }
-                    }
-                    Some(DurationValue::Unavailable) => issues.push(issue(
-                        "agenda.invalid-time",
-                        "event has no valid finite interval",
-                        source,
-                    )),
-                    _ => {}
-                }
-            }
-            let issue_sources = issues
-                .into_iter()
-                .map(|issue| issue.source)
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
+            let accounting = self.task_accounting(Some(&path), true)?;
+            let issue_sources = accounting.issues;
             for task in output.tasks().tasks.views() {
                 let identity = (task.owner() == TaskOwner::Document || task.id_value().is_some())
                     .then(|| AgendaItem {
                         path: path.clone(),
                         id: task.id_value().map(str::to_owned),
                     });
-                let (total, sources) = identity
-                    .and_then(|item| totals.get(&item))
-                    .map(|(total, sources)| (*total, sources.iter().cloned().collect()))
+                let total = identity
+                    .as_ref()
+                    .and_then(|item| accounting.totals.seconds.get(item))
+                    .copied()
+                    .unwrap_or_default();
+                let sources = identity
+                    .as_ref()
+                    .and_then(|item| accounting.sources.get(item))
+                    .map(|sources| sources.iter().cloned().collect())
                     .unwrap_or_default();
                 let start = if task.owner() == TaskOwner::Document {
                     0
