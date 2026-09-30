@@ -170,6 +170,11 @@ workspace/adapters不得持有或缓存该 projection。
 
 `# 10. Lenient tree and identity
 
+tree-sitter 的 block raw scanner 对缺 margin 的中间 blank line 使用 core syntax 第 8 节的下一行判定：
+下一行具有完整 margin 时，空行的 LF/CRLF 仍产生同一 verbatim_block 内的 raw_text，injection 不在此截断。
+lookahead 不消费下一行 payload；末尾缺 margin 的 blank line 仍在 raw block 外。injection query 捕获这些 raw_text，
+因此空行前后的代码属于同一注入内容；常规行的 structural margin 仍不进入 capture。
+
 tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
 node kinds/ranges；scanner state round-trip 不引入 ERROR。它不改变 strict parser authority。
 

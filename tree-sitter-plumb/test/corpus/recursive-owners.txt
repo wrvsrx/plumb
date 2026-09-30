@@ -377,3 +377,36 @@ Unexpected } close
       (space))
     (ERROR
       (space))))
+
+==================
+Nested raw injection continues across an unindented blank
+==================
+`- example
+ `rust"
+  fn first() {}
+
+  fn second() {}
+
+`after
+
+---
+
+(document
+  (marked_block
+    (introducer)
+    (marker)
+    (inline_content
+      (space)
+      (text))
+    (block_body
+      (verbatim_block
+        (introducer)
+        (verbatim_kind)
+        (verbatim_open)
+        (raw_text)
+        (raw_text)
+        (raw_text))
+      (blank_line)))
+  (marked_block
+    (introducer)
+    (marker)))

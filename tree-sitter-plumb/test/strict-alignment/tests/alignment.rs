@@ -234,3 +234,58 @@ fn projected_kind(kind: &str) -> Option<(&'static str, bool)> {
         _ => return None,
     })
 }
+
+#[test]
+fn raw_blank_lines_keep_injection_content_and_strict_boundaries() {
+    use tree_sitter::{Query, QueryCursor, StreamingIterator};
+    let language: Language = unsafe { LanguageFn::from_raw(tree_sitter_plumb) }.into();
+    let query = Query::new(&language, include_str!("../../../queries/injections.scm")).unwrap();
+    let mut parser = Parser::new();
+    parser.set_language(&language).unwrap();
+    for ending in ["\n", "\r\n"] {
+        for indent in [0, 1, 4] {
+            for blank in ["", " ", "\t"] {
+                let prefix = " ".repeat(indent);
+                let margin = " ".repeat(indent + 1);
+                let parent = if indent == 0 {
+                    String::new()
+                } else {
+                    format!("`owner{ending}")
+                };
+                let source = format!("{parent}{prefix}`rust\"{ending}{margin}fn first() {{}}{ending}{blank}{ending}{margin}fn second() {{}}{ending}{ending}`after{ending}");
+                let strict = parse(source.clone());
+                assert!(strict.is_valid(), "{source:?}");
+                let tree = parser.parse(&source, None).unwrap();
+                assert!(
+                    !tree.root_node().has_error(),
+                    "{source:?}: {}",
+                    tree.root_node().to_sexp()
+                );
+                assert_eq!(
+                    project_tree_sitter(tree.root_node()),
+                    vec![project_document(&strict.syntax)]
+                );
+                let mut cursor = QueryCursor::new();
+                let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
+                let mut contents = Vec::new();
+                while let Some(m) = matches.next() {
+                    for capture in m.captures {
+                        if query.capture_names()[capture.index as usize] == "injection.content" {
+                            contents.push(
+                                capture
+                                    .node
+                                    .utf8_text(source.as_bytes())
+                                    .unwrap()
+                                    .to_owned(),
+                            );
+                        }
+                    }
+                }
+                assert_eq!(contents.len(), 3, "{source:?}: {contents:?}");
+                assert_eq!(contents[0], format!("fn first() {{}}{ending}"));
+                assert!(contents[1].ends_with(ending));
+                assert_eq!(contents[2], format!("fn second() {{}}{ending}"));
+            }
+        }
+    }
+}

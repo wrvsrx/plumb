@@ -111,6 +111,28 @@ static bool scan_raw_code_line(Scanner *scanner, TSLexer *lexer,
     spaces++;
   }
 
+  if (spaces < verbatim_indent) {
+    // An under-indented blank belongs to raw only when the immediately
+    // following line has the full margin. Keep mark_end at the blank's end:
+    // lookahead must not consume the next payload line.
+    while (lexer->lookahead == ' ' || lexer->lookahead == '\t') take(lexer);
+    if (lexer->lookahead == '\r') take(lexer);
+    if (lexer->lookahead == '\n') {
+      take(lexer);
+      lexer->mark_end(lexer);
+      uint32_t next_spaces = 0;
+      while (lexer->lookahead == ' ' && next_spaces < verbatim_indent) {
+        take(lexer);
+        next_spaces++;
+      }
+      if (next_spaces == verbatim_indent) {
+        lexer->result_symbol = RAW_CODE_LINE;
+        return true;
+      }
+      return false;
+    }
+  }
+
   if (lexer->lookahead == '\n') {
     if (spaces >= verbatim_indent) {
       take(lexer);
