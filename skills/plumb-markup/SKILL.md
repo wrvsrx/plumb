@@ -51,8 +51,10 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
   the payload contains a closing-like sequence.
 - Anonymous and marked block raw open with an own-line `` `" `` or
   `` `kind" ``. Every payload line carries one additional structural ASCII
-  space, which is stripped; all following bytes are raw. Raw blank lines also
-  carry that margin. There is no closing fence and no raw tail.
+  space, which is stripped; all following bytes are raw. A blank line without
+  the full margin is preserved verbatim when the immediately following line
+  has the margin; a final blank needs the margin to belong to raw payload.
+  There is no closing fence and no raw tail.
 - The document is an implicit root owner. Direct top-level `=` blocks are
   metadata. Direct `@`, `+`, and `=` children project as id, facet, and property
   declarations under the official profile; core keeps them as generic owners.

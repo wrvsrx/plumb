@@ -736,14 +736,14 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            if line.blank && !has_margin && index + 1 >= self.lines.len() {
-                break;
-            }
             if !has_payload {
                 text_start = line.start;
                 has_payload = true;
             }
-            text.push_str(&self.source[prefix_end..line.end]);
+            // A blank accepted without a margin has no structural prefix to
+            // strip. Preserve its whitespace and complete line ending.
+            let payload_start = if has_margin { prefix_end } else { line.start };
+            text.push_str(&self.source[payload_start..line.end]);
             text_end = line.end;
             index += 1;
         }

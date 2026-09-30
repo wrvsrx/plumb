@@ -165,8 +165,11 @@ block raw opener 必须独占 physical line。anonymous/marked forms：
   fn main() {}
 
 每条 payload line 先匹配 opener indentation，再匹配一个 structural ASCII space；parser 只 strip 该额外
-space，保留其后所有 bytes，包括更多 leading spaces、tabs 与 original line ending。raw blank line 同样
-中间 blank line 可以不带 margin；末尾 blank line 必须带 margin，否则结束 payload 并重新进入 ordinary block dispatch。
+space，保留其后所有 bytes，包括更多 leading spaces、tabs 与 original line ending。
+缺少完整 margin 的 blank line 在紧接的下一行具有完整 margin 时仍属于 payload；此时完整保留该 blank line 的
+bytes，包括已有空格与 LF/CRLF，不剥除不存在的 margin，也不吞掉换行。此规则与 opener indentation 深度无关。
+例如 nested raw 的两条内容行之间只有一个 LF 时，decoded payload 仍包含这个 LF。
+末尾 blank line 必须带 margin，否则结束 payload 并重新进入 ordinary block dispatch。
 
 empty payload、EOF 和 payload 中任意 syntax-like bytes 合法。没有 closing fence、quote-count block margin
 或 marked raw tail。需要 declarations 时使用 ordinary wrapper 与 marked raw child：
@@ -204,7 +207,7 @@ ValidDocument。authoritative semantics、export 与 valid-tree mutation 只接�
 `- unmatched group opener/closer：current physical line；不消费下一 block。
 `- unclosed inline verbatim：current physical line ending/EOF。
 `- structural tab/partial dedent：发布最具体 structural diagnostic，并在最近合法 column 继续。
-`- block raw：缺 margin 的 line 正常结束 payload；该 line 重新按 block grammar 处理。
+`- block raw：除第 8 节的中间 blank line 外，缺 margin 的 line 正常结束 payload；该 line 重新按 block grammar 处理。
 
 同一根因只发布最具体 diagnostic。missing token 不成为 synthetic source leaf。block nesting 使用 explicit
 stack；语言不从 Rust call stack 获得 nesting depth limit。
