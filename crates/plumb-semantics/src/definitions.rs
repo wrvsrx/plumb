@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::document::SemanticTree;
-use plumb_syntax::{Block, InlineContent, ParsedBlock, ValidDocument};
+use plumb_syntax::{Block, InlineContent, ParsedBlock, SemanticDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DefinitionRecord {
@@ -244,7 +244,7 @@ pub(crate) enum RootRole {
 }
 
 pub(crate) fn root_role(shard: &plumb_syntax::GreenShard) -> RootRole {
-    match shard.parsed().syntax.blocks.first() {
+    match shard.semantic_regions().syntax().blocks.first() {
         Some(block) if crate::is_document_declaration(block) => RootRole::Transparent,
         Some(block) if definition_block(block).is_some() => RootRole::Definition,
         None => RootRole::Transparent,
@@ -252,7 +252,8 @@ pub(crate) fn root_role(shard: &plumb_syntax::GreenShard) -> RootRole {
     }
 }
 
-pub fn analyze_definitions(valid: ValidDocument<'_>) -> DefinitionOutput {
+pub fn analyze_definitions<'a>(valid: impl Into<SemanticDocument<'a>>) -> DefinitionOutput {
+    let valid = valid.into();
     let mut groups = Vec::new();
     collect_definition_lists(
         valid

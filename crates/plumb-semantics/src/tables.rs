@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use plumb_syntax::{
     AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent,
-    ParsedBlock, ValidDocument,
+    ParsedBlock, SemanticDocument,
 };
 
 use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords};
@@ -137,7 +137,8 @@ fn shift_attributes(attributes: &mut Attributes, delta: isize) {
     }
 }
 
-pub fn analyze_tables(valid: ValidDocument<'_>) -> TableOutput {
+pub fn analyze_tables<'a>(valid: impl Into<SemanticDocument<'a>>) -> TableOutput {
+    let valid = valid.into();
     let mut output = TableOutput::default();
     collect_tables(valid.syntax().blocks.iter(), &mut output);
     output.tables.sort_by_key(|table| table.range.start);

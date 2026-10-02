@@ -11,12 +11,18 @@ pub struct Category {
 }
 impl Category {
     /// Document-level event classification, including ordinary non-task documents.
-    pub(crate) fn from_green_document(document: plumb_syntax::ValidGreenDocument<'_>) -> Self {
+    pub(crate) fn from_green_document(document: &plumb_syntax::GreenDocument) -> Self {
         let mut result = Self::default();
-        for view in document.syntax().shards() {
-            let mut category = Self::from_blocks(&view.shard().parsed().syntax.blocks);
+        for view in document.shards() {
+            let mut category = Self::from_blocks(&view.shard().semantic_regions().syntax().blocks);
             category.shift(view.offset() as isize);
             result.extend(category);
+        }
+        for (key, range) in crate::metadata::invalid_root_properties(document) {
+            if key.is_empty() || key == "event-category" {
+                result.invalid = true;
+                result.declarations.push(range);
+            }
         }
         result
     }
@@ -102,4 +108,33 @@ fn plain_scalar(inlines: &[Inline]) -> bool {
         }
     }
     true
+}
+
+pub(crate) fn invalid_diagnostics(category: &Category) -> Vec<plumb_syntax::Diagnostic> {
+    if !category.invalid {
+        return Vec::new();
+    }
+    category.declarations.iter().map(|range| plumb_syntax::Diagnostic {
+        code: "event.invalid-category",
+        severity: plumb_syntax::DiagnosticSeverity::Warning,
+        message: "event-category must be a nonempty plain category or a list of categories, declared once".into(),
+        range: range.clone(), related: Vec::new(),
+    }).collect()
+}
+
+pub(crate) fn owner_diagnostics(
+    document: plumb_syntax::SemanticDocument<'_>,
+) -> Vec<plumb_syntax::Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut blocks = document.syntax().blocks.iter().collect::<Vec<_>>();
+    while let Some(block) = blocks.pop() {
+        if crate::is_document_declaration(block) {
+            continue;
+        }
+        diagnostics.extend(invalid_diagnostics(&Category::from_blocks(
+            block.children(),
+        )));
+        blocks.extend(block.children());
+    }
+    diagnostics
 }

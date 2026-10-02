@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use plumb_syntax::{
     AttrItem, Attributes, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent,
-    ValidDocument,
+    SemanticDocument,
 };
 
 use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecordView, SemanticRecords};
@@ -64,7 +64,8 @@ impl RelativeSemanticRecord for MathRecord {
     }
 }
 
-pub fn analyze_math(valid: ValidDocument<'_>) -> MathOutput {
+pub fn analyze_math<'a>(valid: impl Into<SemanticDocument<'a>>) -> MathOutput {
+    let valid = valid.into();
     let document = valid.syntax();
     let mut output = MathOutput::default();
     collect_blocks(&document.blocks, None, &mut output);

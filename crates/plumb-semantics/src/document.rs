@@ -10,6 +10,7 @@ use plumb_syntax::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::headings::{heading_topology_eq, reduce_heading_outputs};
 use crate::lists::{ListGroupSegment, ReducedListGroup};
 use crate::records::{DiagnosticSegment, RecordSegment};
 use crate::{
@@ -18,10 +19,6 @@ use crate::{
     InlineStyleOutput, ListGroups, ListKind, ListOutput, MathOutput, MetadataOutput, MetadataValue,
     QuoteOutput, RelativeSemanticRecord, SemanticDiagnostics, SemanticRecords, TableOutput,
     TaskOutput,
-};
-use crate::{
-    headings::{heading_topology_eq, reduce_heading_outputs},
-    metadata::analyze_green_metadata,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -610,13 +607,7 @@ impl DocumentOutput {
     pub fn document_category(&self) -> crate::Category {
         self.root
             .document_category
-            .get_or_init(|| {
-                crate::Category::from_green_document(
-                    self.syntax()
-                        .valid_syntax()
-                        .expect("semantic output is syntax-valid"),
-                )
-            })
+            .get_or_init(|| crate::Category::from_green_document(self.syntax()))
             .clone()
     }
 
@@ -648,7 +639,10 @@ impl DocumentOutput {
             values.extend(category.values);
         }
         for shard in self.syntax().shards() {
-            collect(&shard.shard().parsed().syntax.blocks, &mut values);
+            collect(
+                &shard.shard().semantic_regions().syntax().blocks,
+                &mut values,
+            );
         }
         values.into_iter().collect()
     }
@@ -907,6 +901,20 @@ pub fn analyze_green_document_incremental(
         .then(|| analyze_semantic_tree(syntax, Some(previous), Some(change)))?
 }
 
+/// Analyze only validated regions of the current recovered revision.
+/// This output does not grant permission to export or mutate invalid source.
+pub fn analyze_green_regions(
+    syntax: Arc<plumb_syntax::GreenDocument>,
+    previous: Option<(&DocumentOutput, &DocumentChange)>,
+) -> DocumentOutput {
+    analyze_semantic_tree(
+        syntax,
+        previous.map(|(output, _)| output),
+        previous.map(|(_, change)| change),
+    )
+    .expect("every recovered revision has a validated region forest")
+}
+
 fn analyze_semantic_tree(
     syntax: Arc<plumb_syntax::GreenDocument>,
     previous: Option<&DocumentOutput>,
@@ -931,13 +939,13 @@ fn analyze_semantic_tree_observed(
     change: Option<&DocumentChange>,
     observer: &mut impl SemanticStageObserver,
 ) -> Option<DocumentOutput> {
-    let valid = syntax.valid_syntax()?;
     let reusable_metadata =
         previous.filter(|previous| can_reuse_metadata(previous, &syntax, change));
     let metadata = reusable_metadata
         .map(|previous| Arc::clone(&previous.root.metadata))
-        .unwrap_or_else(|| Arc::new(analyze_green_metadata(valid)));
-    let has_document_task = metadata.facets.iter().any(|facet| facet.name == "task");
+        .unwrap_or_else(|| Arc::new(crate::metadata::analyze_green_metadata_regions(&syntax)));
+    let has_document_task = metadata.invalid_properties.is_empty()
+        && metadata.facets.iter().any(|facet| facet.name == "task");
     let had_document_task =
         previous.is_some_and(|previous| previous.tasks().document_task().is_some());
     let document_declaration_end = reusable_metadata.map_or_else(
@@ -1000,18 +1008,26 @@ fn analyze_semantic_tree_observed(
                     output
                 })
                 .unwrap_or_else(|| {
-                    let local = node_syntax
-                        .parsed()
-                        .valid_syntax()
-                        .expect("valid green document has valid shards");
+                    let local = node_syntax.semantic_regions();
+                    let barriers = declaration_barriers(&node_syntax);
                     let local_headings = analyze_headings(local);
                     let tables = analyze_tables(local);
                     let root_category = crate::Category::from_blocks(&local.syntax().blocks);
-                    let mut records = collect_document_records(
-                        local.source(), local.syntax(), &local_headings, &root_category,
-                    );
+                    let (mut records, tasks, events) = local.without_owners(&barriers, |local| {
+                        (
+                            collect_document_records(
+                                local.source(),
+                                local.syntax(),
+                                &local_headings,
+                                &root_category,
+                            ),
+                            crate::tasks::analyze_list_tasks(local, usize::from(has_document_task)),
+                            analyze_events(local, &metadata),
+                        )
+                    });
                     let record_diagnostics = std::mem::take(&mut records.diagnostics);
-                    let association_diagnostics = association_arity_diagnostics(local.syntax());
+                    let mut association_diagnostics = association_arity_diagnostics(local.syntax());
+                    association_diagnostics.extend(crate::category::owner_diagnostics(local));
                     let root_diagnostics = local_root_diagnostics(
                         &record_diagnostics,
                         &association_diagnostics,
@@ -1035,11 +1051,8 @@ fn analyze_semantic_tree_observed(
                         inline_styles: analyze_inline_styles(local),
                         math: analyze_math(local),
                         quotes: analyze_quotes(local),
-                        tasks: crate::tasks::analyze_list_tasks(
-                            local,
-                            usize::from(has_document_task),
-                        ),
-                        events: analyze_events(local, &metadata),
+                        tasks,
+                        events,
                         lists: analyze_lists(local),
                         tables,
                         records,
@@ -1227,7 +1240,7 @@ fn analyze_semantic_tree_observed(
         ),
     };
     crate::tasks::prepend_document_task(
-        crate::tasks::green_document_task_record(tree.syntax.valid_syntax().unwrap(), &metadata),
+        crate::tasks::green_document_task_record_regions(&tree.syntax, &metadata),
         &mut tasks,
     );
     let events = EventOutput {
@@ -1526,7 +1539,7 @@ fn changed_green_blocks<'a>(
     syntax
         .shards()
         .filter(move |view| view.range().start < range.end && range.start < view.range().end)
-        .filter_map(|view| view.shard().parsed().syntax.blocks.first())
+        .filter_map(|view| view.shard().semantic_regions().syntax().blocks.first())
 }
 
 impl RecordProjectionIndex {
@@ -1670,8 +1683,8 @@ fn reduce_lists(tree: &Arc<SemanticTree>) -> ListOutput {
                 let root_start = node.offset
                     + node
                         .syntax
-                        .parsed()
-                        .syntax
+                        .semantic_regions()
+                        .syntax()
                         .blocks
                         .first()
                         .expect("list role has a root block")
@@ -1819,7 +1832,7 @@ enum RootListRole {
 }
 
 fn root_list_role(shard: &plumb_syntax::GreenShard) -> RootListRole {
-    let Some(block) = shard.parsed().syntax.blocks.first() else {
+    let Some(block) = shard.semantic_regions().syntax().blocks.first() else {
         return RootListRole::Transparent;
     };
     if crate::is_document_declaration(block) {
@@ -4161,5 +4174,136 @@ mod tests {
             output.diagnostics.get(0).unwrap().code,
             "anchor.duplicate-id"
         );
+    }
+}
+
+/// A malformed declaration is an unavailable owner input, not an absent one.
+fn declaration_barriers(shard: &plumb_syntax::GreenShard) -> Vec<Range<usize>> {
+    let excluded = shard.excluded_regions();
+    if excluded.is_empty() {
+        return Vec::new();
+    }
+    let mut barriers = Vec::new();
+    let mut blocks = shard.parsed().syntax.blocks.iter().collect::<Vec<_>>();
+    while let Some(block) = blocks.pop() {
+        if block.children().iter().any(|child| {
+            crate::is_document_declaration(child)
+                && excluded
+                    .iter()
+                    .any(|range| range.start < child.range().end && child.range().start < range.end)
+        }) {
+            barriers.push(block.range().clone());
+        } else {
+            blocks.extend(block.children());
+        }
+    }
+    barriers.sort_by_key(|range| range.start);
+    barriers
+}
+
+#[cfg(test)]
+mod regional_tests {
+    use super::*;
+
+    fn regions(source: &str) -> DocumentOutput {
+        analyze_green_regions(Arc::new(plumb_syntax::GreenDocument::parse(source)), None)
+    }
+
+    #[test]
+    fn invalid_subtrees_do_not_hide_healthy_events_or_publish_recovered_arguments() {
+        let source = "`= date 2026-10-03\n`= timezone +08:00\n`# Parent\n `- 09:00--10:00 中文项\n  `+ event\n `- 10:00--11:00 {broken\n  `+ event\n  `- 11:00--12:00 Hidden\n   `+ event\n `- 12:00--13:00 Healthy\n  `+ event\n";
+        let output = regions(source);
+        assert!(!output.syntax().is_valid());
+        let events = output.events().events.iter().collect::<Vec<_>>();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].title, "中文项");
+        assert_eq!(events[1].title, "Healthy");
+        assert!(events.iter().all(|event| event.accounting_valid));
+        assert!(output.syntax().valid_syntax().is_none());
+    }
+
+    #[test]
+    fn malformed_declaration_blocks_owner_and_descendants_without_default_fallback() {
+        let source = "`= date 2026-10-03\n`= timezone +08:00\n`# Parent\n `= timezone {broken\n `- 09:00--10:00 Hidden\n  `+ event\n`- 12:00--13:00 Healthy\n `+ event\n";
+        let output = regions(source);
+        let events = output.events().events.iter().collect::<Vec<_>>();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].title, "Healthy");
+        assert!(events[0].accounting_valid);
+    }
+
+    #[test]
+    fn malformed_root_context_does_not_hide_independent_absolute_events() {
+        let source = "`= date {broken\n`= date 2026-10-03\n`= timezone +08:00\n`- 09:00--10:00 Invalid\n `+ event\n`- 2026-10-03T12:00:00Z--13:00 Independent\n `+ event\n";
+        let output = regions(source);
+        let events = output.events().events.iter().collect::<Vec<_>>();
+        assert_eq!(events.len(), 2);
+        assert!(!events[0].accounting_valid);
+        assert!(events[1].accounting_valid);
+        assert!(output
+            .events()
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "event.invalid-date"));
+    }
+
+    #[test]
+    fn invalid_title_has_diagnostics_and_cannot_contribute_time() {
+        let output = regions("`- 2026-10-03T09:00:00Z--10:00 {}\n `+ event\n");
+        assert!(!output.events().events.get(0).unwrap().accounting_valid);
+        assert!(output
+            .events()
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "event.missing-title"));
+    }
+
+    #[test]
+    fn invalid_root_task_declaration_does_not_add_depth_to_healthy_tasks() {
+        let output = regions("`+ task\n`= title {broken\n`- Healthy\n `+ task\n");
+        assert!(output.tasks().document_task().is_none());
+        assert_eq!(output.tasks().tasks.len(), 1);
+        assert_eq!(output.tasks().tasks.get(0).unwrap().depth, 0);
+    }
+
+    #[test]
+    fn invalid_categories_have_local_diagnostics_without_workspace_policy() {
+        let output = regions("`= event-category {}\n`- 2026-10-03T09:00:00Z--10:00 Work\n `+ event\n `= event-category {}\n");
+        assert_eq!(
+            output
+                .diagnostics()
+                .iter()
+                .filter(|d| d.code == "event.invalid-category")
+                .count(),
+            1
+        );
+        assert_eq!(
+            output
+                .metadata()
+                .diagnostics
+                .iter()
+                .filter(|d| d.code == "event.invalid-category")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn regional_incremental_analysis_matches_cold_and_reuses_healthy_shards() {
+        let source = "`- 2026-10-03T09:00:00Z--10:00 First\n `+ event\n`- 2026-10-03T10:00:00Z--11:00 Second\n `+ event\n";
+        let mut previous = regions(source);
+        for replacement in ["{broken", "{different", "Fixed"] {
+            let next = format!("{source}\n{replacement}\n");
+            let parsed = previous.syntax().reparse(next.clone());
+            let change = DocumentChange {
+                old_range: parsed.old_reparsed_range,
+                new_range: parsed.reparsed_range,
+            };
+            let incremental =
+                analyze_green_regions(Arc::new(parsed.document), Some((&previous, &change)));
+            assert_eq!(incremental, regions(&next));
+            assert!(incremental.root.tree.cache_hits >= 1);
+            previous = incremental;
+        }
     }
 }

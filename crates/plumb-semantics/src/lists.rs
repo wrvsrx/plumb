@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use plumb_syntax::{Block, ParsedBlock, ValidDocument};
+use plumb_syntax::{Block, ParsedBlock, SemanticDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListItemRecord {
@@ -221,7 +221,8 @@ impl ListOutput {
     }
 }
 
-pub fn analyze_lists(valid: ValidDocument<'_>) -> ListOutput {
+pub fn analyze_lists<'a>(valid: impl Into<SemanticDocument<'a>>) -> ListOutput {
+    let valid = valid.into();
     let document = valid.syntax();
     let mut output = ListOutput::default();
     collect_groups(

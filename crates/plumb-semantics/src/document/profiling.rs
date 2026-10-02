@@ -44,6 +44,13 @@ pub fn analyze(
     if !std::ptr::eq(valid.syntax(), syntax.as_ref()) {
         return None;
     }
+    analyze_regions(syntax, previous)
+}
+
+pub fn analyze_regions(
+    syntax: Arc<GreenDocument>,
+    previous: Option<(&DocumentOutput, &DocumentChange)>,
+) -> Option<(DocumentOutput, SemanticStages)> {
     let mut observer = TimedObserver {
         start: Instant::now(),
         stages: SemanticStages::default(),

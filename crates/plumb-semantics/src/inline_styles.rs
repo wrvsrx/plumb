@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Inline, InlineContent, ValidDocument};
+use plumb_syntax::{Block, Inline, InlineContent, SemanticDocument};
 
 use crate::{RelativeSemanticRecord, SemanticRecordView, SemanticRecords};
 
@@ -64,7 +64,8 @@ impl RelativeSemanticRecord for InlineStyleRecord {
     }
 }
 
-pub fn analyze_inline_styles(valid: ValidDocument<'_>) -> InlineStyleOutput {
+pub fn analyze_inline_styles<'a>(valid: impl Into<SemanticDocument<'a>>) -> InlineStyleOutput {
+    let valid = valid.into();
     let document = valid.syntax();
     let mut output = InlineStyleOutput::default();
     collect_blocks(&document.blocks, &mut output);

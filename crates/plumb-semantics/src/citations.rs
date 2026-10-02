@@ -1,6 +1,8 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ValidDocument};
+use plumb_syntax::{
+    Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, SemanticDocument,
+};
 
 use crate::{RelativeSemanticRecord, SemanticDiagnostics, SemanticRecordView, SemanticRecords};
 
@@ -55,7 +57,8 @@ fn shifted_range(range: &Range<usize>, delta: isize) -> Range<usize> {
     range.start.checked_add_signed(delta).unwrap()..range.end.checked_add_signed(delta).unwrap()
 }
 
-pub fn analyze_citations(valid: ValidDocument<'_>) -> CitationOutput {
+pub fn analyze_citations<'a>(valid: impl Into<SemanticDocument<'a>>) -> CitationOutput {
+    let valid = valid.into();
     let document = valid.syntax();
     let mut output = CitationOutput::default();
     collect_blocks(&document.blocks, &mut output);

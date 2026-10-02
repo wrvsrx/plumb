@@ -42,7 +42,7 @@ pub(crate) fn list_item_facet(block: &plumb_syntax::ParsedBlock) -> ListItemFace
 }
 
 pub(crate) fn table_structural_item_starts(
-    valid: plumb_syntax::ValidDocument<'_>,
+    valid: plumb_syntax::SemanticDocument<'_>,
 ) -> std::collections::HashSet<usize> {
     let tables = tables::analyze_tables(valid);
     tables
@@ -281,11 +281,12 @@ pub use definitions::{
 };
 pub use document::{
     analyze_document, analyze_document_incremental, analyze_green_document,
-    analyze_green_document_incremental, resource_owner_kind_is_valid, resource_target_is_valid,
-    AnchorKind, AnchorRecord, DocumentChange, DocumentOutput, EmbedRecord, EmbedRecordView,
-    EmbedTarget, EventLinkRange, ExportedSemanticChangeKinds, ExportedSemanticDelta,
-    ExportedSemanticSummary, LinkRecord, LinkRecordView, LinkSpelling, LinkTarget,
-    SemanticNodeSnapshot, SemanticRecordAddress, SemanticRecordChange, SemanticRecordEntry, SemanticRoot, SourceBacked,
+    analyze_green_document_incremental, analyze_green_regions, resource_owner_kind_is_valid,
+    resource_target_is_valid, AnchorKind, AnchorRecord, DocumentChange, DocumentOutput,
+    EmbedRecord, EmbedRecordView, EmbedTarget, EventLinkRange, ExportedSemanticChangeKinds,
+    ExportedSemanticDelta, ExportedSemanticSummary, LinkRecord, LinkRecordView, LinkSpelling,
+    LinkTarget, SemanticNodeSnapshot, SemanticRecordAddress, SemanticRecordChange,
+    SemanticRecordEntry, SemanticRoot, SourceBacked,
 };
 pub use events::{
     analyze_events, EventField, EventOutput, EventRecord, EventRecordView, EventRecords,

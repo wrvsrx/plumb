@@ -2,7 +2,8 @@ use std::ops::Range;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone};
 use plumb_syntax::{
-    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, ParsedBlock, ValidDocument,
+    AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, ParsedBlock,
+    SemanticDocument,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +22,8 @@ pub struct EventField {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventRecord {
+    /// Local semantic validity; workspace additionally validates references/categories.
+    pub accounting_valid: bool,
     /// Own or nearest structural ancestor category within the syntax shard.
     /// Workspace accounting supplies the document default when absent.
     pub category: crate::Category,
@@ -114,7 +117,8 @@ impl<'a> EventRecordView<'a> {
 
     /// Time/accounting facts and contribution locations used by duration annotations.
     pub fn duration_inputs_equal(self, other: Self) -> bool {
-        self.start_datetime() == other.start_datetime()
+        self.record.accounting_valid == other.record.accounting_valid
+            && self.start_datetime() == other.start_datetime()
             && self.end_datetime() == other.end_datetime()
             && self.at_datetime().is_some() == other.at_datetime().is_some()
             && self.record.is_running() == other.record.is_running()
@@ -215,7 +219,11 @@ impl SemanticRecords<EventRecord> {
     }
 }
 
-pub fn analyze_events(valid: ValidDocument<'_>, metadata: &MetadataOutput) -> EventOutput {
+pub fn analyze_events<'a>(
+    valid: impl Into<SemanticDocument<'a>>,
+    metadata: &MetadataOutput,
+) -> EventOutput {
+    let valid = valid.into();
     let source = valid.source();
     let document = valid.syntax();
     let mut output = EventOutput::default();
@@ -288,6 +296,13 @@ pub(crate) fn same_document_context(a: &MetadataOutput, b: &MetadataOutput) -> b
 impl EventContext {
     fn from_metadata(metadata: &MetadataOutput) -> Self {
         let scalar = |key: &str| {
+            if metadata
+                .invalid_properties
+                .iter()
+                .any(|(invalid, _)| invalid.is_empty() || invalid == key)
+            {
+                return Some(String::new());
+            }
             let entry = metadata
                 .metadata
                 .as_ref()?
@@ -355,7 +370,8 @@ fn collect_blocks(
             && crate::list_item_facet(block) == crate::ListItemFacet::Event;
 
         if is_event {
-            let (event, argument_count, time_error) =
+            let diagnostic_start = output.diagnostics.len();
+            let (mut event, argument_count, time_error) =
                 event_record(source, block, event_depth, &scoped_context);
             if argument_count < 2 {
                 output.diagnostics.push(Diagnostic {
@@ -368,6 +384,11 @@ fn collect_blocks(
                 });
             }
             collect_event_diagnostics(&event, time_error, output);
+            event.accounting_valid = !output
+                .diagnostics
+                .iter()
+                .skip(diagnostic_start)
+                .any(|diagnostic| diagnostic.code != "event.ongoing");
             output.events.push(event);
         }
         for child in crate::body_children(block) {
@@ -424,6 +445,7 @@ fn event_record(
     });
     (
         EventRecord {
+            accounting_valid: true,
             category: context.category.clone(),
             accounting_links: block.content.items.iter().filter_map(|inline| match inline {
                 Inline::Group { mark: Some(mark), range, content }

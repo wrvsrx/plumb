@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock, ValidDocument};
+use plumb_syntax::{Block, Diagnostic, Document, ParsedBlock, SemanticDocument};
 
 use crate::text::plain_text;
 
@@ -26,7 +26,8 @@ impl HeadingOutput {
     }
 }
 
-pub fn analyze_headings(valid: ValidDocument<'_>) -> HeadingOutput {
+pub fn analyze_headings<'a>(valid: impl Into<SemanticDocument<'a>>) -> HeadingOutput {
+    let valid = valid.into();
     analyze_recovered_headings(valid.syntax())
 }
 

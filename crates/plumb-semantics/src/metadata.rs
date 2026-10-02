@@ -4,7 +4,7 @@ use std::ops::Range;
 use chrono::DateTime;
 use plumb_syntax::{
     Block, Diagnostic, DiagnosticSeverity, Document, Inline, InlineContent, ParsedBlock,
-    ValidDocument, ValidGreenDocument,
+    SemanticDocument, ValidGreenDocument,
 };
 
 use crate::text::{plain_text, shift_inline_content};
@@ -77,6 +77,7 @@ pub struct BibliographySource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MetadataOutput {
+    pub(crate) invalid_properties: Vec<(String, Range<usize>)>,
     pub facets: Vec<DocumentFacet>,
     pub metadata: Option<MetadataBlock>,
     pub diagnostics: Vec<Diagnostic>,
@@ -183,14 +184,28 @@ fn bibliography_source(value: &MetadataValue) -> Option<BibliographySource> {
     }
 }
 
-pub fn analyze_metadata(valid: ValidDocument<'_>) -> MetadataOutput {
+pub fn analyze_metadata<'a>(valid: impl Into<SemanticDocument<'a>>) -> MetadataOutput {
+    let valid = valid.into();
     analyze_metadata_document(valid.syntax())
 }
 
 pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
-    let mut output = MetadataOutput::default();
-    for shard in valid.syntax().shards() {
-        collect_document_facets(&shard.shard().parsed().syntax, shard.offset(), &mut output);
+    analyze_green_metadata_regions(valid.syntax())
+}
+
+pub(crate) fn analyze_green_metadata_regions(
+    syntax: &plumb_syntax::GreenDocument,
+) -> MetadataOutput {
+    let mut output = MetadataOutput {
+        invalid_properties: invalid_root_properties(syntax),
+        ..Default::default()
+    };
+    for shard in syntax.shards() {
+        collect_document_facets(
+            shard.shard().semantic_regions().syntax(),
+            shard.offset(),
+            &mut output,
+        );
     }
     let document_task = output.facets.iter().any(|facet| facet.name == "task");
     let mut entries = Vec::new();
@@ -199,8 +214,8 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
     let mut metadata_selection = None;
     let mut unsupported = Vec::new();
 
-    for shard in valid.syntax().shards() {
-        let document = &shard.shard().parsed().syntax;
+    for shard in syntax.shards() {
+        let document = shard.shard().semantic_regions().syntax();
         let offset = shard.offset() as isize;
         for block in &document.blocks {
             if parsed_marker(block) == Some("=") {
@@ -257,6 +272,16 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
         }
     }
     lint_standard_entries(&entries, &mut output.diagnostics);
+    let category = crate::Category::from_green_document(syntax);
+    if !output
+        .invalid_properties
+        .iter()
+        .any(|(key, _)| key.is_empty() || key == "event-category")
+    {
+        output
+            .diagnostics
+            .extend(crate::category::invalid_diagnostics(&category));
+    }
     output.diagnostics.extend(unsupported);
     if let (Some(range), Some(selection_range)) = (metadata_range, metadata_selection) {
         output.metadata = Some(MetadataBlock {
@@ -1120,4 +1145,36 @@ mod tests {
             .iter()
             .any(|diagnostic| diagnostic.code == "metadata.invalid-created"));
     }
+}
+
+pub(crate) fn invalid_root_properties(
+    syntax: &plumb_syntax::GreenDocument,
+) -> Vec<(String, Range<usize>)> {
+    let mut invalid = Vec::new();
+    for view in syntax.shards() {
+        let excluded = view.shard().excluded_regions();
+        if excluded.is_empty() {
+            continue;
+        }
+        for block in &view.shard().parsed().syntax.blocks {
+            if !block.marker().is_some_and(|mark| mark.marker == "=")
+                || !excluded
+                    .iter()
+                    .any(|r| r.start < block.range().end && block.range().start < r.end)
+            {
+                continue;
+            }
+            let key = match block {
+                Block::Parsed(property) => direct_property_parts(property)
+                    .map(|(key, _, _)| key)
+                    .unwrap_or_default(),
+                _ => String::new(),
+            };
+            invalid.push((
+                key,
+                block.range().start + view.offset()..block.range().end + view.offset(),
+            ));
+        }
+    }
+    invalid
 }

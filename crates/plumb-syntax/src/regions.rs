@@ -80,50 +80,7 @@ impl ParsedDocument {
                 roots.push(range);
             }
         }
-        // Postorder construction avoids recursive traversal and does not clone
-        // discarded subtrees. Attribute projections are rebuilt from survivors.
-        enum Work<'a> {
-            Visit(&'a Block),
-            Finish(&'a ParsedBlock, usize),
-        }
-        let mut work = self
-            .syntax
-            .blocks
-            .iter()
-            .rev()
-            .map(Work::Visit)
-            .collect::<Vec<_>>();
-        let mut built = Vec::new();
-        while let Some(item) = work.pop() {
-            match item {
-                Work::Visit(block) => {
-                    let i = roots.partition_point(|range| range.start <= block.range().start);
-                    if i > 0 && block.range().start < roots[i - 1].end {
-                        continue;
-                    }
-                    match block {
-                        Block::Verbatim(block) => built.push(Block::Verbatim(block.clone())),
-                        Block::Parsed(block) => {
-                            work.push(Work::Finish(block, built.len()));
-                            work.extend(block.children.iter().rev().map(Work::Visit));
-                        }
-                    }
-                }
-                Work::Finish(block, child_start) => {
-                    let children = built.split_off(child_start);
-                    let mut mark = block.mark.clone();
-                    if let Some(mark) = &mut mark {
-                        mark.attrs = crate::parser::attributes_from_blocks(&self.source, &children);
-                    }
-                    built.push(Block::Parsed(ParsedBlock {
-                        range: block.range.clone(),
-                        mark,
-                        content: block.content.clone(),
-                        children,
-                    }));
-                }
-            }
-        }
+        let built = retain_blocks(&self.source, &self.syntax.blocks, &roots);
         ValidRegions {
             syntax: Document {
                 attrs: crate::parser::attributes_from_blocks(&self.source, &built),
@@ -191,4 +148,71 @@ mod tests {
             }
         }
     }
+}
+
+/// Further narrow an already validated forest for semantic owner dependencies.
+impl SemanticDocument<'_> {
+    pub fn without_owners<T>(
+        self,
+        excluded: &[Range<usize>],
+        analyze: impl FnOnce(SemanticDocument<'_>) -> T,
+    ) -> T {
+        if excluded.is_empty() {
+            return analyze(self);
+        }
+        let mut roots = excluded.to_vec();
+        roots.sort_by_key(|range| range.start);
+        let blocks = retain_blocks(self.source, &self.syntax.blocks, &roots);
+        let syntax = Document {
+            attrs: crate::parser::attributes_from_blocks(self.source, &blocks),
+            blocks,
+            range: self.syntax.range.clone(),
+        };
+        analyze(SemanticDocument {
+            source: self.source,
+            syntax: &syntax,
+        })
+    }
+}
+
+fn retain_blocks(source: &str, blocks: &[Block], roots: &[Range<usize>]) -> Vec<Block> {
+    // Postorder construction avoids recursive traversal and does not clone
+    // discarded subtrees. Attribute projections are rebuilt from survivors.
+    enum Work<'a> {
+        Visit(&'a Block),
+        Finish(&'a ParsedBlock, usize),
+    }
+    let mut work = blocks.iter().rev().map(Work::Visit).collect::<Vec<_>>();
+    let mut built = Vec::new();
+    while let Some(item) = work.pop() {
+        match item {
+            Work::Visit(block) => {
+                let i = roots.partition_point(|range| range.start <= block.range().start);
+                if i > 0 && block.range().start < roots[i - 1].end {
+                    continue;
+                }
+                match block {
+                    Block::Verbatim(block) => built.push(Block::Verbatim(block.clone())),
+                    Block::Parsed(block) => {
+                        work.push(Work::Finish(block, built.len()));
+                        work.extend(block.children.iter().rev().map(Work::Visit));
+                    }
+                }
+            }
+            Work::Finish(block, child_start) => {
+                let children = built.split_off(child_start);
+                let mut mark = block.mark.clone();
+                if let Some(mark) = &mut mark {
+                    mark.attrs = crate::parser::attributes_from_blocks(source, &children);
+                }
+                built.push(Block::Parsed(ParsedBlock {
+                    range: block.range.clone(),
+                    mark,
+                    content: block.content.clone(),
+                    children,
+                }));
+            }
+        }
+    }
+    built
 }

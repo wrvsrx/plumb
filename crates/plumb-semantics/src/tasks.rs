@@ -4,7 +4,7 @@ use std::path::Path;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, SecondsFormat, TimeZone, Timelike};
 use plumb_syntax::{
     AttrItem, AttrValue, Block, Diagnostic, DiagnosticSeverity, Inline, InlineContent, ParsedBlock,
-    ValidDocument, ValidGreenDocument,
+    SemanticDocument, ValidGreenDocument,
 };
 use serde::{Deserialize, Serialize};
 
@@ -387,7 +387,8 @@ fn shift_range(range: &mut Range<usize>, delta: isize) {
     range.end = range.end.checked_add_signed(delta).unwrap();
 }
 
-pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
+pub fn analyze_tasks<'a>(valid: impl Into<SemanticDocument<'a>>) -> TaskOutput {
+    let valid = valid.into();
     let metadata = crate::analyze_metadata(valid);
     let document_task = document_task_record(
         valid.source(),
@@ -399,7 +400,11 @@ pub fn analyze_tasks(valid: ValidDocument<'_>) -> TaskOutput {
     output
 }
 
-pub(crate) fn analyze_list_tasks(valid: ValidDocument<'_>, depth: usize) -> TaskOutput {
+pub(crate) fn analyze_list_tasks<'a>(
+    valid: impl Into<SemanticDocument<'a>>,
+    depth: usize,
+) -> TaskOutput {
+    let valid = valid.into();
     let source = valid.source();
     let document = valid.syntax();
     let mut output = TaskOutput::default();
@@ -462,12 +467,22 @@ pub(crate) fn green_document_task_record(
     valid: ValidGreenDocument<'_>,
     metadata: &crate::MetadataOutput,
 ) -> Option<(TaskRecord, Vec<AttrItem>, Vec<Diagnostic>)> {
+    green_document_task_record_regions(valid.syntax(), metadata)
+}
+
+pub(crate) fn green_document_task_record_regions(
+    syntax: &plumb_syntax::GreenDocument,
+    metadata: &crate::MetadataOutput,
+) -> Option<(TaskRecord, Vec<AttrItem>, Vec<Diagnostic>)> {
+    if !metadata.invalid_properties.is_empty() {
+        return None;
+    }
     document_task_record(
-        valid.source(),
+        syntax.source(),
         metadata,
-        valid.syntax().shards().map(|view| {
-            let parsed = view.shard().parsed();
-            (&parsed.syntax, parsed.source.as_str(), view.offset())
+        syntax.shards().map(|view| {
+            let local = view.shard().semantic_regions();
+            (local.syntax(), local.source(), view.offset())
         }),
     )
 }

@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use plumb_syntax::{Block, ValidDocument};
+use plumb_syntax::{Block, SemanticDocument};
 
 use crate::{RelativeSemanticRecord, SemanticRecordView, SemanticRecords};
 
@@ -49,7 +49,8 @@ impl RelativeSemanticRecord for QuoteRecord {
     }
 }
 
-pub fn analyze_quotes(valid: ValidDocument<'_>) -> QuoteOutput {
+pub fn analyze_quotes<'a>(valid: impl Into<SemanticDocument<'a>>) -> QuoteOutput {
+    let valid = valid.into();
     let document = valid.syntax();
     let mut output = QuoteOutput::default();
     for block in document
