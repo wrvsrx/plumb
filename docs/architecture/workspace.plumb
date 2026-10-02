@@ -28,7 +28,7 @@ DerivedState 是静态组合的统一 lifecycle 入口，新增 consumer 在这�
 
 工作量 contract：重复查询不核算事件；无关正文编辑不核算事件；改变一个事件只重新分摊该事件，
 改变目标输入只核算登记了该依赖的事件；总量读取不枚举全部贡献。返回贡献 locations 的成本允许随实际输出增长。
-数值变化与位置变化分开，位置调整更新跳转而不重新分摊。pending/invalid 状态使用增量状态集合维护，
+数值变化与位置变化分开，位置调整更新跳转而不重新分摊。pending 状态使用增量状态集合维护；invalid event 贡献为空但保留 tracked dependencies，
 不能为检查 completeness 再扫描所有事件。测试必须记录核算次数、变化文档读取数与贡献更新数，
 同时验证冷重建一致性、负依赖恢复、overlay、删除、失败重试及新旧快照隔离。
 
@@ -37,7 +37,7 @@ DerivedState 是静态组合的统一 lifecycle 入口，新增 consumer 在这�
 共享 document_durations query 返回当前文档每个任务、有关联份额的普通列表项及非 point event 的 byte 位置、typed 用时状态和贡献事件位置。
 任务累计整个已索引 workspace 的所有有效有限事件份额，不限制日期，不递归合并子任务，不使用 focused history；
 文档任务按 path、列表任务按 explicit id 匹配，没有 id 的列表任务没有可引用份额。复用 agenda 的去重、均分、
-分类再分摊及 unresolved denominator 规则；跨日不裁剪，重叠不扣减。一次 query 批量计算全部任务，不能逐任务扫描 workspace。
+分类再分摊及无效引用排除整个事件的规则；跨日不裁剪，重叠不扣减。一次 query 批量计算全部任务，不能逐任务扫描 workspace。
 例如一小时事件引用 A、A、B 与普通事项 C，A 与 B 各累计 20 分钟；事件自身仍显示一小时。
 open overlay 遮盖 persistent generation，invalid current 不回退 last-valid；无需 materialize 关闭文档 syntax。
 
@@ -47,15 +47,15 @@ open overlay 遮盖 persistent generation，invalid current 不回退 last-valid
 非列表 anchor 与整篇普通文档不在本 query 的装饰范围内。此展示不赋予 task 身份，Web task 列表不增加普通条目。
 
 事件显示完整 end-start；开放事件显示 ongoing，不累计动态 now；point event 不提供 duration，非法时间显示 unavailable。
-有效零份额任务显示 total 0s。任何 invalid document、非法完整事件或核算问题使任务累计标为 incomplete，
-不得把 partial seconds 显示为完整总数；有效事件自身的时长仍可显示。pending analysis 返回 partial query completeness；
+有效零份额任务显示 total 0s。错误 owner/subtree 和语义无效事件被排除，正常显示有效事件的累计，
+不标为 incomplete；错误由对应 source diagnostics 报告，有效事件自身的时长仍可显示。pending analysis 返回 partial query completeness；
 store failure 是错误，不伪装成零。initial index completeness 继续由索引生命周期边界保障。
 
 LSP 保留已有引用 lenses，追加 total / duration / ongoing lenses，位于 task/event/list item owner 起点，文档任务位于文件起点。
 数值以 h/m/s 显示，最终显示才四舍五入到秒，非零小于一秒显示 <1s；小时不按天取模。
-沿用 plumb.showReferences command：任务 locations 是去重贡献事件，事件 locations 是自身；incomplete 只显示
-total unavailable (incomplete)，locations 是问题来源。不新增 server-side command。
-初始索引或有效 analysis pending 时仍返回 null，恢复后按 client refresh support 刷新。
+沿用 plumb.showReferences command：任务 locations 是去重有效贡献事件，事件 locations 是自身。
+错误事件不会作为累计 lens 的跳转来源。不新增 server-side command。
+初始索引或任意 analysis pending 时仍返回 null，恢复后按 client refresh support 刷新。
 事件 interval、核算引用、target membership、分类有效性以及 lens/source geometry 变化触发 refresh；
 仅 task focused/状态或 event title/details 改变且不影响引用、位置、时长与有效性时不额外刷新。
 
@@ -77,8 +77,8 @@ query snapshot，然后结束事务；命令的多次关系查询只能读取该
 generation。该规则不承诺多文件磁盘原子快照。交互等待和文件编辑不得持有 database write transaction。
 
 source bytes 可为 preview、diagnostic location 和 lazy mutation materialization 保存，但热缓存 query/check 不得
-重建全库 syntax trees。local diagnostic input 与其它 records 同事务保存，包括 syntax-invalid document；无效文档
-移除旧 semantic records。嵌入资源事实和完整 local diagnostics 随 schema/producer version 失效；未来影响分析的
+重建全库 syntax trees。local diagnostic input 与其它 records 同事务保存，包括 syntax-invalid document；错误 owner/subtree
+的旧 semantic records 被撤回，其余 records 来自当前有效区域。stored valid 字段表示语义 generation 可用，不代表 whole-document syntax validity；syntax diagnostics 独立保留。嵌入资源事实和完整 local diagnostics 随 schema/producer version 失效；未来影响分析的
 配置必须进入 cache identity。跨文件诊断与外部资源存在性每轮重算，不缓存最终 check output。
 
 scan/read failure 必须使命令失败，不能沿用旧 generation 宣称成功。缓存 open、migration 或 index failure

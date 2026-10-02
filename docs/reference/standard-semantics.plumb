@@ -330,7 +330,7 @@ event 显式 tasks 声明优先定义核算事项集合，保持现有 task targ
 否则只从 event title 中的直接 Link members 收集事项引用，details 中的链接、embedded resources 与嵌套 inline 的链接不参与核算。
 目标必须是 list item anchor 或 plumb 文档；普通文档读取根层 event-category，引用普通条目或文档不会创建 task。list item 的 effective event-category 按 owner 作用域继承：自身显式声明优先，否则继承最近结构祖先（包括父 list item），再回退到文档根层；因此引用具体条目读取其 effective category。分类列表整体覆盖而不合并，显式空值、重复或非法声明阻止继续回退。
 同一 normalized target 去重后均分 event duration；重复引用不能增加份额。
-无法解析、歧义或非法目标必须保留问题并使结果不完整，不能删除该项再重新均分。
+无法解析、歧义或非法目标保留诊断并排除整个事件，不使其它有效事件的累计 incomplete，不能删除失败目标再重新均分。
 
 事件分类按以下优先级选择第一个存在的声明：事件自身、最近的结构祖先（包括 anonymous/marked parsed owner）、文档根层；均未声明时才使用引用事项自身的 event-category。祖先作用域由缩进 ownership 决定，不由 heading level 或相邻顺序决定；dedent 恢复外层分类。分类列表整体覆盖而不合并，空值、重复或非法声明阻止向外层或引用事项回退。有效类别是自由文本，不要求出现在预设集合中。引用具体事项仍只取事项自身分类，不递归继承其祖先。缺少分类的份额进入未分类。event 自身或祖先／文档的 event-category 覆盖整段事件的类别， 但不改变事项分摊。每个事项所得时长再按其去重分类数量均分；分类总时长不会膨胀。非法显式分类不回退。没有事项的事件仍计入 event event-category 或未分类。 查询保留 source event、target、分类来源与均分依据，内部不按显示精度舍入。 事项分类修改后历史事件动态重算；固定某次历史类别应在 event 上写显式 event-category。 分类冲突不报错：例如 60 分钟关联 work、work、learn 三项，分别分得 20 分钟，类别合计为 40 与 20 分钟。
 
@@ -354,8 +354,7 @@ vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保�
 
 `## 11.2 分类完整性检查
 
-可选 diagnostics.event-category 规则检查全部 events，不要求时间窗口，检查有效继承分类的每个份额。无分类给出 event 位置；非法 event-category 或无法完整查询返回不完整。point events 同样检查。不提供仅检查显式分类的模式。配置契约见 semantic-analysis 的 Workspace diagnostic configuration。
-
+可选 diagnostics.event-category 规则检查全部 events，不要求时间窗口，检查有效继承分类的每个份额。无分类给出 event 位置；非法 event-category 报告诊断并排除该事件；只有无法完整查询返回不完整。point events 同样检查。不提供仅检查显式分类的模式。配置契约见 semantic-analysis 的 Workspace diagnostic configuration。
 
 `# 12. Tables
 
@@ -416,10 +415,8 @@ Event-category 与 event-timeline 的增量缓存不改变第 11 节的语义。
 
 `# 16. Valid-event accounting
 
-实现状态：尚未实现；本节取代第 11 节因无效 source/事件而令统计 incomplete 的规则。
-
 累计值定义为当前 revision 中有效事件的累计。语法无效节点及其 descendants 由 core 有效区域契约隔离；
-语义无效事件单独排除，不贡献 duration、事项份额、分类份额或 timeline 边界。独立有效事件正常统计。
+语义无效事件单独排除，不贡献 duration、事项份额或分类份额；timeline 独立排除语法、时间或标题无效事件，不读取分类/引用核算有效性。独立有效事件正常统计。
 无效 schedule、空/非法 title、冲突 task/event facet 或无法可靠解析的核算引用均不能生成有效贡献。
 引用失败时排除整个事件，不删除失败目标后把其份额重新分给成功目标。非法分类不使用外层缺省值。
 正常缺分类仍可归入未分类；point 和 ongoing 继续不贡献有限用时。

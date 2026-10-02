@@ -82,7 +82,8 @@ inline declaration projection 对 anonymous 与 marked Group 使用相同规则�
 lossless tokens 与 typed recovered Document 始终存在。recovered_syntax 返回同一次 parse 的 recovered tree；
 valid_syntax 只在没有 error diagnostic 时返回不可由 consumer 构造的 ValidDocument，同时借用 source/tree。
 
-official semantic analysis、export 与 valid-tree authoring 只接受 ValidDocument。面向 invalid editing state 的
+export 与 valid-tree authoring 只接受 ValidDocument。official semantic analysis 也可接受不可伪造的 SemanticDocument
+有效区域 view；该类型不能转换成 ValidDocument，不能授予 export/edit 权限。面向 invalid editing state 的
 completion、folding 等显式接受 recovered Document。访问任一 view 不重新 parse。
 
 `# 7. Recovery representation
@@ -149,9 +150,9 @@ queries、fresh/incremental semantics与authoring operations直接消费green/ty
 
 revision guard比较 workspace revision object identity。相同 source rebind继续共享green root；不同 source必须建立
 新 revision。invalid green revision同样直接发布按
-current shard offsets投影的 syntax diagnostics，并保留 previous last-valid semantic output provenance。
+current shard offsets投影的 syntax diagnostics，完成当前有效区域分析后发布同 revision facts；previous output 仅作增量基线。
 
-fresh/incremental semantics接收current valid green revision、previous DocumentOutput与可选shard-aligned old/new change。
+fresh/incremental semantics接收current green revision 的有效区域、previous DocumentOutput与可选shard-aligned old/new change。
 metadata、heading及其它document reducers直接遍历green shard views；metadata context变化可以重算local nodes，但不得
 materialize current compatibility tree。fresh synchronous didOpen仍同步生成完整semantic snapshot，但不建立absolute
 ParsedDocument。
@@ -188,8 +189,16 @@ GreenShardId 是 process-local 单调分配的 opaque identity，不从 ordinal�
 
 已重新解析但精确相等的 source-ordered prefix/suffix shards 恢复原 identity；不匹配 replacement 内部的重复 spelling。GreenParse 的 change set 携带 old/new replacement range、signed offset delta、removed/added shard identities 与 reused identities 的 old/new range projection。失效原因区分 owner replacement、扩大结构边界、whole-document fallback 与无变化。无变化不产生新 identity。已知 SourceChange 必须验证 UTF-8 boundaries 和 unchanged prefix/suffix；错误 hint 回退到比较真实 bytes，不信任 adapter 提供的结构边界。
 
-Semantic consumer 以 shard identity 加 shard-relative owner location 与 record kind 作为该 immutable owner 的身份；同一 shard 内的 event、list item、anchor 和 link 不因前方其它 shard 插入而改变身份。changed shard 内无法证明 correspondence 的 owners 保守重建。纯 offset change 不重新提取 typed semantic facts。语法不合法的 current revision 不生成 authoritative semantic changes，恢复后以 valid snapshot 重建。
+Semantic consumer 以 shard identity 加 shard-relative owner location 与 record kind 作为该 immutable owner 的身份；同一 shard 内的 event、list item、anchor 和 link 不因前方其它 shard 插入而改变身份。changed shard 内无法证明 correspondence 的 owners 保守重建。纯 offset change 不重新提取 typed semantic facts。语法不合法的 current revision 发布有效区域 semantic changes，排除错误 owner/subtree 后立即撤回旧贡献，恢复后按同一 shard identity 协议更新。
 
 Change set 的 changed_fields 是 replacement 内 generic typed-owner 变化的保守并集：text_fields、direct_children、declarations 与 structure。declarations 比较 generic attribute projection 的 decoded key/value，不赋予 marker 官方语义；新增/删除无法配对的 shard 保守标记结构变化。reused projection 自身标识仅 absolute offset 变化，不扫描该 shard 内的 token 或 semantic record。flags 用于解释失效，不作为越过 valid typed view 的授权。
 
 SourceChange 的 followed_by 将顺序 edit 的 old/new byte ranges 合成为覆盖所有修改的最小连续 envelope，不比较完整 source。后续 edit 的 range 属于前一次 edit 后的 revision；重叠、前移、后移与 full replacement 都按此规则映射。LSP 对同一个 didChange 中的多次修改累计该 provenance，交给 workspace 验证；UTF-16 转换失败或 arithmetic overflow 拒绝该通知，不退回猜测修改位置。
+
+`# 12. Valid-region projection
+
+GreenShard 对健康 syntax 直接借用原 Document；错误 shard 用 OnceLock 保存一次有效 block forest。它从同一次
+parse 的 source-ordered diagnostics 定位 owner，按 postorder 显式栈过滤 owner/subtree，并从保留 children 重建
+generic attribute projection。原 recovered tree、lossless tokens、diagnostics、shard identity 与 whole-document
+validity 不变。SemanticDocument 只暴露原 source 与经过验证的 forest，不能构造或强制转换为 ValidDocument。
+semantic profile 可进一步收窄 owner 集合处理声明依赖，但不能往有效区域中加入 recovered 节点。

@@ -21,7 +21,7 @@
 
 `"plumb-syntax" 是 syntax 的唯一权威。它无文件 I/O，只使用 byte offsets，并对 valid 或 invalid input 都产生 lossless tree 与 diagnostics。它不解释 heading、list、metadata、link、task 或 id。
 
-parser 使用 reject-but-recover。当前 revision 有 syntax error 时，authoritative semantic analysis 和 export 必须停止；completion 等明确面向编辑中 source 的 query 可以消费 recovered view。
+parser 使用 reject-but-recover。当前 revision 有 syntax error 时，strict export 与 valid-tree editing 必须停止；semantic analysis 只消费经过错误隔离的有效区域；completion 等明确面向编辑中 source 的 query 可以消费 recovered view。
 
 block 与 parsed-inline nesting 使用 explicit stacks。parser 对 source 生成完整、无空洞的 token sequence，并从同一次 parse 暴露 typed recovered/valid views；arbitrary UTF-8 property tests 固定 reconstruction、range boundary 和 deterministic output invariants。
 
@@ -31,7 +31,7 @@ block 与 parsed-inline nesting 使用 explicit stacks。parser 对 source 生�
 
 `# 3. Semantics
 
-`"plumb-semantics" 实现固定的 official semantic profile。它从 valid typed syntax views 产生 source-backed records 与 diagnostics；document analyses、workspace analyses、queries 和 operations 通过静态 Rust pipeline 显式组合，不提供动态 registration 或可替换 extension host。
+`"plumb-semantics" 实现固定的 official semantic profile。它从 valid document 或有效区域 typed syntax views 产生 source-backed records 与 diagnostics；document analyses、workspace analyses、queries 和 operations 通过静态 Rust pipeline 显式组合，不提供动态 registration 或可替换 extension host。
 
 官方 bundle 包括 outline、anchors/references、target resolution、lists、tables、definitions、metadata、 citations、quotes、inline styles、tasks 和 events。semantic profile 将普通 direct declaration children 投影为 id、facets 与 named properties；core 不维护 semantic registry，也不校验 element 或 marker spelling。
 
@@ -119,7 +119,7 @@ Web resource endpoint 只为已索引的 workspace-contained resource identity �
 
 Web task 用时展示：每个真实 task 的列表行及详情都显示 Time spent，文档任务只显示自身直接份额，
 普通文件分组不显示伪造汇总。timeSpentSeconds 是可空数字：完整核算保留原始浮点秒数，无份额为 0；
-索引或核算不完整时为 null，UI 显示 Time spent: Unavailable (incomplete)，不能把部分值或 null 当成 0。
+索引或 semantic analysis pending 时为 null，UI 显示 Time spent: Unavailable (incomplete)，不能把部分值或 null 当成 0。
 服务端查询失败仍走现有错误响应。显示时才按秒四舍五入，以 h/m/s 表达；非零小于一秒显示 <1s。
 focused 的关注时长及历史保持独立，不累计为工作用时。进行中事件不增加实时秒数。
 

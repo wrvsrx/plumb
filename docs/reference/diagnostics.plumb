@@ -10,23 +10,22 @@ ranges。missing token 不作为 synthetic lossless leaf。
 
 `# 2. Publication
 
-每次发布包含 current revision recovered tree 的 syntax diagnostics。只有 current revision syntax-valid 时才合并同
-revision semantic diagnostics。last-valid semantic outputs 可以继续服务 cross-file queries，但不能伪装成
-current diagnostics。export 与 authoritative edits 只接受 ValidDocument；completion/folding 可以显式查询
+每次发布包含 current revision recovered tree 的 syntax diagnostics。合并同 revision 有效区域的 semantic diagnostics；错误 owner/subtree 不产生 semantic facts。
+上一 revision 的输出只作为内部增量基线，不能冒充 current facts 或 diagnostics。export 与 authoritative edits 只接受 ValidDocument；completion/folding 可以显式查询
 recovered view。
 
-LSP 在 workspace index 未完成时只发布当前 revision 的 syntax 与 document-local semantic diagnostics，不使用 partial index 推导引用不存在、依赖关系或可选规则结论。protocol-neutral document_local_diagnostics 不查询 workspace graph 或磁盘，只读取 resident document 的当前语法与语义输出；pending 或 syntax-invalid revision 不沿用 last-valid diagnostics。
+LSP 在 workspace index 未完成时只发布当前 revision 的 syntax 与 document-local semantic diagnostics，不使用 partial index 推导引用不存在、依赖关系或可选规则结论。protocol-neutral document_local_diagnostics 不查询 workspace graph 或磁盘，只读取 resident document 的当前语法与语义输出；pending revision 不沿用 last-valid diagnostics；syntax-invalid revision 完成有效区域分析后合并当前结果。
 
-索引完成后主动重新发布打开文档的完整诊断列表，合并仍有效的单文件结果与跨文件结果；publishDiagnostics 替换整份列表，不是追加。每次编辑立即使内部结果失效，但不通过中间空列表清除客户端显示；后台结果受 revision/generation 保护。索引等待、语法错误引起的规则不完整属于正常状态，不产生 diagnostics.incomplete 通知或日志；真实 I/O 或查询失败记录具体原因，文件修复后重新检查。不完整的可选规则不发布该规则的推断结论。
+索引完成后主动重新发布打开文档的完整诊断列表，合并仍有效的单文件结果与跨文件结果；publishDiagnostics 替换整份列表，不是追加。每次编辑立即使内部结果失效，但不通过中间空列表清除客户端显示；后台结果受 revision/generation 保护。索引等待引起的规则不完整属于正常状态，不产生 diagnostics.incomplete 通知或日志；真实 I/O 或查询失败记录具体原因，文件修复后重新检查。不完整的可选规则不发布该规则的推断结论。
 
 诊断范围与计算状态分离：Local 范围由 workspace index 未就绪决定，包含 syntax 与 document-local
 semantics；Workspace 范围由 index 就绪决定，包含跨文档检查与已启用 policy。每个范围内只有完成的当前
 快照才能发布。有效文档的 analysis pending 或 policy pending 不改变范围，不发布 syntax-only、临时 unresolved
-或缺少 policy 的中间列表。Local 范围只等待该文档；Workspace 范围等待所有有效 pending documents 与当前
+或缺少 policy 的中间列表。Local 范围只等待该文档；Workspace 范围等待所有 pending documents 与当前
 policy generation 完成。等待期间客户端保留最近一次发布的列表，服务端不把旧结果作为 current diagnostics。
 
-语法无效的当前文档不适用 semantic checks，syntax 列表就是其完整结果，可立即发布；无效依赖导致某项
-规则不能得出结论属于已完成但不完整的检查，不是 pending，仍按规则排除这些结论。真实查询失败沿用降级
+语法无效文档同样等待当前有效区域分析后发布 syntax 与有效区域 semantic diagnostics；错误内容被排除不等于
+统计数据尚未齐备，不使有效事件累计或 timeline 变为 incomplete。真实查询失败沿用降级
 与日志策略，不伪装成计算成功。文档关闭仍立即清空诊断。索引、配置或相关文档变化使旧后台结果失效；
 过期结果不得发布，最终列表携带对应 document version。
 
@@ -40,7 +39,7 @@ workspace snapshot 的所有 document diagnostics 之间复用；不能按文档
 diagnostic code、severity、message、range、related ranges 或顺序，也不能省略已关闭任务的检查。
 
 disk generation 保存全部 syntax 与 document-local semantic
-diagnostics；syntax-invalid source 只保存 syntax diagnostics，不沿用 previous semantic diagnostics。数据库与内存
+diagnostics；syntax-invalid source 保存 syntax 与当前有效区域 semantic diagnostics，不沿用 previous semantic diagnostics。数据库与内存
 诊断输入必须产生相同结果，包含没有内存 DocumentEntry 的文档。跨文件 links、embeds、task prev/dependencies、
 event associations 和 cycles 仍针对当前 query snapshot 检查；外部文件存在性每轮读取。缓存命中不能跳过这些检查。
 
@@ -113,3 +112,10 @@ configuration。启用后的缺分类、内部空档或重叠导致 CLI exit 1�
 category/timeline 的 agenda.invalid-document 在 memory 与 persistent 查询中使用相同 message：document has no valid semantic output；backend 选择不能改变诊断文字、位置或 completeness。
 
 增量 policy graph 只复用规则结论，不复用旧 revision 的 absolute source location。source geometry 改变时从 immutable node-relative provenance 重新投影；目标变化沿 category 反向边失效，时间变化只更新关联 interval segments。内部局部更新仍由 adapter 合并为受影响 document 的完整 publishDiagnostics 列表。full fallback 与增量路径必须逐项保持 code、message、range、related locations、顺序和 completeness 一致。
+
+`# 8. Excluded event diagnostics
+
+event 的无效时间和标题保留现有 precise local diagnostic；无效 event-category 声明在文档或 owner 的声明位置
+发布 event.invalid-category Warning，不依赖可选分类检查开关。无法解析的核算引用保留 workspace reference
+诊断。被排除的事件不贡献统计，也不让其它事项的正常累计显示 incomplete。数据读取失败与 pending 仍走独立的
+failure/completeness 通道。syntax error 与有效 sibling 的 semantic diagnostics 可以同时出现在同 revision 的发布中。

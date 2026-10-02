@@ -165,7 +165,9 @@ inline owner.
 
 ## Strictness and Recovery
 
-Any syntax error makes the document invalid for semantic analysis and export.
+Any syntax error keeps the whole document invalid for export and authoritative edits.
+Interactive semantic queries use validated regions: exclude each syntax-invalid owner
+and its descendants while retaining healthy siblings, with original source diagnostics.
 The parser still returns a recovered typed tree, complete diagnostics, and a
 lossless token stream that reconstructs every input byte. Block errors recover
 at physical lines; group and inline-verbatim errors recover at the current line;

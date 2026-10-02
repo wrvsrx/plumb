@@ -237,7 +237,11 @@ documents (including ordinary documents). Reusable activities are ordinary ancho
 property or facet. Explicit `tasks` takes precedence over title links; details and
 nested inline links do not participate in accounting. Distinct targets split time
 equally before event-category aggregation. Duplicate references count once. Missing
-categories remain unclassified; unresolved references make the result incomplete.
+categories remain unclassified. Invalid times, titles, categories or accounting references
+exclude the entire affected event from accounting, without redistributing its shares.
+Syntax-invalid owners and descendants are excluded; valid siblings still contribute.
+Source diagnostics explain exclusions without marking valid-event totals incomplete.
+Pending analysis/indexing and genuine loading/query failures remain incomplete.
 An event's own `event-category` takes precedence, followed by the nearest structural
 ancestor declaration and then the document root default. Only when all are absent
 does accounting use linked item categories. Indentation defines ancestry; a preceding
@@ -288,7 +292,9 @@ including point events. There is no explicit-only mode.
 Timeline checking finds internal gaps and overlaps across all workspace intervals,
 from their earliest start to latest end, without an external time window or filter.
 Points do not affect coverage or boundaries; empty sets and a single valid interval pass.
-Open or invalid intervals make the check incomplete. Exit 0 means no base errors and
+Open or invalid intervals are excluded without making the check incomplete; their
+diagnostics remain visible. Timeline coverage is independent of category/reference validity.
+Exit 0 means no base errors and
 all enabled rules pass, 1 means errors or rule violations, and 2 means configuration,
 loading or query failure/incompleteness. The old `event check-*` subcommands are removed.
 

@@ -8,7 +8,7 @@
 
 索引未完成时，diagnostics 提供当前文档的语法与本地语义检查；索引完成后自动补充跨文件与已启用的
 规则检查。正常编辑会保留上一次诊断显示，直到新版本的检查完成后整体替换，避免后台分析阶段之间
-反复清空 warnings。真实语法错误可立即显示。详细规则见 `->{诊断参考 ../reference/diagnostics.plumb}。
+反复清空 warnings。语法错误与有效区域的语义诊断一并显示。详细规则见 `->{诊断参考 ../reference/diagnostics.plumb}。
 
 LSP protocol 由 editor client 选择 `"rootUri"/`"workspaceFolders"。plumb server 不向上查找 marker，也 不向 client 声明 marker；client integration 应优先使用 `".plumb"，再 fallback 到 editor 自己的 project marker。workspace 与 ignore 行为见 `->{{workspace 指南} workspace.plumb}。
 
@@ -235,9 +235,9 @@ params 的 `"kind" 是 `"note"、`"task" 或 `"event"；`"query" 是 fuzzy text�
 无关联份额的普通条目不显示，父项不累加子项；普通正文链接不参与核算。
 
 点击任务用时可通过下述 picker 查看贡献事件；点击事件用时定位该事件。任务无有效有限事件份额时显示 `"total 0s"。
-无效文档、事件时间或核算引用等问题会使任务显示 `"total unavailable (incomplete)"，点击可查看问题来源；
-不会把不完整结果显示成准确总数。有效事件自身仍显示时长，非法时间显示 `"duration unavailable"。
-等待索引或有效语义分析就绪期间暂不返回 CodeLens；支持 refresh 的客户端会在就绪或关联事件更新后自动刷新。
+语法错误节点及其子节点被排除，时间、标题、分类或核算引用无效的事件单独跳过；其余有效事件正常累计，错误由诊断显示。
+有效事件自身仍显示时长，非法时间显示 `"duration unavailable"。真正的读取失败仍显示 `"total unavailable (incomplete)"。
+等待索引或当前区域语义分析就绪期间暂不返回 CodeLens；支持 refresh 的客户端会在就绪或关联事件更新后自动刷新。
 用时按秒显示，非零但不足一秒显示 `"<1s"。
 
 metadata 与 explicit anchors 的 CodeLens 返回 `"plumb.showReferences" client command。 `"plumb.codelens.setup()" 将 locations 显示在 quickfix；`"picker = 'snacks'" 使用 Snacks picker，并在 Snacks 不可用时回退 quickfix。

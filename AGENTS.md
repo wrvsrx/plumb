@@ -163,8 +163,9 @@ project, but it is a **separate project**:
 1. **The hand-written strict parser is the single source of truth for *syntax*.**
    It is *reject-but-recover*: it reports every syntactic error it can (recovering
    at line/block boundaries) and always produces a lossless source-oriented tree.
-   A document with syntactic errors is not valid input for authoritative semantic
-   analysis or export. Recovered-tree editor queries such as completion and
+   A document with syntactic errors is not valid input for strict export or
+   valid-tree editing. Semantic analysis may consume syntax-validated regions,
+   excluding erroneous owners and their descendants while retaining healthy siblings. Recovered-tree editor queries such as completion and
    syntax-aware assists remain available. Strictness is **syntactic only**.
 2. **The syntax layer is semantics-neutral; meaning lives in the official semantic profile.**
    The first `plumb-syntax` phase produces one recovered lossless syntax tree per

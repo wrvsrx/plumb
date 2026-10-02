@@ -10,13 +10,13 @@ syntax/semantics 分层仍是强制边界：syntax 决定 source 是否构成合
 
 `"plumb-syntax" 为同一 recovered tree 提供 typed recovered/valid views。view 负责安全遍历、source ranges、 marker/head/children/raw-tail 访问，不增加 semantic meaning。历史 attributes 不属于 current recovered/valid view。
 
-`"Recovered" view 可用于 completion、selection 和 syntax-aware fixes。`"Valid" view 只有 syntax diagnostics 为空时存在，用于 authoritative semantic analysis、indexes、rename 和 export。 normalized AST 只在具体 consumer 能证明 typed views 不足时 materialize。
+`"Recovered" view 可用于 completion、selection 和 syntax-aware fixes。`"Valid" view 只有 syntax diagnostics 为空时存在，用于严格 export 与 editing；authoritative semantics/indexes 也可消费 syntax layer 验证后的有效区域。 normalized AST 只在具体 consumer 能证明 typed views 不足时 materialize。
 
 `# 3. Static analysis pipeline
 
 官方 pipeline 包含四类 protocol-neutral computation：
 
-`- document analysis：从一个 revision 的不可伪造 `"ValidDocument" view 产生 semantic records 与 diagnostics。public authoritative analysis entry points 不接受裸 `"Document" 或独立 source 参数； valid view 同时提供同一次 parse 的 source 与 syntax tree。
+`- document analysis：从同一 revision 的不可伪造 `"ValidDocument" 或 `"SemanticDocument" 有效区域 view 产生 semantic records 与 diagnostics。public authoritative analysis entry points 不接受裸 `"Document" 或独立 source 参数； valid view 同时提供同一次 parse 的 source 与 syntax tree。
 `- recovered editor queries：只能通过显式命名、按 consumer 所需字段窄化的 recovered entry point
 
 消费裸 `"Document"，且不产生 authoritative semantic diagnostics 或完整 document records。heading folding projection 使用 `"analyze_recovered_headings"；citation completion 可以使用 `"recovered_bibliography_sources" 读取 source-backed bibliography declarations。两者不能借此调用或 发布其他 semantic passes 的结果。
@@ -151,8 +151,8 @@ SemanticRevision必须输出 changed/added/removed record identities与document 
 Event records；record中的observable source locations参与比较。Heading、List、Definition、Citation、inline style、Math、
 Quote、Table与document-local diagnostics不属于跨文档exported summary。workspace只在exported facts变化时invalidates
 直接或传递dependents；纯layout edit、或changed syntax产生相同exported summary时，不得重建无关dependency graph。
-current invalid syntax仍不进入authoritative semantics，并保留原last-valid provenance；invalid/valid transition即使恢复到
-与last-valid相同的summary也属于exported change，因为invalid current generation期间该output没有workspace authority。
+current invalid syntax 只发布经过隔离的有效区域 facts。valid/invalid transition 按实际 exported-summary delta 传播；
+修复不影响事实的无关语法错误不使 workspace facts 失效，pending 的诊断发布恢复仍独立保证。
 
 Record delta API 已实现：两个同一 document 的 valid DocumentOutput 可按需比较 document title 与
 Anchor、Link、Task、Event collections。每项变化携带 old/new snapshot 各自的结构地址（node index、local
@@ -199,13 +199,13 @@ Workspace diagnostic publication round 必须先取得一个 protocol-neutral im
 
 `# 7. Snapshots and last-valid data
 
-snapshot 包含 document identity、revision、source、recovered tree、syntax diagnostics 和可选 current-valid semantic output。新 revision invalid 时，workspace 可以保留前一 revision 的 last-valid output 供其他 documents 稳定解析，但必须携带原 revision provenance。
+snapshot 包含 document identity、revision、source、recovered tree、syntax diagnostics 和可选 current-valid semantic output。每个 revision 都计算当前有效区域；last-valid 字段保存最近完成的有效区域输出作为增量基线，不表示整篇 syntax-valid，不向 authoritative query 回退旧 facts。
 
-host 在 open/disk ownership 或 protocol revision 间转换 snapshot 时，若规范化 path 与 source bytes 均未 改变，可以只把现有 ParsedDocument/current-valid output 重绑定到目标 revision，不重复 parse 或 document analysis；invalid snapshot 继续保留原 last-valid provenance。source bytes 不同则必须建立新 revision snapshot。该复用只省略由相同 bytes 决定的 document-local computation，不缓存 workspace diagnostics 或 resolution result。
+host 在 open/disk ownership 或 protocol revision 间转换 snapshot 时，若规范化 path 与 source bytes 均未 改变，可以只把现有 ParsedDocument/current-valid output 重绑定到目标 revision，不重复 parse 或 document analysis；syntax-invalid snapshot 的已完成有效区域也按相同 bytes 重绑定。source bytes 不同则必须建立新 revision snapshot。该复用只省略由相同 bytes 决定的 document-local computation，不缓存 workspace diagnostics 或 resolution result。
 
 `"ParsedDocument" 与 current/last-valid semantic output 是 revision snapshot 的 immutable shared payload。workspace clone、Web read snapshot 或 background query clone 必须通过 `"Arc" 共享 source、lossless tree、typed tree 与 document-local output，不能按 request 深拷贝这些 payload；可变 document map、overlay 与 derived index 仍由各 workspace owner 独立持有。创建不同 source bytes 的 revision 必须分配新的 parsed payload，相同 bytes 的 revision rebind 保留原 shared allocation。
 
-LSP didChange 将 current source 的 parse 与 document-local semantic generation 分成两个 revision-safe 阶段； didOpen 保持同步生成完整初始 snapshot，因为 document symbols 等 LSP 3.17 requests 没有对应 refresh signal， 不能在首次请求返回 temporary empty result 后要求 client 自动重试。didChange 在 server event loop 同步安装新的 immutable ParsedDocument，使 syntax diagnostics、formatting、folding与 recovered completion context 立即观察 新 bytes；syntax-valid revision 的 semantic analysis 在 blocking worker 上运行。Result 必须携带 normalized path、protocol revision 与 parsed allocation identity， 只有三者仍与 current entry 相同才原子安装 current-valid output。较新 revision、close/reopen 或相同 revision 的 不同 bytes 都使旧 result stale；stale result 不发布 diagnostics、refresh 或 indexes。Queued job 在 analysis 前 检查 per-path cancellation generation；已经进入当前不可中断 analyzer 的 stale job可以完成计算，但其 result 仍必须丢弃，不得覆盖 current state。
+LSP didChange 将 current source 的 parse 与 document-local semantic generation 分成两个 revision-safe 阶段； didOpen 保持同步生成完整初始 snapshot，因为 document symbols 等 LSP 3.17 requests 没有对应 refresh signal， 不能在首次请求返回 temporary empty result 后要求 client 自动重试。didChange 在 server event loop 同步安装新的 immutable ParsedDocument，使 syntax diagnostics、formatting、folding与 recovered completion context 立即观察 新 bytes；每个 revision 的有效区域 semantic analysis 在 blocking worker 上运行。Result 必须携带 normalized path、protocol revision 与 parsed allocation identity， 只有三者仍与 current entry 相同才原子安装 current-valid output。较新 revision、close/reopen 或相同 revision 的 不同 bytes 都使旧 result stale；stale result 不发布 diagnostics、refresh 或 indexes。Queued job 在 analysis 前 检查 per-path cancellation generation；已经进入当前不可中断 analyzer 的 stale job可以完成计算，但其 result 仍必须丢弃，不得覆盖 current state。
 
 LSP 宣告 incremental text document sync。一个 didChange notification 的 content changes 按 source order 顺序
 应用，每个 ranged change 的 UTF-16 range 都以应用前面 changes 后的 current text 为坐标；没有 range 的 change
@@ -319,8 +319,8 @@ anchor尾部正文增长若移动后续lens或reference，仍需刷新。其它f
 current-valid semantic output pending 时，`"textDocument/semanticTokens/full" 异步等待同一 document revision 已在运行的
 analysis 安装，再返回该 revision 的 tokens；不能把暂时 pending 投影为 `"null" 或空 tokens。客户端需要
 `"collapsedText" 时，`"textDocument/foldingRange" 使用同一等待边界，再一次返回 structural ranges 与可确定的
-metadata、Task、Event labels。没有 label capability 或 syntax-invalid 时，folding 立即返回 recovered syntax ranges；
-invalid document 的 semantic tokens 可以立即返回 `"null"。等待只针对 current document，不等待 workspace index
+metadata、Task、Event labels。没有 label capability 时，folding 立即返回 recovered syntax ranges；
+syntax-invalid revision 的 semantic tokens/labels 等待同一有效区域分析，不以 null 代替 pending。等待只针对 current document，不等待 workspace index
 或尚缺的跨文件 dependencies；不依赖 client 的 refresh support，也不产生 pending-label 恢复 refresh 状态机。
 
 等待者绑定 normalized path、protocol revision 与 parsed allocation identity，共享正在运行的 analysis，不能重算该
@@ -351,11 +351,11 @@ revision 的后续请求也立即失败，直到新的 revision 或显式 naviga
 
 LSP 3.17 typed capability model 尚未定义 folding refresh support 字段；官方 adapter 因而使用初始化时的 `"capabilities.experimental.plumb.foldingRangeRefreshSupport = true" 作为显式 handshake，并在 server experimental capability 中公布 method 与 client-capability path。只有完成该 handshake 且 workspace index complete 时，server 才发送标准 `"workspace/foldingRange/refresh" request；initial index 安装以及之后可能改变跨文档 task dependency facts 的open-document/watched-file revision replacement都触发refresh。不声明support的client不接收未知request。
 
-valid open-document revision进入background analysis时，adapter不发布中间diagnostics，不提前
+每个 open-document revision进入background analysis时，adapter不发布中间diagnostics，不提前
 重算其它open documents或发送workspace CodeLens/Folding refresh。安装后CodeLens按引用输入、duration inputs与source positions判断，
 Folding按structure/positions/label inputs独立判断；exported summary相等不能抑制这些consumer-specific变化或pending恢复。
-diagnostics publication scope按下文record delta与context恢复规则决定，并完成该revision的等待请求。invalid revision与
-invalid/valid transition继续走workspace-changed路径，不能借用last-valid summary抑制恢复通知。
+diagnostics publication scope按下文record delta与context恢复规则决定，并完成该revision的等待请求。
+invalid/valid transition 使用相同的 current regional facts delta；pending 恢复不能被相等 summary 抑制。
 
 persistent workspace query 必须按需读取命中的 semantic rows，不得为了重建 process-local workspace model 而在启动时反序列化全部 document outputs。open-buffer precedence 的合并边界是 source document：persistent query 排除所有 open paths，再与这些 paths 的内存 query result 组合并作 deterministic ordering。该规则由 protocol-neutral workspace query layer 统一实现，adapter 不自行 merge 或 deduplicate records。
 
@@ -405,7 +405,7 @@ includeDeclaration 为 true 时声明仍在首项，其余 references 保持 wor
 
 event.ongoing 由 Event analysis 在合法 Running schedule 上产生，local diagnostic range 为 title selection range；memory、disk generation 与 open overlay 一致。持久缓存的语义 epoch 必须更新，防止旧缓存遗漏新增 warning。
 
-agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影结果。 event-category 与 direct title reference inputs 来自同一 syntax-valid revision 的 semantic records，不能由 adapter 重新 parse；persistent、memory 与 open overlay 查询必须等价，引用目标分类变化后不能返回旧分类。
+agenda summary 与 timeline check 是 shared workspace queries，CLI 只投影结果。 event-category 与 direct title reference inputs 来自同一 revision 有效区域的 semantic records，不能由 adapter 重新 parse；persistent、memory 与 open overlay 查询必须等价，引用目标分类变化后不能返回旧分类。
 
 summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 category、item、task 汇总。 返回逐事件分摊依据、汇总、覆盖时间、问题与 completeness，支持结构化 JSON。分摊保留精度到展示边界。 完整汇总可能选择同一文档数万个 events；store 按 source keys 加载记录时必须去重并分批绑定参数， 不能因 SQLite 单条语句的变量上限而失败。分批不改变 source ordering，也不解码未选中的 records。
 
@@ -414,7 +414,7 @@ summary 接受 explicit-offset RFC 3339 from/to，to 必须晚于 from；可按 
 要求边界内每一 instant 恰好一个 interval 覆盖。使用 interval sweep，不只比较相邻事件；返回全部内部
 空档与带 source identities 的重叠，嵌套重叠不能制造假空档。跨文件、跨日期的事件属于同一时间轴。
 合法 point events 不提供覆盖，也不扩大边界；空集合、只有 points 或单个有效区间通过。
-合法开放事件 START-- 不参与核算或 timeline，不贡献边界；只由 document-local semantics 发布 event.ongoing Warning，timeline report 保持 complete。invalid time 或 incomplete index 不能通过。分类与引用问题不参与 timeline。
+合法开放事件 START-- 不参与核算或 timeline，不贡献边界；只由 document-local semantics 发布 event.ongoing Warning，timeline report 保持 complete。无效时间或标题事件单独排除并由 local diagnostics 报告；incomplete index 不能通过。分类与引用问题不参与 timeline。
 summary 继续接受显式 window，空 window selection 的 gap 仍是整个 window，与连续性检查不同。
 这些规则默认禁用，启用后作为 workspace diagnostics，不改变 syntax validity。
 
@@ -483,10 +483,10 @@ open/change/close、后台语义完成、磁盘 watched-file 变化、初始索�
 规则计算在后台使用 detached readonly workspace snapshot，连续请求合并，旧 generation 结果不得覆盖新状态。
 同一 round 只计算一次全工作区结果，不按每个打开文件重复计算；关闭规则使旧规则结果立即失效，下一次当前范围完整 publication 移除其诊断。
 未完成索引时发布 Local 范围诊断；索引完成后存在 pending semantic revision 或 policy generation 时等待，不清空客户端已有结果，完成后发布合并列表。初始索引未开始／进行中是正常等待，不发送 diagnostics.incomplete；索引不完整时继续发布单文件诊断，完整后重新发送合并列表。规则不完整本身不产生通知或日志，真实查询失败才通过 window/logMessage Warning 记录具体原因，不发送弹窗提示；运行中配置错误仍使用 window/showMessage Error。索引失败后的 watched-file 变化触发完整重扫，成功后恢复规则诊断，不能通过累积 false 永久停用规则。
-语义分析在 invalid revision 期间不发布 last-valid events，但保留最近完成的 valid semantic output 作为内部增量基线；后续恢复 valid 时按稳定 syntax shard identity 和累计变更复用未受影响节点。跨 invalid 状态不能使局部语义增量退化为全量分析。
+语义分析在 invalid revision 期间发布当前有效区域，不发布 last-valid events；最近完成的有效区域 output 作为内部增量基线，按稳定 syntax shard identity 和累计变更复用未受影响节点。跨 invalid 状态不能使局部语义增量退化为全量分析。
 syntax-invalid 当前文档不使用 last-valid events；缺失文档语义或索引不完整时暂不发布受影响规则的结论，不能冒充通过。
-Timeline 仅对当前有效的有限时间区间计算 gap/overlap。合法开放事件不参与检查且不产生 invalid-time。单个事件时间无效或显式 end 不晚于 start 时跳过该事件，保留 agenda.invalid-time 警告，但不阻止其余有效事件的 gap/overlap 发布。gap 表示当前有效事件之间的空档；修复时间后重新计算，期间允许出现随后被修复事件填补的 gap。
-规则结果分别记录检查完整性与结论发布资格：invalid-time 仍使检查不完整、CLI 不通过，但不单独阻止 timeline 结论发布；若同时存在 syntax-invalid 文档，仍抑制该 root 的 timeline 结论。全量与增量查询必须保持这两种状态一致。
+Timeline 仅对当前有效的有限时间区间计算 gap/overlap。合法开放事件不参与检查且不产生 invalid-time。单个事件时间无效、标题无效或显式 end 不晚于 start 时跳过该事件，保留具体 event local warning，不阻止其余有效事件的 gap/overlap 发布。gap 表示当前有效事件之间的空档；修复时间后重新计算，期间允许出现随后被修复事件填补的 gap。
+规则结果分别记录检查完整性与结论发布资格：source error 不使检查 incomplete，syntax-invalid 文档的有效区域也参与检查。CLI 仍因 syntax Error 返回 1；独立的 event Warning 不等于索引不完整。全量与增量查询必须保持这两种状态一致。
 LSP 对打开的 plumb 文档发布规则诊断，保留基础 diagnostics，并投影为 UTF-16 ranges 与跨文件 relatedInformation。
 closed related source 读取时验证与 snapshot content hash 一致，失败不可使用错误坐标；下一次有效 round 可恢复。
 
@@ -525,7 +525,7 @@ Delta-based diagnostic publication 已实现：valid installation 比较 old/new
 title 单独变化不影响其它 documents 的 diagnostics；已有完整 context 时只重新发布 edited document 的诊断。
 Anchor/Task collections 完全相等也足以证明 graph inputs 相等，不再重复执行 graph-input comparison。
 Anchor/Task entry 变化的 publication scope 由下面的 target rule 决定；graph inputs 未变时复用
-context。没有 previous valid output（包括 invalid/valid transition）或没有完整 context 时继续全量 publication，
+context。没有 previous regional output或没有完整 context 时继续全量 publication，
 不得省略 pending 期间可能缺失事实的恢复。stale revision 不安装、不发布；多个 pending revisions 仍遵守
 原 generation/provenance gate。常规CodeLens/Folding refresh 继续由完整 exported-summary change 决定，不能用
 diagnostic scope 替代其依赖边界。
@@ -536,17 +536,17 @@ Targeted diagnostic publication 已实现：有 previous valid output、graph in
 depends/prev 和 Event tasks，不执行 resolution、不读 disk/store，也不能只使用当前已解析成功的 reverse
 references。implicit Event associations 由其 source links 覆盖。无法取得 candidate current output 时保守包含；
 idless records 不产生跨文档目标。重复 id 不合并 semantic records，但同一目标只需要一次 publication。
-graph inputs 变化、invalid/valid transition 或 context 缺失时仍全量 publication；存在 pending document 时延后到范围就绪；
+graph inputs 变化或 context 缺失时仍全量 publication；存在 pending document 时延后到范围就绪；
 只有可能受影响集合的计算可以收敛，diagnostic 内容仍由同一 workspace diagnostic query 产生。
 全文替换或其它无法证明 record correspondence 的 revision 可以产生更宽的 removed/added 集合，从而保守
 扩大 publication scope；已知局部 edit 应保留未重解析 shards 的对应关系。
 
-诊断 publication readiness 与范围遵循 diagnostics reference。Workspace 范围存在有效 pending document 时，
+诊断 publication readiness 与范围遵循 diagnostics reference。Workspace 范围存在 pending document 时，
 先使旧 diagnostic context 缓存失效，但不构造或发布 partial facts 的临时 context；等待全部 document analysis
 完成后重建一次 context。即使最后一次安装只改变 Event 或 exported summary 相等，也必须恢复此前延后的
 所有 open documents publication。Local 范围不查询 workspace context，也不等待其它文档。policy 失效只清理
-内部结果；其当前 generation 完成前不发布缺少 policy 的 Workspace 列表。语法无效的当前文档可以独立发布
-其最终 syntax 结果。
+内部结果；其当前 generation 完成前不发布缺少 policy 的 Workspace 列表。语法无效的文档也按同一范围发布
+syntax 与当前有效区域 semantic diagnostics。
 
 diagnostic 是可定位的 source problem；query failure 是请求无法完成；cancellation 不是 failure； runtime failure 不应伪装成 source diagnostic。
 
@@ -595,8 +595,6 @@ Local analyzer context key 只包含实际使用的 document facts：event 的 d
 Identity/context 比较和 source projection 仍可以枚举 shards，不宣称 end-to-end 常数复杂度。Top-level shard 内的 nested ownership 改变以 owning shard 为保守失效边界；未变化 shard 内不遍历 events、不提取 references、不重建 Input。缺失诊断和 timeline segments 的完整输出成本与实际输出大小相关。连续性检查通过 augmented AVL interval index 查询跨越变化区域的长 event，不扫描完整 interval map；相同 instant 的显示 offset 按当前 source order 的首个贡献者选择。
 
 `# 12. Incremental valid-region semantics and accounting
-
-实现状态：尚未实现；本节取代本文整篇 syntax-invalid 时不生成 current semantics 及错误污染所有累计的规则。
 
 同一 current green revision 的 syntax diagnostics 与有效区域语义结果共同发布。有效区域由 syntax layer
 按 block ownership 校验；semantic profile 在局部分析前处理损坏声明的 context barrier。whole-document valid view

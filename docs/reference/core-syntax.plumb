@@ -220,8 +220,6 @@ toolchain 前由外部、版本匹配的工具转换。
 
 `# 13. Valid regions for semantic analysis
 
-实现状态：尚未实现；本节是局部错误隔离的目标契约。
-
 语法错误不改变 strict validity，但不再使其它独立有效节点退出语义分析。syntax layer 从同一 recovered revision
 提供不可由 consumer 构造的有效区域 view；不重新解析、不改写 source、不删除 lossless tokens 或 diagnostics，
 不把该 view 伪装成 whole-document ValidDocument。source ranges 始终对应原 revision。
