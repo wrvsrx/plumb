@@ -1,6 +1,8 @@
 mod green;
 mod lossless;
 mod parser;
+mod regions;
+pub use regions::{SemanticDocument, ValidRegions};
 mod syntax;
 
 pub use green::{

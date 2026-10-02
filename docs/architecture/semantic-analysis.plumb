@@ -593,3 +593,30 @@ Local analyzer context key 只包含实际使用的 document facts：event 的 d
 缓存只活在同一个 binary process 中，static analyzer version 不会在缓存寿命内改变，规则结果不写入 SQLite。Persistent-only document 以 content hash generation 为整体 fallback node，overlay 使用 resident shard identities；关闭 overlay 后重新绑定 disk generation。错误查询清空该规则的部分 cache，后续重建，不能把失败中间态当作完整缓存。
 
 Identity/context 比较和 source projection 仍可以枚举 shards，不宣称 end-to-end 常数复杂度。Top-level shard 内的 nested ownership 改变以 owning shard 为保守失效边界；未变化 shard 内不遍历 events、不提取 references、不重建 Input。缺失诊断和 timeline segments 的完整输出成本与实际输出大小相关。连续性检查通过 augmented AVL interval index 查询跨越变化区域的长 event，不扫描完整 interval map；相同 instant 的显示 offset 按当前 source order 的首个贡献者选择。
+
+`# 12. Incremental valid-region semantics and accounting
+
+实现状态：尚未实现；本节取代本文整篇 syntax-invalid 时不生成 current semantics 及错误污染所有累计的规则。
+
+同一 current green revision 的 syntax diagnostics 与有效区域语义结果共同发布。有效区域由 syntax layer
+按 block ownership 校验；semantic profile 在局部分析前处理损坏声明的 context barrier。whole-document valid view
+继续只用于严格导出和编辑。current semantic output 的存在不等于 source syntax-valid。
+
+输入包含 shard identity、syntax error ownership、保留的 typed nodes、声明有效性与 inherited context。
+每个 immutable shard 最多建立一次局部有效区域投影；健康 shard 直接借用原 typed tree。只复制需要隔离的 shard，
+不能创建新的 source revision、重新 parse、materialize 整篇 absolute tree 或在 adapter 过滤 recovered source。
+changed shard 的有效事实与 diagnostics 原子替换，未变化 shard 按 identity/context 复用；相等 value 停止传播，
+source geometry 单独重绑定。invalid→invalid、valid→invalid、修复与删除都发布当前贡献，不读取 last-valid 代替。
+
+跨文档累计继续归 plumb-workspace 的 tracked dependency/contribution index。排除事件撤回旧贡献，修复后插入新贡献；
+缺失/歧义引用保留 reverse dependencies，即使当前贡献为空，目标恢复后也必须重新计算该事件。
+查询只读取请求 document/identities，不能为了局部累计扫描其它文档。cold bootstrap/rebuild 可以枚举全部事实；
+warm reads 不重新提取事件，local update 工作量限于 changed document facts 和实际依赖 fanout。
+
+persistent generation 同时保存 syntax diagnostics、有效区域 semantic diagnostics 与当前有效 facts；升级 semantic
+cache epoch，避免命中旧的整篇排除结果。memory、disk、open overlay、关闭恢复与 immutable snapshot 结果一致。
+所有 pending revisions 都影响数据完整性，不能因 syntax-invalid 跳过尚未完成的 semantic worker。
+
+验收包含：错误 owner/subtree 排除与 sibling 保留、declaration/context barrier、中文/UTF-8/CRLF/EOF ranges、
+无效时间/标题/引用事件排除、诊断与正常累计并存、strict export/edit 拒绝、修复/删除/缺失目标恢复、overlay 与旧
+snapshot isolation。确定性 work-count tests 覆盖 repeat reads、无关 edit、local change、无关数据增长和 cold parity。

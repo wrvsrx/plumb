@@ -1,6 +1,6 @@
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::parser::{
     parse, reusable_boundary, shift_attributes, shift_blocks, shift_diagnostics, shift_tokens,
@@ -27,6 +27,7 @@ static NEXT_SHARD_ID: AtomicU64 = AtomicU64::new(1);
 pub struct GreenShard {
     id: GreenShardId,
     parsed: ParsedDocument,
+    regions: OnceLock<crate::ValidRegions>,
 }
 
 impl PartialEq for GreenShard {
@@ -105,6 +106,7 @@ impl GreenDocument {
                             })
                             .expect("shard identity exhausted"),
                     ),
+                    regions: OnceLock::new(),
                     parsed: parse(source[window[0]..window[1]].to_string()),
                 })
             })
@@ -411,6 +413,20 @@ impl<'a> ValidGreenDocument<'a> {
 }
 
 impl GreenShard {
+    /// Healthy shards borrow their original tree; invalid shards cache one
+    /// source-preserving forest. The recovered tree and validity never change.
+    pub fn semantic_regions(&self) -> crate::SemanticDocument<'_> {
+        match self.parsed.valid_syntax() {
+            Some(valid) => valid.into(),
+            None => self.regions.get_or_init(|| self.parsed.valid_regions()).view(&self.parsed),
+        }
+    }
+
+    pub fn excluded_regions(&self) -> &[Range<usize>] {
+        if self.parsed.is_valid() { return &[]; }
+        self.regions.get_or_init(|| self.parsed.valid_regions()).excluded()
+    }
+
     pub fn id(&self) -> GreenShardId {
         self.id
     }

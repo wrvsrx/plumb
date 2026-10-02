@@ -1278,7 +1278,7 @@ fn project_attributes(source: &str, document: &mut Document) {
     document.attrs = attributes_from_blocks(source, &document.blocks);
 }
 
-fn attributes_from_blocks(source: &str, blocks: &[Block]) -> Attributes {
+pub(crate) fn attributes_from_blocks(source: &str, blocks: &[Block]) -> Attributes {
     attributes_from_items(blocks.iter().filter_map(|block| {
         let Block::Parsed(block) = block else {
             return None;

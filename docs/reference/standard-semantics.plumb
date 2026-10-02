@@ -5,8 +5,8 @@
 core syntax 对 marker spelling 保持 opaque。本文定义 official semantic profile：heading、anchor、metadata、
 list、definition、Link、image/file、citation、quote/style、task/event、table、math 与 Pandoc projection。
 
-profile 是 statically composed、protocol-neutral pipeline，不是 dynamic plugin registry。syntax-valid document
-才进入 authoritative analysis；recovered editor queries 只能提供本文明确允许的局部 assist。
+profile 是 statically composed、protocol-neutral pipeline，不是 dynamic plugin registry。authoritative analysis 消费 syntax-valid document 或 core syntax 定义的有效区域；
+未经验证的 recovered nodes 只可用于明确允许的局部 assist。
 
 `# 2. Direct declarations
 
@@ -413,3 +413,19 @@ official profile 只解释 current syntax。semantic analysis 不检测历史 ep
 `# 15. Incremental policy equivalence
 
 Event-category 与 event-timeline 的增量缓存不改变第 11 节的语义。相同 normalized category、tasks override 与去重 normalized reference targets 可以复用成功结论；invalid declarations 的 barrier、缺失目标、目标歧义与来源范围必须保留。时间 interval 与 category/reference 输入分开失效，source offset 变化不改变 accounting 或时间覆盖。完整分析是结果、diagnostics 与 export 的独立 correctness oracle。缓存身份、fallback 和版本协议见 `->{语义架构 ../architecture/semantic-analysis.plumb}。
+
+`# 16. Valid-event accounting
+
+实现状态：尚未实现；本节取代第 11 节因无效 source/事件而令统计 incomplete 的规则。
+
+累计值定义为当前 revision 中有效事件的累计。语法无效节点及其 descendants 由 core 有效区域契约隔离；
+语义无效事件单独排除，不贡献 duration、事项份额、分类份额或 timeline 边界。独立有效事件正常统计。
+无效 schedule、空/非法 title、冲突 task/event facet 或无法可靠解析的核算引用均不能生成有效贡献。
+引用失败时排除整个事件，不删除失败目标后把其份额重新分给成功目标。非法分类不使用外层缺省值。
+正常缺分类仍可归入未分类；point 和 ongoing 继续不贡献有限用时。
+
+排除原因由 source diagnostics 呈现，不把累计标为 incomplete，不隐藏其余有效累计，也不复用旧有效事件。
+有效事件集合为空时累计为零。示例：同一文件中有效的一小时事件、无效标题事件、语法错误普通段落共存，
+其一小时事件仍对事项贡献一小时；修复或删除错误节点时按当前有效事件集合重算。
+summary、Code Lens 与 Web task 用时消费同一规则。索引尚未完成、semantic worker 尚未完成或 source/store
+读取失败仍属于数据尚未齐备或查询失败，不得伪装为完整零值。导出仍要求 whole-document syntax validity。

@@ -3,7 +3,7 @@
 `# 1. Scope
 
 本文定义 current core syntax validity。core 识别 source structure，不解释 marker、direct child、inline
-owner 或 raw payload 的语义。任意 syntax error 都使 document 不能进入 authoritative semantics/export；
+owner 或 raw payload 的语义。任意 syntax error 都使 document 不能进入 strict export 或 valid-tree mutation；
 parser 仍 reject-but-recover，并产生 lossless tree 与全部可报告 diagnostics。
 
 输入是 UTF-8 bytes。offset/range 使用 UTF-8 half-open byte range，不做 Unicode normalization 或
@@ -198,7 +198,7 @@ unknown marker 永远保持 generic。
 recovered Document 与 diagnostics。token ranges 无重叠、无空洞，拼接 bytes 必须逐 byte 等于 input。
 
 recovered_syntax 始终可用；valid_syntax 只在没有 error diagnostics 时返回不可由 consumer 构造的
-ValidDocument。authoritative semantics、export 与 valid-tree mutation 只接受 valid view；completion、folding
+ValidDocument。export 与 valid-tree mutation 只接受 whole-document valid view；semantic analysis 可消费第 13 节的有效区域；completion、folding
 等 editor queries 可以显式使用 recovered tree。访问 view 不重新 parse。
 
 `# 11. Recovery
@@ -217,3 +217,20 @@ stack；语言不从 Rust call stack 获得 nesting depth limit。
 core 只定义并解析本页描述的 current syntax。parser、typed tree、formatter、editor tooling 与 CLI 都不识别、
 检测或转换历史 syntax epoch；仓库不提供 legacy parser 或 migration command。历史 source 必须在进入 plumb
 toolchain 前由外部、版本匹配的工具转换。
+
+`# 13. Valid regions for semantic analysis
+
+实现状态：尚未实现；本节是局部错误隔离的目标契约。
+
+语法错误不改变 strict validity，但不再使其它独立有效节点退出语义分析。syntax layer 从同一 recovered revision
+提供不可由 consumer 构造的有效区域 view；不重新解析、不改写 source、不删除 lossless tokens 或 diagnostics，
+不把该 view 伪装成 whole-document ValidDocument。source ranges 始终对应原 revision。
+
+隔离的最小单元是 block owner：head、inline content 或 structural indentation 有 error 的 block 与全部 children
+被排除；健康 sibling 保留，普通 child 的错误不向健康 parent/sibling 传播。不能只删除损坏的 inline argument
+后让剩余 elements 重新绑定 schedule/title 或 declaration key/value。EOF 的零宽错误仍属于其未闭合 owner。
+结构恢复无法证明 ownership 的区域排除到下一个可证明的恢复边界，不能提升被排除 owner 的 descendants。
+
+声明是 owner 的语义输入。损坏的 direct declaration 不能被删除后悄悄获得缺省 facet、identity、date、timezone
+或 category；official profile 必须保留该输入无效的 barrier，排除不能独立解释的 owner/依赖事件。
+普通无关正文错误不影响文档根层 metadata 或其它有效事件。严格导出、格式化与结构编辑仍要求整篇 syntax-valid。
