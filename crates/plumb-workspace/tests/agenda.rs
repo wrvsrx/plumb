@@ -59,7 +59,7 @@ fn referenced_list_item_inherits_document_category() {
     assert_eq!(r.categories[0].category.as_deref(), Some("work"));
 }
 #[test]
-fn unresolved_references_keep_their_share_and_timeline_is_independent() {
+fn unresolved_references_exclude_whole_event_and_timeline_is_independent() {
     let mut w = Workspace::new();
     w.insert("/notes/items.plumb", 0, ITEMS);
     w.insert(
@@ -68,15 +68,14 @@ fn unresolved_references_keep_their_share_and_timeline_is_independent() {
         EVENT.replace("items.plumb#c", "items.plumb#missing"),
     );
     let r = report(&w, true);
-    assert!(!r.complete);
-    assert_eq!(
-        r.categories
-            .iter()
-            .find(|c| c.category.is_none())
-            .unwrap()
-            .seconds,
-        1200.0
-    );
+    assert!(r.complete);
+    assert!(r.categories.is_empty());
+    assert!(r.items.is_empty());
+    assert_eq!(r.accumulated_seconds, 0.0);
+    assert!(r
+        .issues
+        .iter()
+        .any(|issue| issue.code == "agenda.invalid-item"));
     assert!(report(&w, false).timeline_passed());
 }
 #[test]
@@ -101,7 +100,8 @@ fn explicit_category_overrides_and_empty_tasks_suppresses_inference() {
     let r = report(&w, true);
     assert!(r.items.is_empty());
     // Explicit empty declaration must not fall back to title links.
-    assert!(r.categories[0].category.is_none());
+    assert!(r.categories.is_empty());
+    assert_eq!(r.accumulated_seconds, 0.0);
 }
 #[test]
 fn interval_sweep_clips_boundaries_and_handles_nested_overlap_without_false_gaps() {
@@ -117,7 +117,7 @@ fn interval_sweep_clips_boundaries_and_handles_nested_overlap_without_false_gaps
     assert!(r.overlaps.iter().all(|s| s.events.len() == 2));
 }
 #[test]
-fn empty_window_and_boundary_gaps_and_invalid_time_cannot_pass() {
+fn window_gaps_remain_visible_while_invalid_time_is_excluded() {
     let mut w = Workspace::new();
     let r = report(&w, false);
     assert_eq!(r.gaps.len(), 1);
@@ -129,7 +129,8 @@ fn empty_window_and_boundary_gaps_and_invalid_time_cannot_pass() {
     );
     assert_eq!(report(&w, false).gaps.len(), 2);
     w.insert("/notes/bad.plumb", 0, "`- tomorrow Bad\n `+ event\n");
-    assert!(!report(&w, false).complete);
+    assert!(report(&w, false).complete);
+    assert_eq!(report(&w, false).gaps.len(), 2);
     assert!(w
         .agenda_report(
             Path::new("/notes"),
@@ -166,7 +167,8 @@ fn persistent_and_open_overlay_recompute_category_without_stale_inheritance() {
     disk.close_document("/notes/items.plumb");
     assert_eq!(report(&disk, true).categories.len(), 2);
     disk.open_document("/notes/items.plumb", 2, "`broken{");
-    assert!(!report(&disk, true).complete);
+    assert!(report(&disk, true).complete);
+    assert!(report(&disk, true).allocations.is_empty());
 }
 #[test]
 fn document_tasks_supply_categories_and_filter_is_recorded() {
@@ -265,13 +267,15 @@ fn category_check_covers_all_dates_points_and_requires_resolvable_inheritance() 
             .replace("items.plumb#a", "missing.plumb")
             .replace(" `+ event", " `+ event\n `= event-category phd misc"),
     );
-    assert!(!check(&w).complete);
+    assert!(check(&w).complete);
+    assert!(!check(&w).issues.is_empty());
     w.insert(
         "/notes/old.plumb",
         1,
         "`- 2020-01-01T10:00:00Z Point\n `+ event\n `= event-category\n",
     );
-    assert!(!check(&w).complete);
+    assert!(check(&w).complete);
+    assert!(!check(&w).issues.is_empty());
 }
 
 #[test]
@@ -346,7 +350,8 @@ fn ordinary_document_event_categories_are_persistent_and_not_task_shares() {
     assert!(r.categories[0].category.is_none());
     disk.insert_disk("/notes/dinner.plumb", 3, "`= event-category\n")
         .unwrap();
-    assert!(!report(&disk, true).complete);
+    assert!(report(&disk, true).complete);
+    assert!(report(&disk, true).allocations.is_empty());
     disk.insert_disk(
         "/notes/day.plumb",
         1,
@@ -354,7 +359,10 @@ fn ordinary_document_event_categories_are_persistent_and_not_task_shares() {
     )
     .unwrap();
     assert!(
-        !report(&disk, true).complete,
+        report(&disk, true)
+            .issues
+            .iter()
+            .any(|issue| issue.code == "agenda.invalid-item"),
         "explicit tasks still requires a task"
     );
 }
@@ -422,7 +430,7 @@ fn continuity_sweep_handles_nested_and_duplicate_intervals_without_false_gaps() 
 }
 
 #[test]
-fn continuity_is_independent_of_references_but_invalid_times_are_incomplete() {
+fn continuity_is_independent_of_references_and_excludes_invalid_times() {
     let mut w = Workspace::new();
     w.insert("/notes/day.plumb", 0, EVENT);
     assert!(continuity(&w).passed());
@@ -433,9 +441,9 @@ fn continuity_is_independent_of_references_but_invalid_times_are_incomplete() {
     ] {
         w.insert("/notes/bad.plumb", 1, source);
         let r = continuity(&w);
-        assert!(!r.complete, "{source}");
-        assert!(!r.passed());
-        assert!(!r.issues.is_empty());
+        assert!(r.complete, "{source}");
+        assert!(r.passed());
+        assert!(r.issues.is_empty());
     }
 }
 
@@ -457,7 +465,7 @@ fn continuity_matches_persistent_and_overlay_revisions() {
     disk.close_document("/notes/day.plumb");
     assert_eq!(continuity(&disk).gaps.len(), 1);
     disk.open_document("/notes/day.plumb", 2, "`broken{");
-    assert!(!continuity(&disk).complete);
+    assert!(continuity(&disk).complete);
     assert!(
         continuity(&disk).gaps.is_empty(),
         "last-valid intervals cannot stand in for invalid current source"
@@ -547,16 +555,9 @@ fn policy_scopes_exclude_other_and_nested_roots_but_resolve_cross_root_categorie
             &settings,
         )
         .unwrap();
-    assert!(!report.complete());
-    assert_eq!(
-        report.incomplete_rules,
-        ["event-category", "event-timeline"]
-    );
-    assert_eq!(
-        report.diagnostics.len(),
-        1,
-        "identical query issues should be deduplicated"
-    );
+    assert!(report.complete());
+    assert!(report.incomplete_rules.is_empty());
+    assert!(report.diagnostics.is_empty());
 }
 
 #[test]
@@ -692,7 +693,7 @@ fn event_category_scope_precedence_and_invalid_barriers_match_disk_and_memory() 
     ];
     let mut memory_state = plumb_workspace::CategoryCheckState::default();
     let mut disk_state = plumb_workspace::CategoryCheckState::default();
-    for (revision, (source, expected, complete)) in cases.iter().enumerate() {
+    for (revision, (source, expected, valid)) in cases.iter().enumerate() {
         memory.insert("/notes/day.plumb", revision as i64, source.clone());
         disk.insert_disk("/notes/day.plumb", revision as i64, source.clone())
             .unwrap();
@@ -709,7 +710,8 @@ fn event_category_scope_precedence_and_invalid_barriers_match_disk_and_memory() 
             );
         }
         let result = report(&memory, true);
-        assert_eq!(result.complete, *complete, "{source}: {:?}", result.issues);
+        assert!(result.complete, "{source}: {:?}", result.issues);
+        assert_eq!(result.issues.is_empty(), *valid, "{source}");
         assert_eq!(
             result
                 .categories
@@ -726,8 +728,9 @@ fn event_category_scope_precedence_and_invalid_barriers_match_disk_and_memory() 
         let check = memory
             .check_event_categories(Path::new("/notes"), dt(START), None)
             .unwrap();
-        assert_eq!(check.complete, *complete, "{source}");
-        assert_eq!(check.missing.is_empty(), *complete, "{source}");
+        assert!(check.complete, "{source}");
+        assert_eq!(check.issues.is_empty(), *valid, "{source}");
+        assert!(check.missing.is_empty(), "{source}");
         assert_eq!(
             serde_json::to_value(&check).unwrap(),
             serde_json::to_value(
@@ -736,7 +739,7 @@ fn event_category_scope_precedence_and_invalid_barriers_match_disk_and_memory() 
             )
             .unwrap()
         );
-        assert_eq!(result.items.len(), 3);
+        assert_eq!(result.items.len(), if *valid { 3 } else { 0 });
         assert!(result.items.iter().all(|item| item.seconds == 1200.0));
         if let Some(issue) = result
             .issues
@@ -778,7 +781,7 @@ fn document_category_defaults_follow_unsaved_overlay_and_close() {
 }
 
 #[test]
-fn invalid_document_diagnostics_match_memory_and_persistent_category_checks() {
+fn invalid_regions_are_excluded_equally_in_memory_and_persistent_category_checks() {
     let temp = tempfile::tempdir().unwrap();
     let mut disk = Workspace::with_sqlite_store(
         SqliteSemanticStore::open(temp.path().join("index.sqlite")).unwrap(),
@@ -793,11 +796,18 @@ fn invalid_document_diagnostics_match_memory_and_persistent_category_checks() {
         let check = workspace
             .check_event_categories(Path::new("/notes"), dt(START), None)
             .unwrap();
-        assert!(!check.complete);
-        assert!(check
+        assert!(check.complete);
+        assert!(!check
             .issues
             .iter()
             .any(|issue| issue.code == "agenda.invalid-document"));
+        let context = workspace.diagnostic_context().unwrap();
+        assert!(workspace
+            .check_diagnostics_with_context(Path::new("/notes/invalid.plumb"), &context)
+            .unwrap()
+            .value
+            .iter()
+            .any(|d| d.code == "syntax.unclosed-inline-group"));
     }
     assert_eq!(
         serde_json::to_value(
@@ -852,7 +862,7 @@ fn accounting_reuse_preserves_each_reference_policy_location_and_overlay_revisio
     };
     let first = check(&w);
     assert_eq!(first.checked, 5);
-    assert_eq!(first.missing.len(), 4);
+    assert_eq!(first.missing.len(), 1);
     let issues = first
         .issues
         .iter()
@@ -1303,7 +1313,7 @@ fn normalized_reference_aliases_reuse_accounting_and_do_not_duplicate_edges() {
 }
 
 #[test]
-fn invalid_time_keeps_timeline_conclusions_available_but_check_incomplete() {
+fn invalid_time_is_diagnosed_separately_from_complete_valid_interval_checks() {
     for persistent in [false, true] {
         let mut w = if persistent {
             Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
@@ -1344,11 +1354,8 @@ fn invalid_time_keeps_timeline_conclusions_available_but_check_incomplete() {
                 codes(&cached).contains(&"event-timeline.gap".into()),
                 *time == "invalid"
             );
-            assert_eq!(
-                codes(&cached).contains(&"agenda.invalid-time".into()),
-                *time == "invalid"
-            );
-            assert_eq!(cached.complete(), *time != "invalid");
+            assert!(!codes(&cached).contains(&"agenda.invalid-time".into()));
+            assert!(cached.complete());
         }
         w.insert_disk("/notes/invalid.plumb", 1, "`- invalid Event\n `+ event\n")
             .unwrap();
@@ -1362,7 +1369,8 @@ fn invalid_time_keeps_timeline_conclusions_available_but_check_incomplete() {
                 &mut state,
             )
             .unwrap();
-        assert_eq!(report.deferred_rules, ["event-timeline"]);
+        assert!(report.deferred_rules.is_empty());
+        assert!(report.complete());
     }
 }
 

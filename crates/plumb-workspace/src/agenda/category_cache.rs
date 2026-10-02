@@ -240,6 +240,9 @@ impl Workspace {
                     valid: true,
                 };
                 for event in node.events() {
+                    if !event.accounting_valid {
+                        continue;
+                    }
                     state.extracted_events += 1;
                     let category: CategoryValue = if event.category.declarations.is_empty() {
                         cached.inherits_document = true;
@@ -294,7 +297,8 @@ impl Workspace {
                         state.recomputed_events += 1;
                         let (shares, issues) =
                             self.event_accounting_with_context(path, &event, 0.0, &mut context)?;
-                        let missing = shares.iter().any(|share| share.category.is_none());
+                        let missing = issues.is_empty()
+                            && shares.iter().any(|share| share.category.is_none());
                         if issues.is_empty() {
                             graph.decisions.entry(decision_key.clone()).or_insert((
                                 missing,
@@ -352,7 +356,10 @@ impl Workspace {
                 graph.decisions.remove(&decision);
             }
         }
-        report.complete = report.issues.is_empty();
+        report.complete = !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "agenda.invalid-document");
         Ok(report)
     }
 }

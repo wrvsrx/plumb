@@ -22,7 +22,7 @@ pub use plumb_edit::{apply_text_edits, TextEdit};
 use plumb_semantics::{
     analyze_document, EmbedCompletionContext, EventTitleCompletionContext, TaskStatus,
 };
-use plumb_semantics::{analyze_green_document, analyze_green_document_incremental, DocumentChange};
+use plumb_semantics::{analyze_green_regions, DocumentChange};
 use plumb_semantics::{
     parse_task_reference_target, AnchorRecord, DocumentOutput, EventRecord, LinkCompletionContext,
     LinkRecord, LinkSpelling, LinkTarget, MetadataBlock, MetadataOutput, MetadataValue,
@@ -492,16 +492,7 @@ impl PreparedDocumentAnalysis {
 
 impl PendingDocumentAnalysis {
     pub fn analyze(self) -> PreparedDocumentAnalysis {
-        self.analyze_with(|valid, syntax, previous| {
-            let output = match previous {
-                Some((previous, change)) => {
-                    analyze_green_document_incremental(valid, syntax, previous, change)
-                }
-                None => analyze_green_document(valid, syntax),
-            }
-            .expect("valid green revisions produce semantics");
-            (output, ())
-        })
+        self.analyze_with(|syntax, previous| (analyze_green_regions(syntax, previous), ()))
         .0
     }
 
@@ -512,8 +503,8 @@ impl PendingDocumentAnalysis {
         PreparedDocumentAnalysis,
         plumb_semantics::profiling::SemanticStages,
     ) {
-        self.analyze_with(|valid, syntax, previous| {
-            plumb_semantics::profiling::analyze(valid, syntax, previous)
+        self.analyze_with(|syntax, previous| {
+            plumb_semantics::profiling::analyze_regions(syntax, previous)
                 .expect("valid green revisions produce profiled semantics")
         })
     }
@@ -521,18 +512,11 @@ impl PendingDocumentAnalysis {
     fn analyze_with<T>(
         self,
         analyze: impl FnOnce(
-            plumb_syntax::ValidGreenDocument<'_>,
             Arc<GreenDocument>,
             Option<(&DocumentOutput, &DocumentChange)>,
         ) -> (DocumentOutput, T),
     ) -> (PreparedDocumentAnalysis, T) {
-        let valid = self
-            .parsed
-            .green()
-            .valid_syntax()
-            .expect("pending semantic analysis requires valid syntax");
         let (output, stages) = analyze(
-            valid,
             Arc::clone(self.parsed.green()),
             self.previous_output.as_deref().zip(self.change.as_ref()),
         );
@@ -1897,7 +1881,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(ExplicitIdError::StaleOrInvalidDocument)?;
         let target = green_block_attribute_target(entry.parsed.green(), offset)
             .ok_or(ExplicitIdError::BlockNotFound)?;
@@ -1967,7 +1951,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&target.path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(RenameError::StaleOrInvalidDocument)?;
         let anchor = entry
             .current
@@ -2278,6 +2262,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
+            .filter(|entry| entry.parsed.is_valid())
             .ok_or(MetadataInsertError::StaleOrInvalidDocument)?;
         let current = entry
             .current
@@ -2305,7 +2290,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(ArgumentAlignmentError::StaleOrInvalidDocument)?;
         let edits = align_green_block_arguments(entry.parsed.green(), offset)
             .map_err(|_| ArgumentAlignmentError::StaleOrInvalidDocument)?;
@@ -2325,7 +2310,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(EventEditError::StaleOrInvalidDocument)?;
         let current = entry.current.as_ref().expect("current output checked");
         let event = owned_event(input, &current.output.metadata());
@@ -2344,7 +2329,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(EventShorthandError::StaleOrInvalidDocument)?;
         let item = own_deepest_green_marked_block(entry.parsed.green(), offset, &["-", "."])
             .ok_or(EventShorthandError::ListItemNotFound)?;
@@ -2391,7 +2376,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(EventShorthandError::StaleOrInvalidDocument)?;
         let metadata = &entry
             .current
@@ -2468,7 +2453,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskAuthoringError::StaleOrInvalidDocument)?;
         let placement = document_task_placement(entry, placement)?;
         let id = format!("task-{}", uuid::Uuid::new_v4().simple());
@@ -2659,7 +2644,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskAuthoringError::StaleOrInvalidDocument)?;
         let task = entry
             .current

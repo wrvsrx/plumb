@@ -75,7 +75,9 @@ fn warm_reads_and_local_edits_have_work_independent_of_unrelated_workspace_size(
                 TARGET.replace(" `@ a", " `@ a\n `= event-category {}"),
             )
             .unwrap();
-            assert!(!requested(&w).complete);
+            let excluded = requested(&w);
+            assert!(excluded.complete);
+            assert!(excluded.seconds.values().all(|seconds| *seconds == 0.0));
             assert_eq!(w.duration_work().events_recomputed, 1);
             w.insert_disk("/notes/targets.plumb", 3, TARGET).unwrap();
             assert!(requested(&w).complete);
@@ -95,7 +97,9 @@ fn warm_reads_and_local_edits_have_work_independent_of_unrelated_workspace_size(
 fn negative_dependencies_ambiguity_and_geometry_rebind_without_numeric_recomputation() {
     let mut w = Workspace::new();
     w.insert("/notes/day.plumb", 0, event("targets.plumb#a"));
-    assert!(!requested(&w).complete);
+    let excluded = requested(&w);
+    assert!(excluded.complete);
+    assert!(excluded.seconds.values().all(|seconds| *seconds == 0.0));
     w.insert("/notes/targets.plumb", 0, TARGET);
     assert!(requested(&w).complete);
     assert_eq!(w.duration_work().events_recomputed, 1);
@@ -123,14 +127,18 @@ fn negative_dependencies_ambiguity_and_geometry_rebind_without_numeric_recomputa
         1,
         format!("{TARGET}`- Duplicate\n `@ a\n"),
     );
-    assert!(!requested(&w).complete);
+    let excluded = requested(&w);
+    assert!(excluded.complete);
+    assert!(excluded.seconds.values().all(|seconds| *seconds == 0.0));
     assert_eq!(w.duration_work().events_recomputed, 1);
     assert!(
         w.task_duration_totals().unwrap().seconds.is_empty(),
         "ambiguous targets have no task membership"
     );
     w.remove("/notes/targets.plumb");
-    assert!(!requested(&w).complete);
+    let excluded = requested(&w);
+    assert!(excluded.complete);
+    assert!(excluded.seconds.values().all(|seconds| *seconds == 0.0));
     w.insert("/notes/targets.plumb", 2, TARGET);
     assert!(requested(&w).complete);
 }
@@ -184,7 +192,11 @@ fn disk_deltas_overlay_pending_invalid_and_immutable_snapshots_remain_consistent
     next.complete_pending_document_analysis("/notes/day.plumb");
     assert_eq!(requested(&next), original);
     next.open_document("/notes/day.plumb", 4, "`broken{\n");
-    assert!(!requested(&next).complete);
+    assert!(requested(&next).complete);
+    assert!(requested(&next)
+        .seconds
+        .values()
+        .all(|seconds| *seconds == 0.0));
     next.close_document("/notes/day.plumb");
     assert_eq!(
         requested(&next)

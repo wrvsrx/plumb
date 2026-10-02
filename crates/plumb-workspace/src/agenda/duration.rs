@@ -27,6 +27,9 @@ pub struct DurationAnnotation {
 }
 
 pub(super) fn event_duration(event: &EventRecord) -> Option<DurationValue> {
+    if !event.accounting_valid {
+        return Some(DurationValue::Unavailable);
+    }
     if event.at_datetime().is_some() {
         return None;
     }

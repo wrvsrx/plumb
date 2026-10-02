@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use plumb_semantics::{analyze_green_document, DocumentChange};
+use plumb_semantics::{analyze_green_regions, DocumentChange};
 use plumb_syntax::{GreenDocument, SourceChange};
 
 use crate::{
@@ -63,9 +63,7 @@ impl Workspace {
     }
 
     fn semantic_generation_pending(&self) -> bool {
-        self.documents
-            .values()
-            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+        self.documents.values().any(|entry| entry.current.is_none())
     }
 
     pub fn insert_disk(
@@ -84,9 +82,7 @@ impl Workspace {
             return Ok(true);
         }
         let green = Arc::new(GreenDocument::parse(source));
-        let output = green
-            .valid_syntax()
-            .and_then(|valid| analyze_green_document(valid, Arc::clone(&green)));
+        let output = Some(analyze_green_regions(Arc::clone(&green), None));
         let diagnostics =
             crate::diagnostics::CachedDiagnosticInputs::new(&green.diagnostics(), output.as_ref());
         store.replace_with_diagnostics(
@@ -169,20 +165,15 @@ impl Workspace {
         let path = normalize(path.as_ref());
         let source = source.into();
         let previous = self.documents.get(&path);
-        // Keep the last completed valid output as the semantic baseline while a
-        // newer revision is invalid or still being analyzed.  The syntax layer
-        // compares stable shard identities, so this remains safe across the
-        // invalid intermediate revisions and lets unchanged semantic nodes be
-        // reused when the source becomes valid again.
+        // Reuse the last completed regional output as an incremental baseline.
+        // Stable shard identities preserve unaffected nodes across syntax errors;
+        // current queries never fall back to these older facts while pending.
         let previous_output = previous
             .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
             .map(|current| Arc::clone(&current.output));
-        // Exported impact compares against the last *authoritative current*
-        // revision.  A recovery from invalid syntax must still notify dependents
-        // even when it reproduces the older valid output; the semantic analyzer
-        // above may nevertheless use that older output for local reuse.
+        // Compare exported inputs to the last installed regional generation.
+        // Errors that leave these inputs equal need no dependent invalidation.
         let previous_exported_output = previous
-            .filter(|entry| entry.parsed.is_valid())
             .and_then(|entry| entry.current.as_ref().or(entry.last_valid.as_ref()))
             .map(|current| Arc::clone(&current.output));
         let (green, change, syntax_changes) = match previous {
@@ -221,7 +212,7 @@ impl Workspace {
                 last_valid: previous_last_valid,
             },
         );
-        parsed.is_valid().then_some(PendingDocumentAnalysis {
+        Some(PendingDocumentAnalysis {
             path,
             revision,
             parsed,
@@ -425,7 +416,7 @@ impl Workspace {
     pub fn document_analysis_pending(&self, path: impl AsRef<Path>) -> bool {
         self.documents
             .get(&normalize(path.as_ref()))
-            .is_some_and(|entry| entry.parsed.is_valid() && entry.current.is_none())
+            .is_some_and(|entry| entry.current.is_none())
     }
 
     pub fn complete_pending_document_analysis(&mut self, path: impl AsRef<Path>) -> bool {
@@ -433,7 +424,7 @@ impl Workspace {
         let Some(entry) = self.documents.get(&path) else {
             return false;
         };
-        if !entry.parsed.is_valid() || entry.current.is_some() {
+        if entry.current.is_some() {
             return false;
         }
         let pending = PendingDocumentAnalysis {
@@ -463,7 +454,7 @@ impl Workspace {
         if entry.parsed.source() != source {
             return false;
         }
-        if entry.parsed.is_valid() && entry.current.is_none() {
+        if entry.current.is_none() {
             return false;
         }
         entry.revision = revision;
@@ -571,12 +562,10 @@ fn document_entry_from_source(path: PathBuf, revision: i64, source: &str) -> Doc
     let parsed = Arc::new(DocumentRevision::from_green(Arc::new(
         GreenDocument::parse(source),
     )));
-    let current = parsed.green().valid_syntax().and_then(|valid| {
-        analyze_green_document(valid, Arc::clone(parsed.green())).map(|output| {
-            Arc::new(VersionedDocumentOutput {
-                revision,
-                output: Arc::new(output),
-            })
+    let current = Some(analyze_green_regions(Arc::clone(parsed.green()), None)).map(|output| {
+        Arc::new(VersionedDocumentOutput {
+            revision,
+            output: Arc::new(output),
         })
     });
     DocumentEntry {

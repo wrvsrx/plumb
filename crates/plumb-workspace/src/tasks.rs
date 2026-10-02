@@ -198,7 +198,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let green = entry.parsed.green();
         let mut created = None;
@@ -255,7 +255,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let edits = edit_green_root_declarations(
             entry.parsed.green(),
@@ -353,7 +353,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&normalize(path))
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let task = entry
             .current
@@ -530,7 +530,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let tasks = &entry
             .current
@@ -712,7 +712,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let task = entry
             .current
@@ -746,7 +746,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let tasks = &entry
             .current
@@ -774,7 +774,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let task = entry
             .current
@@ -808,7 +808,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let tasks = &entry
             .current
@@ -836,7 +836,7 @@ impl Workspace {
         let entry = self
             .documents
             .get(&path)
-            .filter(|entry| entry.current.is_some())
+            .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
         let task = entry
             .current

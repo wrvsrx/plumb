@@ -565,6 +565,9 @@ impl Workspace {
                 .into_iter()
                 .filter(|e| starts.contains(&e.selection_range.start))
             {
+                if !event.accounting_valid {
+                    continue;
+                }
                 let source = location(&path, event.selection_range.clone());
                 if let Some(at) = event.at_datetime() {
                     if at >= from && at < to {
@@ -608,7 +611,10 @@ impl Workspace {
                 } else {
                     (Vec::new(), Vec::new())
                 };
-                report.issues.extend(issues);
+                if !issues.is_empty() {
+                    report.issues.extend(issues);
+                    continue;
+                }
                 let index = report.allocations.len();
                 boundaries.entry(start).or_default().0.push(index);
                 boundaries.entry(end).or_default().1.push(index);
@@ -676,7 +682,10 @@ impl Workspace {
             .into_iter()
             .map(|(item, seconds)| ItemTotal { item, seconds })
             .collect();
-        report.complete &= report.issues.is_empty();
+        report.complete &= !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "agenda.invalid-document");
         Ok(report)
     }
 }
@@ -886,16 +895,25 @@ impl Workspace {
         };
         let mut context = AccountingContext::default();
         for (path, event) in selected.events {
+            if !event.accounting_valid {
+                continue;
+            }
             let (shares, issues) =
                 self.event_accounting_with_context(&path, &event, 0.0, &mut context)?;
-            report.issues.extend(issues);
+            if !issues.is_empty() {
+                report.issues.extend(issues);
+                continue;
+            }
             if shares.iter().any(|s| s.category.is_none()) {
                 report
                     .missing
                     .push(location(&path, event.selection_range.clone()));
             }
         }
-        report.complete &= report.issues.is_empty();
+        report.complete &= !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "agenda.invalid-document");
         Ok(report)
     }
 
@@ -927,6 +945,9 @@ impl Workspace {
         let mut sources = Vec::new();
         let mut boundaries = BTreeMap::<DateTime<FixedOffset>, (Vec<usize>, Vec<usize>)>::new();
         for (path, event) in selected.events {
+            if !event.accounting_valid {
+                continue;
+            }
             if event.at_datetime().is_some() || event.is_running() {
                 continue;
             }
@@ -985,7 +1006,10 @@ impl Workspace {
             previous = Some(instant);
             previous_ending = ending;
         }
-        report.complete &= report.issues.is_empty();
+        report.complete &= !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "agenda.invalid-document");
         Ok(report)
     }
 

@@ -60,7 +60,7 @@ fn all_time_totals_share_agenda_rules_across_midnight_overlaps_and_categories() 
 }
 
 #[test]
-fn incomplete_accounting_never_masquerades_as_total_and_event_duration_stays_local() {
+fn invalid_events_are_excluded_while_event_duration_stays_local() {
     for persistent in [false, true] {
         let mut w = if persistent {
             Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
@@ -83,8 +83,8 @@ fn incomplete_accounting_never_masquerades_as_total_and_event_duration_stays_loc
             assert!(result
                 .value
                 .iter()
-                .all(|l| l.value == DurationValue::Incomplete));
-            assert!(result.value.iter().all(|l| !l.sources.is_empty()));
+                .all(|l| l.value == DurationValue::Seconds(0.0)));
+            assert!(result.value.iter().all(|l| l.sources.is_empty()));
         }
         w.insert(
             "/notes/day.plumb",
@@ -102,7 +102,7 @@ fn incomplete_accounting_never_masquerades_as_total_and_event_duration_stays_loc
                 .unwrap()
                 .value
                 .iter()
-                .all(|l| l.value == DurationValue::Incomplete),
+                .all(|l| l.value == DurationValue::Seconds(0.0)),
             "never reuse last-valid events"
         );
         w.insert("/notes/day.plumb", 4, EVENT);
@@ -209,7 +209,7 @@ fn batch_totals_match_document_annotations_without_resident_target_documents() {
         disk.task_duration_totals()
             .unwrap()
             .seconds_for(path, TaskOwner::ListItem, Some("a")),
-        None
+        Some(0.0)
     );
     disk.begin_document_revision("/notes/day.plumb", 2, EVENT)
         .unwrap();

@@ -98,6 +98,9 @@ impl Workspace {
                     issues: Vec::new(),
                 };
                 for event in node.events() {
+                    if !event.accounting_valid {
+                        continue;
+                    }
                     state.extracted_events += 1;
                     if event.at_datetime().is_some() || event.is_running() {
                         continue;
@@ -188,7 +191,10 @@ impl Workspace {
                 report.gaps.push(value);
             }
         }
-        report.complete = report.issues.is_empty();
+        report.complete = !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "agenda.invalid-document");
         Ok(report)
     }
 }

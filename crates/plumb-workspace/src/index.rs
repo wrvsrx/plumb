@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use plumb_semantics::analyze_green_document;
+use plumb_semantics::analyze_green_regions;
 use plumb_syntax::GreenDocument;
 use rayon::prelude::*;
 
@@ -237,9 +237,7 @@ impl Workspace {
                             }
                             let started = Instant::now();
                             let green = Arc::new(GreenDocument::parse(document.source));
-                            let output = green.valid_syntax().and_then(|valid| {
-                                analyze_green_document(valid, Arc::clone(&green))
-                            });
+                            let output = Some(analyze_green_regions(Arc::clone(&green), None));
                             let diagnostics =
                                 CachedDiagnosticInputs::new(&green.diagnostics(), output.as_ref());
                             analysis_time += started.elapsed();
@@ -296,11 +294,8 @@ impl Workspace {
             let parsed = Arc::new(DocumentRevision::from_green(Arc::new(
                 GreenDocument::parse(document.source),
             )));
-            let current = parsed
-                .green()
-                .valid_syntax()
-                .and_then(|valid| analyze_green_document(valid, Arc::clone(parsed.green())))
-                .map(|output| {
+            let current =
+                Some(analyze_green_regions(Arc::clone(parsed.green()), None)).map(|output| {
                     Arc::new(VersionedDocumentOutput {
                         revision: document.revision,
                         output: Arc::new(output),
@@ -423,7 +418,8 @@ mod tests {
         assert!(!result.is_complete());
         assert_eq!(workspace.documents().count(), 2);
         assert!(workspace.get(&first).unwrap().current.is_some());
-        assert!(workspace.get(&second).unwrap().current.is_none());
+        assert!(workspace.get(&second).unwrap().current.is_some());
+        assert!(!workspace.get(&second).unwrap().parsed.is_valid());
         assert!(result
             .documents
             .iter()

@@ -913,7 +913,7 @@ fn headings_without_ids_do_not_resolve() {
 }
 
 #[test]
-fn invalid_revision_keeps_but_does_not_publish_last_valid_output() {
+fn invalid_revision_publishes_only_its_current_valid_regions() {
     let mut workspace = Workspace::new();
     workspace.insert("a.plumb", 1, "`# Valid\n  `@ ok\n");
     let valid = workspace.get("a.plumb").unwrap();
@@ -923,8 +923,9 @@ fn invalid_revision_keeps_but_does_not_publish_last_valid_output() {
     ));
     workspace.insert("a.plumb", 2, "`broken{\n");
     let entry = workspace.get("a.plumb").unwrap();
-    assert!(entry.current.is_none());
-    assert_eq!(entry.last_valid.as_ref().unwrap().revision, 1);
+    assert!(entry.current.is_some());
+    assert_eq!(entry.current.as_ref().unwrap().output.anchors().len(), 0);
+    assert_eq!(entry.last_valid.as_ref().unwrap().revision, entry.revision);
     assert!(workspace.anchor_at("a.plumb", 0).is_none());
 }
 
@@ -1017,17 +1018,22 @@ fn semantic_install_classifies_local_exported_and_invalid_transitions() {
         Some(ExportedSemanticChange::Changed)
     );
 
-    assert!(workspace
+    let regional = workspace
         .begin_document_revision("note.plumb", 6, format!("{exported_source}`broken{{\n"))
-        .is_none());
+        .unwrap()
+        .analyze();
+    assert_eq!(
+        workspace.install_document_analysis_with_change(regional),
+        Some(ExportedSemanticChange::Unchanged)
+    );
     let recovered = workspace
         .begin_document_revision("note.plumb", 7, exported_source)
         .unwrap()
         .analyze();
     assert_eq!(
         workspace.install_document_analysis_with_change(recovered),
-        Some(ExportedSemanticChange::Changed),
-        "restoring authority after an invalid revision must notify dependents"
+        Some(ExportedSemanticChange::Unchanged),
+        "repairing unrelated syntax does not change valid exported facts"
     );
     assert!(
         workspace
@@ -1039,7 +1045,7 @@ fn semantic_install_classifies_local_exported_and_invalid_transitions() {
             .output
             .reused_semantic_node_count()
             > 0,
-        "recovery should reuse the last valid semantic baseline"
+        "recovery should reuse the previous regional semantic baseline"
     );
 }
 
@@ -1139,7 +1145,7 @@ fn invalid_green_revision_exposes_diagnostics() {
     let mut workspace = Workspace::new();
     assert!(workspace
         .begin_document_revision("invalid.plumb", 1, "`broken{\n")
-        .is_none());
+        .is_some());
     let entry = workspace.get("invalid.plumb").unwrap();
     assert!(!entry.parsed.diagnostics().is_empty());
 }
@@ -1319,9 +1325,14 @@ fn pending_and_invalid_open_revisions_do_not_fall_back_to_disk_semantics() {
         1
     );
 
-    assert!(workspace
+    let regional = workspace
         .begin_document_revision("a.plumb", 3, "`broken{\n")
-        .is_none());
+        .unwrap();
+    assert_eq!(
+        workspace.document_paths().unwrap().completeness,
+        QueryCompleteness::Partial
+    );
+    assert!(workspace.install_document_analysis(regional.analyze()));
     assert_eq!(
         workspace.document_paths().unwrap().completeness,
         QueryCompleteness::Complete
@@ -1333,7 +1344,7 @@ fn pending_and_invalid_open_revisions_do_not_fall_back_to_disk_semantics() {
 }
 
 #[test]
-fn completes_only_the_current_valid_pending_document_analysis() {
+fn completes_current_pending_analysis_for_valid_and_invalid_source() {
     let mut workspace = Workspace::new();
     workspace
         .begin_document_revision("pending.plumb", 2, "`# Current\n `@ current\n")
@@ -1341,6 +1352,8 @@ fn completes_only_the_current_valid_pending_document_analysis() {
     workspace.begin_document_revision("invalid.plumb", 1, "`broken{\n");
 
     assert!(workspace.document_analysis_pending("pending.plumb"));
+    assert!(workspace.document_analysis_pending("invalid.plumb"));
+    assert!(workspace.complete_pending_document_analysis("invalid.plumb"));
     assert!(!workspace.document_analysis_pending("invalid.plumb"));
     assert!(workspace.complete_pending_document_analysis("pending.plumb"));
     assert!(!workspace.document_analysis_pending("pending.plumb"));
@@ -1422,7 +1435,7 @@ fn materializes_only_the_matching_persistent_generation() {
 }
 
 #[test]
-fn rebinding_invalid_source_preserves_last_valid_provenance() {
+fn rebinding_invalid_source_preserves_current_regional_provenance() {
     let mut workspace = Workspace::new();
     workspace.insert("note.plumb", 1, "Valid\n");
     let invalid = "`broken{\n";
@@ -1431,8 +1444,9 @@ fn rebinding_invalid_source_preserves_last_valid_provenance() {
     assert!(workspace.rebind_revision_if_source("note.plumb", 0, invalid));
     let entry = workspace.get("note.plumb").unwrap();
     assert_eq!(entry.revision, 0);
-    assert!(entry.current.is_none());
-    assert_eq!(entry.last_valid.as_ref().unwrap().revision, 1);
+    assert!(entry.current.is_some());
+    assert_eq!(entry.current.as_ref().unwrap().output.anchors().len(), 0);
+    assert_eq!(entry.last_valid.as_ref().unwrap().revision, entry.revision);
 }
 
 #[test]
@@ -3254,9 +3268,11 @@ fn record_delta_limits_dependent_diagnostics_but_preserves_recovery_and_revision
     let mut workspace = Workspace::new();
     let source = "`- 2026-09-07T10:00:00Z Old\n `+ event\n";
     workspace.open_document("event.plumb", 1, source);
-    assert!(workspace
+    let regional = workspace
         .begin_document_revision("event.plumb", 2, "{invalid\n")
-        .is_none());
+        .unwrap()
+        .analyze();
+    assert!(workspace.install_document_analysis(regional));
     let restored = workspace
         .begin_document_revision("event.plumb", 3, source)
         .unwrap()
@@ -3264,7 +3280,7 @@ fn record_delta_limits_dependent_diagnostics_but_preserves_recovery_and_revision
     let impact = workspace
         .install_document_analysis_with_impact(restored)
         .unwrap();
-    assert!(impact.dependent_diagnostics_changed);
+    assert!(!impact.dependent_diagnostics_changed);
     let stale = workspace
         .begin_document_revision("event.plumb", 4, "`node\n `@ temporary\n")
         .unwrap()
@@ -6675,7 +6691,7 @@ fn category_value_completion_collects_all_sets_and_overlays_disk() {
         assert_eq!(values[0].label, candidate.label);
     }
     workspace.open_document("overlay.plumb", 3, "`= event-category {broken\n");
-    assert!(workspace
+    assert!(!workspace
         .complete_event_category(&context)
         .unwrap()
         .value

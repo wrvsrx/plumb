@@ -216,12 +216,6 @@ impl DurationIndex {
         let value = value.clone();
         let duration = match value.duration {
             Some(DurationValue::Seconds(seconds)) => seconds,
-            Some(DurationValue::Unavailable) => {
-                return Ok(EventOutput {
-                    issues: vec![GeometryKey::Event(key.clone())],
-                    ..Default::default()
-                })
-            }
             _ => return Ok(EventOutput::default()),
         };
         let mut reader = Reader {
@@ -251,7 +245,9 @@ impl DurationIndex {
         };
         let (shares, issues) = workspace.allocate_event(&key.0, event, duration, &mut reader)?;
         let mut output = EventOutput::default();
-        for share in shares {
+        // Resolution still runs and records missing/ambiguous dependencies, so
+        // target recovery can restore this event without rebuilding the index.
+        for share in shares.into_iter().filter(|_| issues.is_empty()) {
             if let Some(item) = share.item {
                 *output
                     .contributions
@@ -284,7 +280,7 @@ impl DurationIndex {
                 (
                     true,
                     output.is_some(),
-                    entry.parsed.is_valid() && output.is_none(),
+                    output.is_none(),
                     output.map(|o| o.document_category()).unwrap_or_default(),
                     output
                         .map(|o| o.anchors().iter().collect::<Vec<_>>())
@@ -530,7 +526,7 @@ impl DurationIndex {
         Ok(())
     }
     pub fn complete(&self) -> bool {
-        self.invalid.is_empty() && self.pending.is_empty() && self.issues.is_empty()
+        self.pending.is_empty()
     }
     pub fn pending(&self) -> bool {
         !self.pending.is_empty()
@@ -558,20 +554,12 @@ impl DurationIndex {
             .collect()
     }
     pub fn issue_sources(&self) -> Vec<AgendaLocation> {
-        self.invalid
+        self.pending
             .iter()
             .map(|path| location(path, 0..0))
-            .chain(self.pending.iter().map(|path| location(path, 0..0)))
-            .chain(self.issues.values().flatten().map(|key| {
-                self.geometry
-                    .get(key)
-                    .expect("current issue geometry")
-                    .clone()
-            }))
-            .collect::<BTreeSet<_>>()
-            .into_iter()
             .collect()
     }
+
     pub fn task_totals(&self) -> BTreeMap<AgendaItem, f64> {
         self.contributions
             .keys()
