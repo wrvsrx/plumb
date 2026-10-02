@@ -228,7 +228,12 @@ mod tests {
         assert_eq!(index.position_to_offset(text, Position::new(0, 3)), Some(5));
         assert_eq!(index.position_to_offset(text, Position::new(0, 4)), None);
         assert_eq!(index.position_to_offset(text, Position::new(1, 1)), Some(8));
-        assert_eq!(index.position_to_offset(text, Position::new(2, 0)), None);
+        assert_eq!(
+            index.position_to_offset(text, Position::new(2, 0)),
+            Some(text.len())
+        );
+        assert_eq!(index.position_to_offset(text, Position::new(2, 1)), None);
+        assert_eq!(index.position_to_offset(text, Position::new(3, 0)), None);
     }
 
     #[test]
