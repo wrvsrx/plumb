@@ -405,7 +405,7 @@ fn policy_initial_index_publishes_local_then_merged_diagnostics_without_false_re
 }
 
 #[test]
-fn policy_incomplete_timeline_waits_for_syntax_repair_without_publishing_false_gaps() {
+fn policy_timeline_reports_valid_intervals_during_syntax_errors() {
     let root = unique_temp_dir();
     configure(&root, "[diagnostics.event-timeline]\nenabled=true");
     let a = root.join("a.plumb");
@@ -419,16 +419,12 @@ fn policy_incomplete_timeline_waits_for_syntax_repair_without_publishing_false_g
     open(&mut s, &a, first);
     open(&mut s, &b, "`broken{");
     s.wait_for_next(|m| publication(m, &b) && has(m, "syntax.unclosed-inline-group"));
-    let incomplete = s.wait_for_next(|m| publication(m, &a));
-    assert!(!has(&incomplete, "event-timeline.gap"));
-    // Fixing to an unrelated document establishes a real gap on the next full round.
+    let valid_regions = s.wait_for(|m| publication(m, &a) && has(m, "event-timeline.gap"));
+    assert!(has(&valid_regions, "event-timeline.gap"));
+    // Repairing unrelated syntax preserves the same valid-event gap.
     change(&mut s, &b, 2, "Fixed\n");
-    s.wait_for_next(|m| publication(m, &a) && has(m, "event-timeline.gap"));
+    s.wait_for_next(|m| publication(m, &b) && m["params"]["version"] == 2);
     let messages = stop(s);
-    let incomplete_position = messages.iter().position(|m| m == &incomplete).unwrap();
-    assert!(!messages[..=incomplete_position]
-        .iter()
-        .any(|m| has(m, "event-timeline.gap")));
     assert!(!messages.iter().any(|m| m["params"]["message"]
         .as_str()
         .is_some_and(|s| s.contains("diagnostics.incomplete"))));

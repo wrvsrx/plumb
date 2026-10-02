@@ -335,7 +335,7 @@ fn semantic_equal_edits_preserve_references_but_refresh_changed_folding_inputs()
 }
 
 #[test]
-fn syntax_invalid_revision_does_not_publish_bibliography_diagnostics() {
+fn syntax_invalid_revision_publishes_valid_bibliography_diagnostics() {
     let root = unique_temp_dir();
     std::fs::create_dir_all(&root).unwrap();
     let source_path = root.join("invalid.plumb");
@@ -369,8 +369,9 @@ fn syntax_invalid_revision_does_not_publish_bibliography_diagnostics() {
         .expect("diagnostics notification")["params"]["diagnostics"]
         .as_array()
         .unwrap();
-    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
     assert_eq!(diagnostics[0]["code"], "syntax.unclosed-inline-group");
+    assert_eq!(diagnostics[1]["code"], "citation.unresolved-bibliography");
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -519,6 +520,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
                 ]
             }
         }),
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "textDocument/semanticTokens/full", "params": {"textDocument":{"uri":"file:///tmp/first.plumb"}} }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null }),
         json!({ "jsonrpc": "2.0", "method": "exit", "params": null }),
     ];

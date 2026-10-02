@@ -429,7 +429,7 @@ impl ServerState {
         if self
             .workspace
             .documents()
-            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+            .any(|entry| entry.current.is_none())
         {
             // Recovery must include all deferred documents even if the last
             // installation has unchanged exported facts.
@@ -487,43 +487,10 @@ impl ServerState {
         }
     }
 
-    fn publish_syntax_diagnostics(&self, uri: &Url, path: &Path) {
-        let Some(entry) = self.workspace.get(path) else {
-            return;
-        };
-        let mut positions = None;
-        let diagnostics = entry
-            .parsed
-            .diagnostics()
-            .iter()
-            .cloned()
-            .map(|diagnostic| {
-                to_lsp_diagnostic(
-                    positions.get_or_insert_with(|| PositionIndex::new(entry.parsed.source())),
-                    uri,
-                    diagnostic,
-                )
-            })
-            .collect();
-        let version = i32::try_from(entry.revision).ok();
-        let _ = self
-            .client
-            .notify::<lsp_types::notification::PublishDiagnostics>(PublishDiagnosticsParams {
-                uri: uri.clone(),
-                diagnostics,
-                version,
-            });
-    }
-
     fn publish(&self, uri: &Url, path: &Path, publication: &DiagnosticPublication) {
         let Some(entry) = self.workspace.get(path) else {
             return;
         };
-        if !entry.parsed.is_valid() {
-            // Syntax-invalid is complete, not a pending semantic analysis.
-            self.publish_syntax_diagnostics(uri, path);
-            return;
-        }
         if entry.current.is_none() {
             return;
         }
@@ -797,7 +764,7 @@ impl ServerState {
         if self
             .workspace
             .documents()
-            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+            .any(|entry| entry.current.is_none())
         {
             self.code_lens_refresh_pending = true;
             return;
@@ -821,7 +788,7 @@ impl ServerState {
             && self
                 .workspace
                 .documents()
-                .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+                .any(|entry| entry.current.is_none())
         {
             self.folding_refresh_pending = true;
             return;
@@ -1813,10 +1780,7 @@ impl LanguageServer for ServerState {
         }
 
         if !self.supports_folding_collapsed_text {
-            if self.supports_folding_range_refresh
-                && entry.parsed.is_valid()
-                && entry.current.is_none()
-            {
+            if self.supports_folding_range_refresh && entry.current.is_none() {
                 self.folding_refresh_pending = true;
             }
             return request.run(move || {
@@ -1834,7 +1798,7 @@ impl LanguageServer for ServerState {
             && self
                 .workspace
                 .documents()
-                .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+                .any(|entry| entry.current.is_none())
         {
             self.folding_refresh_pending = true;
         }
@@ -2070,18 +2034,14 @@ impl LanguageServer for ServerState {
             return Box::pin(async { Ok(None) });
         };
         self.ensure_request_document(&path);
-        if self
-            .workspace
-            .get(&path)
-            .is_none_or(|entry| !entry.parsed.is_valid())
-        {
+        if self.workspace.get(&path).is_none() {
             return Box::pin(async { Ok(None) });
         }
 
         if self
             .workspace
             .documents()
-            .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+            .any(|entry| entry.current.is_none())
         {
             self.code_lens_refresh_pending |= self.supports_code_lens_refresh;
             return Box::pin(async { Ok(None) });
@@ -3861,14 +3821,14 @@ mod tests {
             let before = state.folding_range(params.clone()).await
                 .unwrap()
                 .unwrap();
-            assert_eq!(state.folding_refresh_pending, !invalid);
+            assert!(state.folding_refresh_pending);
             let (_, generation) = state.document_analysis_tokens.next(&path);
             let analysis = state
                 .workspace
                 .begin_document_revision(&path, 3, source)
                 .unwrap()
                 .analyze();
-            assert_eq!(analysis.previous_valid_output().is_none(), invalid);
+            assert!(analysis.previous_valid_output().is_some());
             let _ = state.finish_document_analysis(DocumentAnalysisResult {
                 path,
                 generation,

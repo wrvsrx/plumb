@@ -2044,13 +2044,20 @@ mod tests {
 
         std::fs::write(&event_path, events.replace("b.plumb#b", "b.plumb#missing")).unwrap();
         workspace.refresh_document(&event_path, 3).unwrap();
-        let incomplete = workspace.query_tasks(&WebQuery::default()).unwrap();
-        assert!(incomplete
+        let excluded = workspace.query_tasks(&WebQuery::default()).unwrap();
+        assert_eq!(duration(&excluded.tasks, "Alpha"), Some(0.0));
+        assert_eq!(duration(&excluded.tasks, "Beta"), Some(0.0));
+        assert_eq!(duration(&excluded.tasks, "Project"), Some(1800.0));
+        assert!(excluded
             .tasks
             .iter()
-            .all(|task| task.time_spent_seconds.is_none()));
-        let json = serde_json::to_value(&incomplete).unwrap();
-        assert!(json["tasks"][0]["timeSpentSeconds"].is_null());
+            .all(|task| task.time_spent_seconds.is_some()));
+        let json = serde_json::to_value(&excluded).unwrap();
+        assert!(json["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|task| task["timeSpentSeconds"].is_number()));
 
         std::fs::write(&event_path, events).unwrap();
         workspace.refresh_document(&event_path, 4).unwrap();
@@ -2178,7 +2185,7 @@ mod tests {
         let graph = workspace.graph(&GraphQuery::default()).unwrap();
         assert_eq!(
             graph.nodes.iter().filter(|node| !node.unresolved).count(),
-            2
+            3
         );
         assert!(graph.nodes.iter().any(|node| node.unresolved));
         assert_eq!(

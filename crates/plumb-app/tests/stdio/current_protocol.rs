@@ -23,7 +23,7 @@ fn initialize() -> serde_json::Value {
 #[test]
 fn publishes_new_group_diagnostics_and_heading_symbols() {
     let uri = "file:///tmp/current-diagnostics.plumb";
-    let source = "`# Heading\nBroken `span{open\n";
+    let source = "`# Heading\n\nBroken `span{open\n";
     let messages = [
         initialize(),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
@@ -51,7 +51,7 @@ fn publishes_new_group_diagnostics_and_heading_symbols() {
                         .any(|diagnostic| diagnostic["code"] == "syntax.unclosed-inline-group")
                 })
     }));
-    assert!(response(&output, 2)["result"].is_null());
+    assert_eq!(response(&output, 2)["result"][0]["name"], "Heading");
 }
 
 #[test]

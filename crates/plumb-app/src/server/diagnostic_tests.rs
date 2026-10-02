@@ -120,7 +120,7 @@ async fn stale_document_analysis_cannot_publish_or_install() {
 }
 
 #[tokio::test]
-async fn syntax_invalid_is_complete_even_while_workspace_analysis_is_pending() {
+async fn invalid_source_waits_for_current_regional_analysis_and_workspace_scope() {
     let messages = publications(|state| {
         state.index_complete = true;
         let _other = state
@@ -128,13 +128,21 @@ async fn syntax_invalid_is_complete_even_while_workspace_analysis_is_pending() {
             .begin_document_revision("/notes/other.plumb", 1, "Other\n")
             .unwrap();
         let path = PathBuf::from("/notes/day.plumb");
-        state.update(
-            Url::from_file_path(path).unwrap(),
-            2,
-            "`broken{".into(),
-            None,
-            true,
-        );
+        state
+            .open_documents
+            .insert(Url::from_file_path(&path).unwrap(), path.clone());
+        state
+            .workspace
+            .begin_document_revision(&path, 2, "`broken{")
+            .unwrap();
+        state.publish_all_open_diagnostics();
+        assert!(state
+            .workspace
+            .complete_pending_document_analysis("/notes/day.plumb"));
+        assert!(state
+            .workspace
+            .complete_pending_document_analysis("/notes/other.plumb"));
+        state.publish_all_open_diagnostics();
     })
     .await;
     assert_eq!(messages.len(), 1, "{messages:?}");

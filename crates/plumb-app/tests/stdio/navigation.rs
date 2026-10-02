@@ -818,12 +818,9 @@ fn duration_code_lenses_refresh_task_totals_after_cross_file_interval_changes() 
         (1, event.to_owned(), "total 1h"),
         (2, event.replace("11:00", "12:30"), "total 2h 30m"),
         (3, event.replace("--11:00", "--"), "total 0s"),
-        (
-            4,
-            event.replace("#work", "#gone"),
-            "total unavailable (incomplete)",
-        ),
+        (4, event.replace("#work", "#gone"), "total 0s"),
         (5, event.to_owned(), "total 1h"),
+        (6, format!("{event}\n{{broken\n"), "total 1h"),
     ] {
         if version > 1 {
             session.send(&json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
@@ -831,11 +828,13 @@ fn duration_code_lenses_refresh_task_totals_after_cross_file_interval_changes() 
             }}));
             session.send(&json!({"jsonrpc":"2.0","id":version * 10,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":day_uri}}}));
             session.wait_for_response(&json!(version * 10));
+            if version < 6 {
             let refresh = session.wait_for(|m| {
                 m["method"] == "workspace/codeLens/refresh" && !acknowledged.contains(&m["id"])
             });
             acknowledged.push(refresh["id"].clone());
             session.send(&json!({"jsonrpc":"2.0","id":refresh["id"],"result":null}));
+            } // Unrelated syntax errors do not change duration inputs or request refresh.
         }
         let id = version * 10 + 1;
         session.send(&json!({"jsonrpc":"2.0","id":id,"method":"textDocument/codeLens","params":{"textDocument":{"uri":task_uri}}}));
@@ -847,12 +846,9 @@ fn duration_code_lenses_refresh_task_totals_after_cross_file_interval_changes() 
             .iter()
             .find(|l| l["range"]["start"]["line"] == 2 && l["command"]["title"] == expected)
             .expect(expected);
-        assert!(
-            lenses
-                .iter()
-                .any(|l| l["command"]["title"] == "total 0s" && l["range"]["start"]["line"] == 0)
-                || expected.contains("incomplete")
-        );
+        assert!(lenses
+            .iter()
+            .any(|l| l["command"]["title"] == "total 0s" && l["range"]["start"]["line"] == 0));
         if expected == "total 1h" || expected == "total 2h 30m" {
             assert_eq!(total["command"]["arguments"][2][0]["uri"], day_uri.as_str());
             assert_eq!(

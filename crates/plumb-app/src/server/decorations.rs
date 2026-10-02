@@ -32,7 +32,7 @@ impl ServerState {
         fold_labels: bool,
     ) -> Option<BoxFuture<'static, Result<Arc<SemanticSnapshot>, ResponseError>>> {
         let entry = self.workspace.get(path)?;
-        if !entry.parsed.is_valid() || entry.current.is_some() {
+        if entry.current.is_some() {
             return None;
         }
         let pending = self
@@ -77,7 +77,7 @@ impl ServerState {
             && self
                 .workspace
                 .documents()
-                .any(|entry| entry.parsed.is_valid() && entry.current.is_none())
+                .any(|entry| entry.current.is_none())
         {
             self.folding_refresh_pending = true;
         }
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn folds_without_labels_and_invalid_semantic_reads_do_not_wait() {
+    async fn recovered_folds_and_completed_empty_regions_do_not_wait() {
         let mut state = server();
         let (_, _pending) = begin(&mut state, 2, DONE);
         state.supports_folding_collapsed_text = false;
@@ -323,15 +323,17 @@ mod tests {
 
         state.update(uri(), 3, "`- {invalid\n `+ task\n".into(), None, false);
         state.supports_folding_collapsed_text = true;
-        assert!(state
-            .folding_range(fold_params()).await
-            .is_ok());
-        assert!(state
+        assert!(state.folding_range(fold_params()).await.is_ok());
+        let tokens = state
             .semantic_tokens_full(tokens_params())
             .now_or_never()
             .unwrap()
             .unwrap()
-            .is_none());
+            .unwrap();
+        assert!(serde_json::to_value(tokens).unwrap()["data"]
+            .as_array()
+            .unwrap()
+            .is_empty());
         assert!(state.pending_document_reads.is_empty());
     }
 

@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(
             &titles[2..],
             [
-                "total unavailable (incomplete)",
+                "total 1h 30m",
                 "duration 1h 30m",
                 "ongoing",
                 "duration unavailable"
@@ -113,6 +113,26 @@ mod tests {
         let locations = &command.arguments.as_ref().unwrap()[2];
         assert_eq!(locations[0]["range"]["start"]["line"], 5);
         assert_eq!(locations[0]["uri"], "file:///notes/day.plumb");
+    }
+
+    #[test]
+    fn chinese_item_lens_counts_valid_events_despite_local_and_workspace_errors() {
+        let mut workspace = super::super::Workspace::new();
+        let source = "`= title test\n`= date 2026-10-03\n`= timezone +08:00\n\n`- 中文项\n `@ 中文项\n `= event-category daily\n`- 09:00--10:00 `->{#中文项}\n `+ event\n\n{broken\n";
+        workspace.insert("/notes/test.plumb", 0, source);
+        workspace.insert("/notes/bad.plumb", 0, "`- tomorrow Invalid\n `+ event\n");
+        let result = lenses(&workspace, std::path::Path::new("/notes/test.plumb"))
+            .unwrap()
+            .unwrap();
+        let total = result
+            .iter()
+            .find(|lens| lens.command.as_ref().unwrap().title == "total 1h")
+            .unwrap();
+        assert_eq!(total.range.start, lsp_types::Position::new(4, 0));
+        assert!(workspace
+            .document_local_diagnostics("/notes/test.plumb")
+            .iter()
+            .any(|d| d.code == "syntax.unclosed-inline-group"));
     }
 
     #[test]

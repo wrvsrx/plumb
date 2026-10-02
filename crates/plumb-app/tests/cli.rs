@@ -1092,7 +1092,7 @@ fn agenda_summary_keeps_explicit_window_and_accounting() {
     assert_eq!(json["gaps"].as_array().unwrap().len(), 1);
     assert_eq!(run("2026-09-22T09:00:00Z").status.code(), Some(2));
     std::fs::write(dir.join("bad.plumb"), "`- tomorrow Bad\n `+ event\n").unwrap();
-    assert_eq!(run("2026-09-22T11:00:00Z").status.code(), Some(2));
+    assert_eq!(run("2026-09-22T11:00:00Z").status.code(), Some(0));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -1199,8 +1199,8 @@ fn category_check_uses_effective_categories_and_reports_missing_and_invalid() {
     )
     .unwrap();
     let out = run();
-    assert_eq!(out.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&out.stdout).contains("diagnostics.incomplete"));
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("diagnostics.incomplete"));
     for source in [
         "`= event-category work\n`- 2020-01-01T10:00:00Z Point\n `+ event\n",
         "`# Section\n `= event-category work\n `- 2020-01-01T10:00:00Z Point\n  `+ event\n",
@@ -1237,9 +1237,10 @@ fn category_check_cache_modes_preserve_invalid_document_diagnostics() {
             command.arg("--no-cache");
         }
         let output = command.output().unwrap();
-        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(output.status.code(), Some(1));
         let text = String::from_utf8_lossy(&output.stdout);
-        assert!(text.contains("agenda.invalid-document"));
+        assert!(text.contains("syntax.unclosed-inline-group"));
+        assert!(!text.contains("diagnostics.incomplete"));
         assert!(text.contains("event-category.missing"));
         outputs.push(output.stdout);
     }
@@ -1275,7 +1276,7 @@ fn category_check_terminal_uses_relative_one_based_unicode_positions() {
 }
 
 #[test]
-fn timeline_check_reports_overlap_and_incomplete_without_time_arguments() {
+fn timeline_check_reports_valid_overlap_despite_invalid_events() {
     let dir = unique_temp_dir();
     std::fs::create_dir_all(&dir).unwrap();
     let run = || {
@@ -1296,10 +1297,10 @@ fn timeline_check_reports_overlap_and_incomplete_without_time_arguments() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("event-timeline.overlap"));
     std::fs::write(dir.join("bad.plumb"), "`- tomorrow Invalid\n `+ event\n").unwrap();
     let out = run();
-    assert_eq!(out.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&out.stdout).contains("diagnostics.incomplete"));
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("diagnostics.incomplete"));
     std::fs::write(dir.join("bad.plumb"), "`broken{").unwrap();
-    assert_eq!(run().status.code(), Some(2));
+    assert_eq!(run().status.code(), Some(1));
     std::fs::remove_dir_all(dir).unwrap();
 }
 

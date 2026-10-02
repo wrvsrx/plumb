@@ -123,11 +123,7 @@ impl ServerState {
         if !self.index_complete {
             return;
         }
-        if self
-            .workspace
-            .documents()
-            .any(|e| e.parsed.is_valid() && e.current.is_none())
-        {
+        if self.workspace.documents().any(|e| e.current.is_none()) {
             return;
         }
         self.policy.dirty = false;
@@ -431,7 +427,7 @@ mod tests {
             };
             assert!(has("event-timeline.overlap"));
             assert_eq!(has("event-timeline.gap"), *end == "invalid");
-            assert_eq!(has("agenda.invalid-time"), *end == "invalid");
+            assert!(!has("agenda.invalid-time"));
             assert!(result.diagnostics[&path]
                 .iter()
                 .all(|d| d.severity == Some(lsp_types::DiagnosticSeverity::WARNING)));
@@ -447,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_rule_conclusions_are_deferred_until_syntax_is_repaired() {
+    fn valid_interval_conclusions_survive_unrelated_syntax_errors() {
         let root = PathBuf::from("/notes");
         let a = root.join("a.plumb");
         let b = root.join("b.plumb");
@@ -467,7 +463,9 @@ mod tests {
             open.clone(),
         )
         .unwrap();
-        assert!(incomplete.diagnostics.is_empty());
+        assert!(incomplete.diagnostics[&a]
+            .iter()
+            .any(|d| d.code == Some(NumberOrString::String("event-timeline.gap".into()))));
         workspace.open_document(&b, 2, "Fixed\n");
         let complete = compute(workspace, settings, vec![root], open).unwrap();
         assert!(complete.diagnostics[&a]
