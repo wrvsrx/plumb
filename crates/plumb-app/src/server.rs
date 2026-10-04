@@ -1628,6 +1628,11 @@ impl LanguageServer for ServerState {
                 return ControlFlow::Continue(());
             }
         }
+        for (path, _) in &changes {
+            if is_plumb_file(path) && !self.open_documents.values().any(|open| open == path) {
+                self.invalidate_link_completions(path);
+            }
+        }
         if (!self.index_pending && !self.index_complete)
             || changes
                 .iter()

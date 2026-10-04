@@ -472,6 +472,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn disk_target_change_during_initial_index_wait_invalidates_anchor_request() {
+        let mut state = state("`->{target.plumb#}");
+        state
+            .open_documents
+            .remove(&Url::from_file_path(TARGET).unwrap());
+        state.index_complete = false;
+        state.index_pending = true;
+        let response = request(&mut state);
+        let _ = state.did_change_watched_files(
+            serde_json::from_value(serde_json::json!({
+                "changes": [{"uri": Url::from_file_path(TARGET).unwrap(), "type": 2}]
+            }))
+            .unwrap(),
+        );
+        assert_eq!(
+            response.await.unwrap_err().code,
+            ErrorCode::CONTENT_MODIFIED
+        );
+        assert!(state.link_completion_waiters.targets.is_empty());
+    }
+
+    #[tokio::test]
     async fn failed_initial_index_wakes_requests_as_errors() {
         let mut state = state("`->{三}");
         state.index_complete = false;
