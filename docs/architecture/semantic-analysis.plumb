@@ -243,11 +243,25 @@ boundary的映射；跳过 marker/envelope时 boundary可以跨 source gap。
 保留 non-declaration elements之间的 whitespace/adjacency。Link 使用 first/rest 形成 explicit label/target，Event
 使用它形成 schedule/title；core tree与唯一 lossless element sequence不因该 semantic binding改变。
 
-completion 可以读取 current recovered view 与其他 documents 的 last-valid indexes。definition、references、 hover 和 rename 默认要求当前 target 具有 valid semantic record。
+completion context 读取 current recovered view；Link 候选的 current-input 与 pending 契约见下节，不沿用 last-valid 标题或锚点。definition、references、 hover 和 rename 默认要求当前 target 具有 valid semantic record。
 
 document analysis output 在共享 source-ordered link storage 之外保存 event containment index。每个 event record 对应一个可重叠的 link index range；nested events 可以引用同一 link record，不复制 source-backed link data。构建在 links 与 events 已按 source 排序后以 monotonic boundary search 完成；workspace 的 event-task association、diagnostics、navigation、reverse references 与 event query 统一调用 indexed contained-links query，不各自重做 byte-range join。revision replacement 原子替换 links 与 ranges，不能让 新 event 观察旧 link storage。
 
 workspace hover target lookup 在 current valid document 上先解析 link、citation 等具体 semantic target， 再解析 document metadata target。byte offset 0 始终是 path-defined document declaration target；任意 top-level direct `"=" metadata entry 的完整 subtree 也是同一 document summary 的入口，返回 range 是命中的 entry range。nested ordinary-owner property 不属于 document target，分散 metadata entries 之间的 body 也不能由聚合 range 偶然命中。
+
+`## 8.1 Link completion dependencies
+
+Link 补全不能把正常 semantic pending 作为 INTERNAL_ERROR 或最终空候选；不要求用户再次输入或手动重试。
+
+Path、SingleArgumentPath 与 VerbatimPath 只依赖 normalized document identities、当前标题和 source recovered completion context。标题由 official metadata 有效区域投影取得，不重新 parse、不运行整篇语义分析；title 无效或缺失时用相对路径作 display fallback，不复用旧 title。当前 source 正在分析不阻塞其它文档的路径候选；source 自身从路径候选排除。Anchor 与 VerbatimAnchor 只依赖解码后目标 identity 的当前 anchor facts；缺失目标是完整空集合，存在但 pending 的目标是显式 Pending，不能沿用旧 anchors，也不能因其它文件 pending 变为不完整。保留现有 case-insensitive subsequence 匹配、relative-path spelling、source-backed replacement 与候选排序。
+
+Cross-document 路径候选索引属于 plumb-workspace。每个文档贡献 path/title value，另存 generation provenance；source geometry 不进入 searchable value。相同 value 停止 postings 更新。打开文档以整个 identity 遮蔽 disk；编辑、安装分析、删除、关闭与重新打开按 identity 标脏，只 retract/insert 该文档 contribution。使用 Unicode lowercase character postings 取得查询候选，再按实际相对路径/title 验证 subsequence；relative path 引入的点和分隔符必须保守包含。空查询允许按输出枚举所有候选；非空查询只访问选中 postings 的 identities，不为匹配候选枚举 workspace。warm 同值重复查询不重读 document facts；local update 工作限于 changed document facts、其 postings 与 query candidate frontier。无匹配字符的无关文档增长不得增加候选访问量。
+
+Cold bootstrap 和 store lineage 更换可枚举一次 document identities。warm persistent 更新通过 indexed generation changes/tombstones 获取受影响 identities，再按 primary key 读取 title；目标 anchors 按 path index 读取，不能扫全部 anchors 或读取所有 document BLOB。缓存以 immutable workspace snapshot 为边界，copy-on-write 分叉，成功同步后原子发布；失败不能发布半更新索引。未命中 target 也按 identity 查询，后续创建、重命名、overlay 或删除必须可见。查询携带 snapshot provenance 与依赖 pending 状态，adapter 不推测 workspace facts。
+
+LSP 在 initial index 尚未完成时异步等待 index publication；真正的 index failure 保留失败，不伪装成完整空候选。索引就绪后，路径候选立即查询。目标 anchor pending 时异步等待该 generation 的安装，不在主循环同步运行整篇分析，也不在主循环阻塞等待自身 notification。source revision/allocation 或目标 revision 在等待期间变化、关闭、重命名使原请求以 ContentModified 结束；失败的 worker 唤醒为具体错误。按 source 与 dependency identity 维护反向等待集合，局部修改不扫描全部请求。取消的请求必须释放等待资源。没有依赖变化时，后台完成直接返回同一 source revision 的候选和 UTF-16 edit，不依赖 completion refresh 或固定时长重试。
+
+确定性验证必须控制 semantic install 时机：pending source 的路径补全立即成功，无关 pending 不阻塞；target pending 等待后包含新 anchors，不包含旧 anchors；等待时再次编辑/关闭返回 ContentModified。工作量覆盖 repeat reads、无关编辑、局部 title 变化、无关数据增长、cold parity、overlay/close、删除/缺失恢复、snapshot isolation 与 indexed persistent changes。集成用 Link snippet 的选区替换为中文“三”，首次请求返回匹配文件且不破坏右花括号。
 
 Bibliography 分为 document-local declaration 与 workspace file dependency：`"plumb-semantics" 从 typed metadata 投影 source-backed paths，并从 recovered inline view 产生 citation completion context； `"plumb-workspace" 负责 root containment、file I/O、CSL JSON decoding、id merge/resolution 和 dependency diagnostics。LSP 与 Web 不得各自解析 bibliography。Bibliography bytes 变化必须 invalidates 所有声明该 source 的 derived query/render results。
 

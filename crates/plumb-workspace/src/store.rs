@@ -432,6 +432,51 @@ impl SqliteSemanticStore {
         })
     }
 
+    /// Read changed title inputs and their clock in one transaction. Warm reads
+    /// use the sequence index and identity join; no semantic BLOB is decoded.
+    pub(crate) fn completion_titles_since(
+        &self,
+        identity: Option<&[u8]>,
+        after: i64,
+        requested: &[PathBuf],
+    ) -> StoreResult<(Vec<u8>, i64, bool, Vec<(PathBuf, Option<String>)>)> {
+        use schema::generation_clock as clock;
+        let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
+        connection.transaction::<_, StoreError, _>(|connection| {
+            let (current_identity, sequence) = clock::table
+                .select((clock::identity, clock::sequence))
+                .first::<(Vec<u8>, i64)>(connection)?;
+            let rebuild = identity != Some(current_identity.as_slice()) || after > sequence;
+            let rows = if rebuild {
+                documents::table.select((documents::path, documents::title.nullable()))
+                    .load::<(Vec<u8>, Option<String>)>(connection)?
+            } else {
+                // Explicit SQL keeps the change-table range as the outer lookup.
+                #[derive(QueryableByName)]
+                struct Row {
+                    #[diesel(sql_type = Binary)]
+                    path: Vec<u8>,
+                    #[diesel(sql_type = Nullable<Text>)]
+                    title: Option<String>,
+                }
+                diesel::sql_query("SELECT c.path, d.title FROM generation_changes c LEFT JOIN documents d ON d.path = c.path WHERE c.sequence > ? ORDER BY c.sequence")
+                    .bind::<BigInt, _>(after).load::<Row>(connection)?
+                    .into_iter().map(|row| (row.path, row.title)).collect()
+            };
+            let mut rows = rows.into_iter().map(|(path, title)| Ok((path_from_bytes(path)?, title)))
+                .collect::<StoreResult<Vec<_>>>()?;
+            let present: std::collections::HashSet<_> = rows.iter().map(|(path, _)| path.clone()).collect();
+            for path in requested {
+                if !present.contains(path) {
+                    let title = documents::table.filter(documents::path.eq(path_bytes(path)))
+                        .select(documents::title).first::<String>(connection).optional()?;
+                    rows.push((path.clone(), title));
+                }
+            }
+            Ok((current_identity, sequence, rebuild, rows))
+        })
+    }
+
     pub(crate) fn anchors_for_path(&self, path: &Path) -> StoreResult<Vec<AnchorRecord>> {
         let mut connection = self
             .connection
@@ -3274,6 +3319,25 @@ fn register_functions(connection: &mut SqliteConnection) -> StoreResult<()> {
 #[cfg(test)]
 mod generation_change_tests {
     use super::*;
+    #[test]
+    fn completion_title_changes_and_target_anchors_use_indexed_lookups() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        #[derive(QueryableByName)]
+        struct Plan {
+            #[diesel(sql_type = Text)]
+            detail: String,
+        }
+        let mut connection = store.connection.lock().unwrap();
+        let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT c.path, d.title FROM generation_changes c LEFT JOIN documents d ON d.path = c.path WHERE c.sequence > 5 ORDER BY c.sequence")
+            .load::<Plan>(&mut *connection).unwrap();
+        assert!(plan.iter().any(|p| p.detail.contains("SEARCH c USING INDEX generation_changes_sequence")));
+        assert!(plan.iter().any(|p| p.detail.contains("SEARCH d USING INDEX") && p.detail.contains("path=?")));
+        let plan = diesel::sql_query("EXPLAIN QUERY PLAN SELECT record FROM anchors WHERE path = X'01' ORDER BY start")
+            .load::<Plan>(&mut *connection).unwrap();
+        assert!(plan.iter().any(|p| p.detail.contains("SEARCH anchors USING INDEX") && p.detail.contains("path=?")));
+        assert!(!plan.iter().any(|p| p.detail.contains("SCAN anchors")));
+    }
+
     #[test]
     fn change_cursor_is_indexed_compacted_transactional_and_preserves_deletions() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();

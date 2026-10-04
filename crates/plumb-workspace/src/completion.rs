@@ -164,3 +164,167 @@ impl Workspace {
 
 #[cfg(test)]
 pub(crate) const TEST_EVENT_TITLE_COMPLETION_LIMIT: usize = EVENT_TITLE_COMPLETION_LIMIT;
+
+impl Workspace {
+    /// Target identity remains a dependency even while the initial index is pending.
+    pub fn link_completion_target(
+        &self,
+        from: impl AsRef<Path>,
+        context: &plumb_semantics::LinkCompletionContext,
+    ) -> Option<std::path::PathBuf> {
+        link_anchor_target(from.as_ref(), context)
+    }
+
+    /// Only this identity can block an anchor completion. Missing targets are ready.
+    pub fn pending_link_completion_target(
+        &self,
+        from: impl AsRef<Path>,
+        context: &plumb_semantics::LinkCompletionContext,
+    ) -> Option<std::path::PathBuf> {
+        let target = link_anchor_target(from.as_ref(), context)?;
+        self.document_analysis_pending(&target).then_some(target)
+    }
+
+    pub fn link_completion_work(&self) -> crate::LinkCompletionWork {
+        self.derived.completion.work()
+    }
+
+    pub fn complete_link(
+        &self,
+        from: impl AsRef<Path>,
+        context: &plumb_semantics::LinkCompletionContext,
+    ) -> Result<QueryResult<Vec<CompletionCandidate>>, WorkspaceQueryError> {
+        use crate::{
+            escape_parsed_text, format_inline_verbatim, relative_path, valid_bare_attribute_value,
+            valid_verbatim_link_completion_path, verbatim_payload_is_safe,
+        };
+        use plumb_semantics::LinkCompletionContext;
+        let from = normalize(from.as_ref());
+        let mut candidates = Vec::new();
+        if let Some(target) = link_anchor_target(&from, context) {
+            let (replace, query) = match context {
+                LinkCompletionContext::Anchor { replace, query, .. }
+                | LinkCompletionContext::VerbatimAnchor { replace, query, .. } => (replace, query),
+                _ => unreachable!(),
+            };
+            if self.document_analysis_pending(&target) {
+                return Ok(self.query_result_with_pending(candidates, true));
+            }
+            let anchors = if let Some(entry) = self.documents.get(&target) {
+                entry
+                    .current
+                    .as_ref()
+                    .expect("ready target")
+                    .output
+                    .anchors()
+                    .iter()
+                    .collect()
+            } else if let Some(store) = &self.disk_store {
+                store.anchors_for_path(&target)?
+            } else {
+                Vec::new()
+            };
+            candidates.extend(
+                anchors
+                    .into_iter()
+                    .filter(|anchor| fuzzy_match(&anchor.id.value, query))
+                    .map(|anchor| CompletionCandidate {
+                        label: format!("#{}", anchor.id.value),
+                        detail: format!("explicit anchor in {}", target.display()),
+                        new_text: anchor.id.value,
+                        replace: replace.clone(),
+                    }),
+            );
+        } else {
+            let query = match context {
+                LinkCompletionContext::Path { query, .. }
+                | LinkCompletionContext::SingleArgumentPath { query, .. }
+                | LinkCompletionContext::VerbatimPath { query, .. } => query,
+                _ => unreachable!(),
+            };
+            for (path, title) in self.derived.completion.paths(self, query)? {
+                if path == from {
+                    continue;
+                }
+                let Some(relative) = relative_path(&from, &path) else {
+                    continue;
+                };
+                let title = if title.is_empty() {
+                    relative.clone()
+                } else {
+                    title
+                };
+                if !fuzzy_match(&relative, query) && !fuzzy_match(&title, query) {
+                    continue;
+                }
+                let (new_text, replace) = match context {
+                    LinkCompletionContext::Path {
+                        parsed, replace, ..
+                    } => {
+                        if !*parsed && !valid_bare_attribute_value(&relative) {
+                            continue;
+                        }
+                        (
+                            if *parsed {
+                                escape_parsed_text(&relative)
+                            } else {
+                                relative.clone()
+                            },
+                            replace.clone(),
+                        )
+                    }
+                    LinkCompletionContext::SingleArgumentPath {
+                        replace, suffix, ..
+                    } => (
+                        plumb_edit::render_authored_text_arguments(&[&format!(
+                            "{relative}{suffix}"
+                        )]),
+                        replace.clone(),
+                    ),
+                    LinkCompletionContext::VerbatimPath {
+                        replace,
+                        envelope,
+                        quote_count,
+                        suffix,
+                        ..
+                    } => {
+                        if !valid_verbatim_link_completion_path(&relative) {
+                            continue;
+                        }
+                        let payload = format!("{relative}{suffix}");
+                        if verbatim_payload_is_safe(&payload, *quote_count) {
+                            (relative.clone(), replace.clone())
+                        } else {
+                            (format_inline_verbatim(&payload), envelope.clone())
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                candidates.push(CompletionCandidate {
+                    label: relative,
+                    detail: title,
+                    new_text,
+                    replace,
+                });
+            }
+        }
+        candidates.sort_by(|left, right| left.label.cmp(&right.label));
+        Ok(self.query_result_with_pending(candidates, false))
+    }
+}
+
+fn link_anchor_target(
+    from: &Path,
+    context: &plumb_semantics::LinkCompletionContext,
+) -> Option<std::path::PathBuf> {
+    use plumb_semantics::LinkCompletionContext;
+    match context {
+        LinkCompletionContext::Anchor { path, .. }
+        | LinkCompletionContext::VerbatimAnchor { path, .. } => Some(if path.is_empty() {
+            normalize(from)
+        } else {
+            crate::resolve_relative(&normalize(from), path)
+        }),
+        _ => None,
+    }
+}

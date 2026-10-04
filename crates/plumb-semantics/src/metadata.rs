@@ -193,6 +193,12 @@ pub fn analyze_green_metadata(valid: ValidGreenDocument<'_>) -> MetadataOutput {
     analyze_green_metadata_regions(valid.syntax())
 }
 
+/// Current title for interactive path completion while full analysis is pending.
+/// Uses the same validated-region metadata projection as the official pipeline.
+pub fn green_completion_document_title(syntax: &plumb_syntax::GreenDocument) -> Option<String> {
+    analyze_green_metadata_regions(syntax).document_title()
+}
+
 pub(crate) fn analyze_green_metadata_regions(
     syntax: &plumb_syntax::GreenDocument,
 ) -> MetadataOutput {

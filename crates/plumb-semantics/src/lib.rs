@@ -299,7 +299,8 @@ pub use inline_styles::{
 pub use lists::{analyze_lists, ListGroup, ListGroups, ListItemRecord, ListKind, ListOutput};
 pub use math::{analyze_math, MathKind, MathOutput, MathRecord, MathRecordView};
 pub use metadata::{
-    analyze_metadata, green_recovered_bibliography_sources, recovered_bibliography_sources,
+    analyze_metadata, green_completion_document_title, green_recovered_bibliography_sources,
+    recovered_bibliography_sources,
     BibliographySource, DocumentFacet, MetadataBlock, MetadataEntry, MetadataListItem,
     MetadataOutput, MetadataValue,
 };
