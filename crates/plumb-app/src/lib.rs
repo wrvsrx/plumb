@@ -18,7 +18,10 @@ use async_lsp::panic::CatchUnwindLayer;
 use async_lsp::router::Router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
-use server::{DocumentAnalysisResult, InitialIndexResult, PolicyDiagnosticsResult, ServerState};
+use server::{
+    CancelLinkCompletion, DocumentAnalysisResult, InitialIndexResult, PolicyDiagnosticsResult,
+    ServerState,
+};
 use tower::ServiceBuilder;
 use tracing::Level;
 
@@ -35,6 +38,7 @@ pub async fn run_lsp_with_config(overrides: Vec<String>) {
         router.request::<search::PlumbSearchRequest, _>(|state, params| state.search(params));
         router.request::<next::PlumbNextRequest, _>(|state, params| state.next(params));
         router.event::<InitialIndexResult>(|state, result| state.finish_initial_index(result));
+        router.event::<CancelLinkCompletion>(|state, event| state.cancel_link_completion(event));
         router.event::<DocumentAnalysisResult>(|state, result| {
             state.finish_document_analysis(result)
         });

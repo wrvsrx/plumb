@@ -159,6 +159,8 @@ label。`"c" 至 `"cite" prefix
 提供 Citation snippet，完整/recovered `"cite{...}" 从 declared CSL
 files补全 ids；legacy task/event marker prefixes 不提供候选。
 
+直接输入文字替换 Link snippet 的选中占位符后，路径补全可按文件名或当前文档标题匹配，包括中文。路径候选不等待当前或无关文档的后台分析；锚点候选等待目标文档就绪后返回，无需再次输入或手动重试。等待期间继续编辑会取消旧请求，避免使用过期的替换范围。
+
 snippets 使用 current braces/space syntax：Link `"`->{{label} target}"，properties `"`= key value"。Task/Event
 skeleton 生成 list item 与 direct facet children，child relative indentation 一格；client insertTextMode 只改变
 base indentation projection。CodeAction 包括 SpaceRun alignment、metadata、explicit id、event shorthand、task

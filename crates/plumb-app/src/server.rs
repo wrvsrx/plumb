@@ -83,6 +83,8 @@ enum DiagnosticPublication {
 mod code_lens;
 mod completion;
 mod decorations;
+mod link_completion;
+pub(crate) use link_completion::CancelLinkCompletion;
 #[cfg(test)]
 mod diagnostic_tests;
 mod policy;
@@ -123,6 +125,7 @@ pub(crate) struct ServerState {
     pending_path_renames: Vec<PendingPathRename>,
     document_analysis_tokens: DocumentAnalysisTokens,
     pending_document_reads: HashMap<PathBuf, PendingDocumentReads>,
+    link_completion_waiters: link_completion::LinkCompletionWaiters,
     diagnostic_context: Option<Arc<WorkspaceDiagnosticContext>>,
     policy: policy::PolicyState,
     workers: workers::Workers,
@@ -216,6 +219,7 @@ impl ServerState {
             pending_path_renames: Vec::new(),
             document_analysis_tokens: DocumentAnalysisTokens::default(),
             pending_document_reads: HashMap::new(),
+            link_completion_waiters: Default::default(),
             diagnostic_context: None,
             policy: policy::PolicyState::default(),
             workers: workers::Workers::default(),
@@ -266,6 +270,7 @@ impl ServerState {
             return;
         };
         let path = normalize(&path);
+        self.invalidate_link_completions(&path);
         self.workers.source_changed(&path);
         self.pending_document_reads.remove(&path);
         let revision = i64::from(version);
@@ -336,6 +341,7 @@ impl ServerState {
         let Ok(analysis) = result.analysis else {
             tracing::error!(path = %result.path.display(), "document semantic analysis failed");
             self.fail_pending_document_reads(&result.path);
+            self.fail_link_completions(&result.path);
             return ControlFlow::Continue(());
         };
         let previous = (self.supports_code_lens_refresh || self.supports_folding_range_refresh)
@@ -378,6 +384,7 @@ impl ServerState {
             self.folding_refresh_pending = true;
         }
         self.finish_pending_document_reads(&result.path);
+        self.finish_link_completion_document(&result.path);
         self.schedule_policy_diagnostics();
         match impact.exported {
             ExportedSemanticChange::Changed => {
@@ -677,6 +684,7 @@ impl ServerState {
         }
         self.index_pending = false;
         self.index_complete = result.complete;
+        self.finish_link_completion_index();
         self.notify_index_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
             cancellable: Some(false),
             message: Some(format!(
@@ -801,6 +809,8 @@ impl ServerState {
     }
 
     fn begin_path_rename(&mut self, old_path: PathBuf, new_path: PathBuf) {
+        self.invalidate_link_completions(&old_path);
+        self.invalidate_link_completions(&new_path);
         self.workers.source_changed(&old_path);
         self.workers.source_changed(&new_path);
         self.pending_document_reads.remove(&old_path);
@@ -965,6 +975,7 @@ impl ServerState {
             self.workers.workspace_changed();
             if self.workspace.complete_pending_document_analysis(&path) {
                 self.finish_pending_document_reads(&path);
+                self.finish_link_completion_document(&path);
                 completed = true;
             } else {
                 self.pending_document_reads.remove(&path);
@@ -1541,6 +1552,7 @@ impl LanguageServer for ServerState {
         let uri = params.text_document.uri;
         if let Some(path) = self.open_documents.remove(&uri) {
             self.open_document_line_indexes.remove(&path);
+            self.invalidate_link_completions(&path);
             self.workers.source_changed(&path);
             self.document_analysis_tokens.cancel(&path);
             self.pending_document_reads.remove(&path);
@@ -1624,6 +1636,7 @@ impl LanguageServer for ServerState {
             self.index_generation = self.index_generation.wrapping_add(1);
             let (_, complete) = self.index_roots();
             self.index_complete = complete;
+            self.finish_link_completion_index();
         } else {
             let (files, complete) = self.scanned_files();
             self.index_complete &= complete;
@@ -2235,6 +2248,16 @@ impl LanguageServer for ServerState {
         params: CompletionParams,
     ) -> BoxFuture<'static, Result<Option<CompletionResponse>, Self::Error>> {
         let position = params.text_document_position;
+        if let Ok(path) = position.text_document.uri.to_file_path() {
+            if let Some(entry) = self.workspace.get(&path) {
+                let offset = position_to_offset(entry.parsed.source(), position.position);
+                if construct_completion_context(entry.parsed.green(), offset).is_none() {
+                    if let Some(context) = link_completion_context(entry.parsed.green(), offset) {
+                        return self.request_link_completion(path, context);
+                    }
+                }
+            }
+        }
         let result = (|| {
             let Some(path) = position.text_document.uri.to_file_path().ok() else {
                 return Ok(None);

@@ -1244,3 +1244,46 @@ fn completes_category_values_from_workspace_sets() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn link_snippet_selection_replacement_returns_chinese_paths_on_first_request() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("inbox.plumb");
+    std::fs::write(root.join("三角洲.plumb"), "`= title 三角洲\n").unwrap();
+    let uri = lsp_types::Url::from_file_path(&path).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let messages = vec![
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+            "processId":null,"rootUri":root_uri,"capabilities":{},
+            "workspaceFolders":[{"uri":root_uri,"name":"test"}]
+        }}),
+        json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+            "textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":"`->{target/label}"}
+        }}),
+        // Select-mode replacement sends deletion and insertion in source order.
+        json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+            "textDocument":{"uri":uri,"version":2},"contentChanges":[
+                {"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":16}},"text":""},
+                {"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":4}},"text":"三"}
+            ]
+        }}),
+        json!({"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{
+            "textDocument":{"uri":uri},"position":{"line":0,"character":5}
+        }}),
+        json!({"jsonrpc":"2.0","id":3,"method":"shutdown","params":null}),
+        json!({"jsonrpc":"2.0","method":"exit","params":null}),
+    ];
+    let output = run_server_after_initial_index(&messages);
+    let response = response(&output, 2);
+    assert!(response.get("error").is_none(), "{response}");
+    let item = response["result"].as_array().unwrap().iter()
+        .find(|item| item["label"] == "三角洲.plumb").unwrap();
+    assert_eq!(item["textEdit"]["range"], json!({"start":{"line":0,"character":4},"end":{"line":0,"character":5}}));
+    assert_eq!(item["textEdit"]["newText"], "三角洲.plumb");
+    let source = "`->{三}";
+    let completed = format!("{}{}{}", &source[..4], item["textEdit"]["newText"].as_str().unwrap(), &source[7..]);
+    assert_eq!(completed, "`->{三角洲.plumb}");
+    std::fs::remove_dir_all(root).unwrap();
+}
