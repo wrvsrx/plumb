@@ -46,10 +46,12 @@
               '';
 
               postFixup = ''
-                wrapProgram $out/bin/plumb --prefix PATH : ${pkgs.lib.makeBinPath [
-                  pkgs.pandoc
-                  pkgs.xdg-utils
-                ]}
+                wrapProgram $out/bin/plumb --prefix PATH : ${
+                  pkgs.lib.makeBinPath [
+                    pkgs.pandoc
+                    pkgs.xdg-utils
+                  ]
+                }
               '';
 
               passthru = {
@@ -72,7 +74,11 @@
                 tree-sitter-plumb.generatedSource
               ];
 
-              TREE_SITTER_PYTHON_PACKAGE = "${pkgs.tree-sitter-grammars.tree-sitter-python}";
+              env = {
+                TREE_SITTER_PYTHON_PACKAGE = "${pkgs.tree-sitter-grammars.tree-sitter-python}";
+                # Avoid injecting a self-rpath that breaks linking in worktrees with spaces.
+                NIX_NO_SELF_RPATH = true;
+              };
 
               shellHook = ''
                 export CC="${pkgs.stdenv.cc}/bin/cc"
