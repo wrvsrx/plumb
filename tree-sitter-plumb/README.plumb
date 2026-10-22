@@ -4,100 +4,100 @@ The intentionally lenient tree-sitter grammar for plumb editor tooling. The hand
 
 `# Core-only CST
 
-The grammar represents current core syntax with generic `"marked_block"、`"paragraph"、`"block_body"、
-`"verbatim_block"、`"marked_group"、`"anonymous_group" and `"inline_verbatim" nodes. Marker/kind tokens remain opaque;
-heading/list/task/link meanings belong to official semantics。
+ The grammar represents current core syntax with generic `"marked_block"、`"paragraph"、`"block_body"、
+  `"verbatim_block"、`"marked_group"、`"anonymous_group" and `"inline_verbatim" nodes. Marker/kind tokens remain opaque;
+  heading/list/task/link meanings belong to official semantics。
 
-`"verbatim_block" directly owns optional `"verbatim_kind" and indentation-terminated payload with fixed one-space margin。
-`"inline_verbatim" covers compact/full single-line raw。Recovery-only incomplete group nodes keep later blocks parseable；
-they do not make source strict-valid。
+ `"verbatim_block" directly owns optional `"verbatim_kind" and indentation-terminated payload with fixed one-space margin。
+  `"inline_verbatim" covers compact/full single-line raw。Recovery-only incomplete group nodes keep later blocks parseable；
+  they do not make source strict-valid。
 
-ASCII `"space" and `"soft_break" nodes remain lossless whitespace elements and occupy no positional index。Braces recursively group inline content；there
-are no member, argument-separator or raw-tail nodes。
+ ASCII `"space" and `"soft_break" nodes remain lossless whitespace elements and occupy no positional index。Braces recursively group inline content；there
+  are no member, argument-separator or raw-tail nodes。
 
 `# Source and generated files
 
-Edit and commit grammar sources such as:
+ Edit and commit grammar sources such as:
 
-`- `"grammar.js"
-`- `"tree-sitter.json"
-`- corpus tests and queries
-`- `"check-strict-valid.sh" strict-valid structural alignment check
-`- `"test/strict-alignment/" normalized structural CST comparison harness
-`- the hand-written `"src/scanner.c" and future bindings
+ `- `"grammar.js"
+ `- `"tree-sitter.json"
+ `- corpus tests and queries
+ `- `"check-strict-valid.sh" strict-valid structural alignment check
+ `- `"test/strict-alignment/" normalized structural CST comparison harness
+ `- the hand-written `"src/scanner.c" and future bindings
 
-Do not edit or commit files generated under `"src/"：
+ Do not edit or commit files generated under `"src/"：
 
-`- `"src/grammar.json"
-`- `"src/node-types.json"
-`- `"src/parser.c"
-`- `"src/tree_sitter/"
+ `- `"src/grammar.json"
+ `- `"src/node-types.json"
+ `- `"src/parser.c"
+ `- `"src/tree_sitter/"
 
-The ignore rules name these paths individually so the hand-written `"src/scanner.c" remains trackable.
+ The ignore rules name these paths individually so the hand-written `"src/scanner.c" remains trackable.
 
 `# Generate
 
-Run generation through the repository's locked Nix environment:
+ Run generation through the repository's locked Nix environment:
 
-`sh"
-  cd tree-sitter-plumb
-  nix develop .#tree-sitter-plumb -c tree-sitter generate
+ `sh"
+   cd tree-sitter-plumb
+   nix develop .#tree-sitter-plumb -c tree-sitter generate
 
-Regenerate after every grammar change and before running grammar tests. Never repair a generated parser by hand; change its source and regenerate it.
+ Regenerate after every grammar change and before running grammar tests. Never repair a generated parser by hand; change its source and regenerate it.
 
-Generated parser sources and binary packages are produced for releases in a Nix sandbox. They are intentionally absent from Git and must be consumed from a release artifact or regenerated locally.
+ Generated parser sources and binary packages are produced for releases in a Nix sandbox. They are intentionally absent from Git and must be consumed from a release artifact or regenerated locally.
 
 `# Neovim editor queries
 
-`"queries/highlights.scm" only highlights generic CST。marker/kind receive keyword captures；introducer/braces are muted
-punctuation，backtick/brace escapes are string escapes，raw payloads use markup.raw，recovery uses error。
+ `"queries/highlights.scm" only highlights generic CST。marker/kind receive keyword captures；introducer/braces are muted
+  punctuation，backtick/brace escapes are string escapes，raw payloads use markup.raw，recovery uses error。
 
-fold/indent/textobject queries cover block_body、groups and verbatim。injections use marked VerbatimBlock kind as language；
-`"$" selects LaTeX，anonymous raw has no language。
+ fold/indent/textobject queries cover block_body、groups and verbatim。injections use marked VerbatimBlock kind as language；
+  `"$" selects LaTeX，anonymous raw has no language。
 
-Build the parser explicitly through the locked Nix environment:
+ Build the parser explicitly through the locked Nix environment:
 
-`sh"
-  ./tree-sitter-plumb/build-parser.sh
+ `sh"
+   ./tree-sitter-plumb/build-parser.sh
 
-The ignored output is written to `"tree-sitter-plumb/build/plumb.so". Re-run the script after changing the grammar, scanner, or locked toolchain.
+ The ignored output is written to `"tree-sitter-plumb/build/plumb.so". Re-run the script after changing the grammar, scanner, or locked toolchain.
 
-The optional project configuration in `"dev/nvim.lua" loads the prebuilt parser and all tracked queries, registers the `"plumb" filetype, starts tree-sitter highlighting, and enables the development `"plumb lsp" server for `"*.plumb" buffers. It does not invoke Nix or compile code during Neovim startup. Build both development artifacts first:
+ The optional project configuration in `"dev/nvim.lua" loads the prebuilt parser and all tracked queries, registers the `"plumb" filetype, starts tree-sitter highlighting, and enables the development `"plumb lsp" server for `"*.plumb" buffers. It does not invoke Nix or compile code during Neovim startup. Build both development artifacts first:
 
-`sh"
-  ./tree-sitter-plumb/build-parser.sh
-  cargo build -p plumb
+ `sh"
+   ./tree-sitter-plumb/build-parser.sh
+   cargo build -p plumb
 
-Enable the configuration locally with an ignored symlink:
+ Enable the configuration locally with an ignored symlink:
 
-`sh"
-  ln -s dev/nvim.lua .nvim.lua
+ `sh"
+   ln -s dev/nvim.lua .nvim.lua
 
-Enable trusted project-local configuration in your global Neovim `"init.lua"：
+ Enable trusted project-local configuration in your global Neovim `"init.lua"：
 
-`lua"
-  vim.o.exrc = true
+ `lua"
+   vim.o.exrc = true
 
-Then start Neovim in this repository and approve `".nvim.lua" with `":trust" when prompted. Project-local configuration can execute arbitrary code, so review it before granting trust. Use `":InspectTree" to inspect the CST and `":Inspect" to see the capture under the cursor.
+ Then start Neovim in this repository and approve `".nvim.lua" with `":trust" when prompted. Project-local configuration can execute arbitrary code, so review it before granting trust. Use `":InspectTree" to inspect the CST and `":Inspect" to see the capture under the cursor.
 
-The highlight query can be checked outside Neovim with the tracked fixture:
+ The highlight query can be checked outside Neovim with the tracked fixture:
 
-`sh"
-  nix develop .#tree-sitter-plumb -c tree-sitter query \
-    --config-path tree-sitter-plumb/config.json \
-    -p tree-sitter-plumb \
-    tree-sitter-plumb/queries/highlights.scm \
-    tree-sitter-plumb/test/fixtures/highlights.plumb
+ `sh"
+   nix develop .#tree-sitter-plumb -c tree-sitter query \
+     --config-path tree-sitter-plumb/config.json \
+     -p tree-sitter-plumb \
+     tree-sitter-plumb/queries/highlights.scm \
+     tree-sitter-plumb/test/fixtures/highlights.plumb
 
-The strict-valid alignment check extracts every valid case from the strict parser's normative corpus, projects the strict syntax tree into normalized tree-sitter structural CST form, and compares it with the real generated parser's node kinds, nesting, and stable byte ranges:
+ The strict-valid alignment check extracts every valid case from the strict parser's normative corpus, projects the strict syntax tree into normalized tree-sitter structural CST form, and compares it with the real generated parser's node kinds, nesting, and stable byte ranges:
 
-`sh"
-  nix develop .#tree-sitter-plumb -c tree-sitter-plumb/check-strict-valid.sh
+ `sh"
+   nix develop .#tree-sitter-plumb -c tree-sitter-plumb/check-strict-valid.sh
 
-The Neovim injection regression test loads the locked Python parser and verifies both recursive plumb blocks and indentation-sensitive Python highlights:
+ The Neovim injection regression test loads the locked Python parser and verifies both recursive plumb blocks and indentation-sensitive Python highlights:
 
-`sh"
-  nix develop .#tree-sitter-plumb -c \
-    nvim --headless --clean -l contrib/nvim/tests/treesitter_injection_e2e.lua
+ `sh"
+   nix develop .#tree-sitter-plumb -c \
+     nvim --headless --clean -l contrib/nvim/tests/treesitter_injection_e2e.lua
 
-The tracked CLI config points parser discovery at the current repository, so this command does not depend on global `"tree-sitter init-config" state or emit the unconfigured parser-directories warning.
+ The tracked CLI config points parser discovery at the current repository, so this command does not depend on global `"tree-sitter init-config" state or emit the unconfigured parser-directories warning.

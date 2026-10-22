@@ -5,22 +5,22 @@ Open this directory as a workspace after building the toolchain. These documents
 
 `# Start here
 
-`- `->{{Language server playground} plumb-ls.plumb}
-`- `->{{Metadata code-action scratchpad} metadata-scratch.plumb}
-`- `->{{Exporter playground} plumb-export.plumb}
-`- `->{{Notes playground} plumb-notes.plumb}
-`- `->{{Intentional diagnostics} diagnostics.plumb}
+ `- `->{{Language server playground} plumb-ls.plumb}
+ `- `->{{Metadata code-action scratchpad} metadata-scratch.plumb}
+ `- `->{{Exporter playground} plumb-export.plumb}
+ `- `->{{Notes playground} plumb-notes.plumb}
+ `- `->{{Intentional diagnostics} diagnostics.plumb}
 
 `# Suggested commands
 
-`sh"
-  nix develop -c cargo build --workspace
-  cargo run -q -p plumb -- export examples/plumb-export.plumb | pandoc -f json -t markdown
-  cargo run -q -p plumb -- note --root examples --query 'title.matches("playground")'
-  cargo run -q -p plumb -- note --root examples --query '"index.plumb" in directly_referenced_by'
-  cargo run -q -p plumb -- task --root examples --flat
-  cargo run -q -p plumb -- task --root examples --query 'actionable'
-  cargo run -q -p plumb -- task --root examples --query 'blocked'
-  cargo run -q -p plumb -- event --root examples
+ `sh"
+   nix develop -c cargo build --workspace
+   cargo run -q -p plumb -- export examples/plumb-export.plumb | pandoc -f json -t markdown
+   cargo run -q -p plumb -- note --root examples --query 'title.matches("playground")'
+   cargo run -q -p plumb -- note --root examples --query '"index.plumb" in directly_referenced_by'
+   cargo run -q -p plumb -- task --root examples --flat
+   cargo run -q -p plumb -- task --root examples --query 'actionable'
+   cargo run -q -p plumb -- task --root examples --query 'blocked'
+   cargo run -q -p plumb -- event --root examples
 
-The linked files intentionally reference each other so workspace navigation and reverse-reference queries return useful results.
+ The linked files intentionally reference each other so workspace navigation and reverse-reference queries return useful results.

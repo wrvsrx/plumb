@@ -6,42 +6,42 @@
 
 `# Workload classes
 
-`- Large document：约 5.7 MB、134k lines、33,512 events，覆盖 parse、semantic generation、folding、 event query、record replacement 与 editor transport boundary。
-`- Task workspace：176 documents、每 document 8 tasks，共 1,408 tasks；包含 dependency chains、 event-task associations、state/time/priority fields、cursor pages 与 open-document overlays。
-`- Real workspace smoke：使用独立 cache、显式 test port、`"--no-watch" 和不输出 source 的 profiler；记录 scanned files、cache hits、response bytes、latency distribution、peak memory 与 steady resident。
+ `- Large document：约 5.7 MB、134k lines、33,512 events，覆盖 parse、semantic generation、folding、 event query、record replacement 与 editor transport boundary。
+ `- Task workspace：176 documents、每 document 8 tasks，共 1,408 tasks；包含 dependency chains、 event-task associations、state/time/priority fields、cursor pages 与 open-document overlays。
+ `- Real workspace smoke：使用独立 cache、显式 test port、`"--no-watch" 和不输出 source 的 profiler；记录 scanned files、cache hits、response bytes、latency distribution、peak memory 与 steady resident。
 
-Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timing 外验证 parser validity、record counts 和 memory/persistent/open-overlay result parity。个人 notebook 内容不能复制进 repository fixture。
+ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timing 外验证 parser validity、record counts 和 memory/persistent/open-overlay result parity。个人 notebook 内容不能复制进 repository fixture。
 
 `# Benchmark suites
 
-`- `"semantic_store_build"：memory/SQLite cold build 与 generation publication。
-`- `"semantic_store_warm_start"：content-hash cache hit 和 independent-process warm startup。
-`- `"semantic_store_queries_33512"：agenda、references、event title completion 与 selected-decode search。
-`- `"semantic_store_task_queries_1408"：CEL filters、relations、state、sort、cursor、candidate pushdown 和 selected TaskRecord hydration。
-`- `"workspace_diagnostic_round_8_of_176"：diagnostic dependency context reuse。
+ `- `"semantic_store_build"：memory/SQLite cold build 与 generation publication。
+ `- `"semantic_store_warm_start"：content-hash cache hit 和 independent-process warm startup。
+ `- `"semantic_store_queries_33512"：agenda、references、event title completion 与 selected-decode search。
+ `- `"semantic_store_task_queries_1408"：CEL filters、relations、state、sort、cursor、candidate pushdown 和 selected TaskRecord hydration。
+ `- `"workspace_diagnostic_round_8_of_176"：diagnostic dependency context reuse。
   同组以176-document task fixture中的8个open task documents加一个edited event document，比较event-only
   revision后全量与kind摘要选择性diagnostics publication；两条路径都包含event revision分析/安装和其自身诊断，
   只改变是否重算其它open documents，不包含JSON传输或editor渲染。
-`- `"open_document_generation_33512"：didChange parse stage、background semantics 与 synchronous baseline。
+ `- `"open_document_generation_33512"：didChange parse stage、background semantics 与 synchronous baseline。
   同组分别测量 document cache warm、edit 抢先时的 unwarmed fallback、warm green semantic revision，以及独立
   green event revision/materialization；不得把 background warm CPU time计入 event-loop latency。
   同组分别测量 exported summary equality 与按需 exported record delta；单条等长 event edit 应只产生
   被替换记录的 removed/added entries，不物化其它 events。delta cost 不混入未请求 delta 的 revision pipeline。
-`- `"incremental_parse_33512"：在同一 large document 的 start/middle/end 执行单字节 edit，分别测量 fresh 与
+ `- `"incremental_parse_33512"：在同一 large document 的 start/middle/end 执行单字节 edit，分别测量 fresh 与
   previous-revision incremental strict parse；benchmark-only green shard prototype 另测 unknown/known edit range、
   pointer reuse、owned materialization 与 destruction。所有路径在 timing 外验证完整 ParsedDocument parity 与
   reparsed range，prototype 不作为 released syntax API。
-`- `"workspace_batch_index_1408"：serial/batch、memory/SQLite、cold/warm indexing。
-`- `"event_containment_4000"：source-ordered lookup 与 explicit containment index。
-`- `"targeted_diagnostic_publication_8_documents"：8个candidate documents各8个tasks，分别有1个或全部8个
+ `- `"workspace_batch_index_1408"：serial/batch、memory/SQLite、cold/warm indexing。
+ `- `"event_containment_4000"：source-ordered lookup 与 explicit containment index。
+ `- `"targeted_diagnostic_publication_8_documents"：8个candidate documents各8个tasks，分别有1个或全部8个
   documents引用变化的task id。比较全量与按目标发布，包含revision分析/安装、target筛选与diagnostics query，
   不包含transport/rendering；高匹配率场景用于检查筛选开销，graph context在相同inputs下复用。
-`- `"profile_code_lens_response"：manual release-profile LSP test，以两个open documents中的2,000 anchors与
+ `- `"profile_code_lens_response"：manual release-profile LSP test，以两个open documents中的2,000 anchors与
   2,000 references测量CodeLens query、position projection与JSON构建；3次warmup、10个samples，校验lens/
   reference counts及确定性response bytes。不包含document analysis、stdio transport或editor渲染。
-`- `"profile_references_response"：manual release-profile LSP test，以2,000 references测量带声明的anchor
+ `- `"profile_references_response"：manual release-profile LSP test，以2,000 references测量带声明的anchor
   references query、position projection与JSON构建；3次warmup、10个samples，不包含analysis/transport/rendering。
-`- `"profile_production_semantic_stages"：opt-in `"profile-semantic-stages" feature的生产路径测量。
+ `- `"profile_production_semantic_stages"：opt-in `"profile-semantic-stages" feature的生产路径测量。
   `"cargo test -p plumb-workspace --release --features profile-semantic-stages --test semantic_stage_profile profile_production_semantic_stages -- --ignored --nocapture"
   固定mixed-2000 fixture包含2,000 Task/Event/Link、2,100 anchors、50 tables与definition lists；输出source SHA-256。
   metadata/context、local nodes/reuse/delta bookkeeping、document reduction来自同一生产analyzer的阶段observer；
@@ -51,45 +51,44 @@ Deterministic fixtures 必须使用当前 strict syntax，并在 benchmark timin
   current semantic root最终释放。保留旧revision和不保留旧revision分组；前者测drop new retain old，不是drop old retain new。
   每组5次warmup、30个samples，normal/profile交替成对执行；完整pipeline包含相同阶段和生命周期，旧revision初次
   build及next source clone在计时外。Weak生命周期探针只用于独立correctness tests，不进入timed samples。
-
-`- `"scripts/benchmark-event-category.py"：固定 34,831-event 单文档归档的 release CLI 分类检查；重复引用普通事项，包含多分类、未分类、无法解析引用、非法分类及独立 syntax-invalid document。通过 --binary、--label before/after 与同一 --work-dir 对比完整冷／热／无缓存路径，保存 fixture 与 stdout SHA-256、退出码、cache stats、wall time 和 peak RSS；每组默认 3 samples，warm 单独预热一次，cold 使用新 application cache，不清 OS page cache。计时外验证固定 event count、invalid document count 与全部输出一致性。
-`- `"profile_contained_links_full_document"：低选择性反例，一次请求包含全部 34,831 Links；对比旧单边与新双边索引查询，两者均加载并解码完整结果，3 次 warmup 后交替采样 10 对。不设置 wall-clock CI 阈值，使用 release ignored unit test 手动运行。
+ `- `"scripts/benchmark-event-category.py"：固定 34,831-event 单文档归档的 release CLI 分类检查；重复引用普通事项，包含多分类、未分类、无法解析引用、非法分类及独立 syntax-invalid document。通过 --binary、--label before/after 与同一 --work-dir 对比完整冷／热／无缓存路径，保存 fixture 与 stdout SHA-256、退出码、cache stats、wall time 和 peak RSS；每组默认 3 samples，warm 单独预热一次，cold 使用新 application cache，不清 OS page cache。计时外验证固定 event count、invalid document count 与全部输出一致性。
+ `- `"profile_contained_links_full_document"：低选择性反例，一次请求包含全部 34,831 Links；对比旧单边与新双边索引查询，两者均加载并解码完整结果，3 次 warmup 后交替采样 10 对。不设置 wall-clock CI 阈值，使用 release ignored unit test 手动运行。
 
 `# LSP CPU request isolation
 
-使用独立 headless patched Neovim、实际 client capabilities 与隔离 cache，开启 CodeLens 和 LSP folding。
-在 memory buffer 修改一个 event time range 后立即调用默认 1000 ms timeout 的 formatting；不保存笔记，
-不重启用户 editor/server。对同一只读 fixture 分别运行 before/after binaries，保存 source SHA-256；
-stdio proxy 只记录 method、request id、timestamps、response bytes、error 与 result count，不记录正文。
-同时报告 formatting latency、timeout 次数与 CodeLens/folding 完整响应耗时；排除返回 null 或 stale error
-的装饰请求，不能把失败的快速返回当成加速。开启两种装饰是验收路径，关闭装饰只用作归因对照。
+ 使用独立 headless patched Neovim、实际 client capabilities 与隔离 cache，开启 CodeLens 和 LSP folding。
+  在 memory buffer 修改一个 event time range 后立即调用默认 1000 ms timeout 的 formatting；不保存笔记，
+  不重启用户 editor/server。对同一只读 fixture 分别运行 before/after binaries，保存 source SHA-256；
+  stdio proxy 只记录 method、request id、timestamps、response bytes、error 与 result count，不记录正文。
+  同时报告 formatting latency、timeout 次数与 CodeLens/folding 完整响应耗时；排除返回 null 或 stale error
+  的装饰请求，不能把失败的快速返回当成加速。开启两种装饰是验收路径，关闭装饰只用作归因对照。
 
-`"profile_fold_request_stages" 是 release ignored unit profile。通过 PLUMB_PROFILE_DOCUMENT 指定只读文件，
-分别计时 labels、ranges（含 byte/UTF-16 projection）与 JSON serialization，输出 folds/bytes。三次 samples
-保留首轮，不含 parse/semantics build、排队、stdio transport 或 editor rendering；不把该分段数据与完整
-client latency 混为一谈。任务、事件、metadata labels 与数据库依赖的 fixture 差异必须单独说明。
-所有构建与回放仍受同一 hard-memory-limit contract 约束；不在 correctness CI 设置性能秒数阈值。
+ `"profile_fold_request_stages" 是 release ignored unit profile。通过 PLUMB_PROFILE_DOCUMENT 指定只读文件，
+  分别计时 labels、ranges（含 byte/UTF-16 projection）与 JSON serialization，输出 folds/bytes。三次 samples
+  保留首轮，不含 parse/semantics build、排队、stdio transport 或 editor rendering；不把该分段数据与完整
+  client latency 混为一谈。任务、事件、metadata labels 与数据库依赖的 fixture 差异必须单独说明。
+  所有构建与回放仍受同一 hard-memory-limit contract 约束；不在 correctness CI 设置性能秒数阈值。
 
 `# Measurement contract
 
-增量事件规则的本机结果见 `->{{2026-09 性能快照} ../history/performance/event-policy-incremental-2026-09.plumb}；该快照区分规则重算数量与仍需执行的输入遍历。
+ 增量事件规则的本机结果见 `->{{2026-09 性能快照} ../history/performance/event-policy-incremental-2026-09.plumb}；该快照区分规则重算数量与仍需执行的输入遍历。
 
-`"cargo run --release -p plumb-workspace --example profile_event_policies -- ROOT RELATIVE_DOCUMENT" 在笔记库副本上分别计时 category 和 timeline 增量检查。打开指定文档后各查询三次，再仅在 memory overlay 的文件开头插入空行并各查询三次；然后在 memory overlay 加入三个相互重叠的 events，分别修改单个 interval 和共同引用目标的分类。输出 checked、complete、issues 和实际重算计数；每次计时外与独立 full check 的完整 JSON 结果比较。首次查询包含建立规则缓存，后续查询不包含 parse、fold、LSP projection 或 CLI diagnostic rendering。运行前必须通过 systemd/cgroup 设置整个构建和查询进程组的 MemoryMax 与 MemorySwapMax，单独报告峰值内存。
+ `"cargo run --release -p plumb-workspace --example profile_event_policies -- ROOT RELATIVE_DOCUMENT" 在笔记库副本上分别计时 category 和 timeline 增量检查。打开指定文档后各查询三次，再仅在 memory overlay 的文件开头插入空行并各查询三次；然后在 memory overlay 加入三个相互重叠的 events，分别修改单个 interval 和共同引用目标的分类。输出 checked、complete、issues 和实际重算计数；每次计时外与独立 full check 的完整 JSON 结果比较。首次查询包含建立规则缓存，后续查询不包含 parse、fold、LSP projection 或 CLI diagnostic rendering。运行前必须通过 systemd/cgroup 设置整个构建和查询进程组的 MemoryMax 与 MemorySwapMax，单独报告峰值内存。
 
-每次发布结果必须记录 commit、host、kernel、rustc、profile、fixture identity、warmup、measurement duration、 sample count 和 interval midpoint。报告 absolute value 与相对 baseline；wall-clock observation 不是跨机器 SLA， 不能进入普通 correctness CI 的硬阈值。
+ 每次发布结果必须记录 commit、host、kernel、rustc、profile、fixture identity、warmup、measurement duration、 sample count 和 interval midpoint。报告 absolute value 与相对 baseline；wall-clock observation 不是跨机器 SLA， 不能进入普通 correctness CI 的硬阈值。
 
-比较必须覆盖完整 observable path。不得把只 decode records 的 baseline 与同时执行 score/order/hydration 的 新路径比较，也不得把 editor transport wait 归因于 server parse 或 query。Response size、time to first byte、 total time、database/WAL bytes、peak memory 与 steady resident 分开记录。
+ 比较必须覆盖完整 observable path。不得把只 decode records 的 baseline 与同时执行 score/order/hydration 的 新路径比较，也不得把 editor transport wait 归因于 server parse 或 query。Response size、time to first byte、 total time、database/WAL bytes、peak memory 与 steady resident 分开记录。
 
 `# Acceptance
 
-性能改动必须先由普通 tests 固定 result parity、query completeness、revision provenance、open-document precedence、cursor behavior、generation atomicity、failure propagation 和 bounded work。Benchmark 不能替代 correctness evidence。
+ 性能改动必须先由普通 tests 固定 result parity、query completeness、revision provenance、open-document precedence、cursor behavior、generation atomicity、failure propagation 和 bounded work。Benchmark 不能替代 correctness evidence。
 
-常用 hot path 不得以明显 latency、memory 或 write-amplification 回退换取单一指标改善。选择性优化必须同时 测量低选择性反例；异步化必须分别报告 event-loop latency 与 total CPU work；persistent optimization 必须证明 未 decode 或 hydrate 未选 records。
+ 常用 hot path 不得以明显 latency、memory 或 write-amplification 回退换取单一指标改善。选择性优化必须同时 测量低选择性反例；异步化必须分别报告 event-loop latency 与 total CPU work；persistent optimization 必须证明 未 decode 或 hydrate 未选 records。
 
-Rejected prototype 只有在新的 prerequisite 已满足、同一 production parity benchmark 不再显示常用路径回退时 才可重新评估。新结果追加到按年月命名的 history 文档，本页只在 workload 或验收 contract 改变时更新。
+ Rejected prototype 只有在新的 prerequisite 已满足、同一 production parity benchmark 不再显示常用路径回退时 才可重新评估。新结果追加到按年月命名的 history 文档，本页只在 workload 或验收 contract 改变时更新。
 
 `# Incremental syntax semantics graph acceptance
 
-`"cargo test -p plumb-workspace --test agenda incremental_graph_35k_event_acceptance -- --ignored --nocapture" 使用固定 34,961-event snapshot，输出 fixture SHA-256、changed syntax identities、recomputed semantic nodes、实际 category/timeline input 提取数量、accounting 次数、dependency propagation、rebuilt timeline segments、两条规则独立 wall time 与 process VmHWM。先 warm cache，再执行单 event 文本修改与局部插入；计时外对比完整 full-oracle JSON。工作负载必须在 MemoryMax=2G、MemorySwapMax=0 的同一受限进程组运行，构建使用单 job。
+ `"cargo test -p plumb-workspace --test agenda incremental_graph_35k_event_acceptance -- --ignored --nocapture" 使用固定 34,961-event snapshot，输出 fixture SHA-256、changed syntax identities、recomputed semantic nodes、实际 category/timeline input 提取数量、accounting 次数、dependency propagation、rebuilt timeline segments、两条规则独立 wall time 与 process VmHWM。先 warm cache，再执行单 event 文本修改与局部插入；计时外对比完整 full-oracle JSON。工作负载必须在 MemoryMax=2G、MemorySwapMax=0 的同一受限进程组运行，构建使用单 job。
 
-该验收不只检查 accounting cache hits：新增或修改一个独立 owner 时 input 提取不得超过实际受影响节点。纯 offset 修改不重提取未变化 node 的 records。实际本机数据和 fallback 边界见 `->{{2026-09 graph 验收快照} ../history/performance/incremental-syntax-semantics-graph-2026-09.plumb}。profile_event_policies 同时输出 extracted、recomputed、propagated 和 visited_intervals，避免把 input 扫描藏在命中率之后。
+ 该验收不只检查 accounting cache hits：新增或修改一个独立 owner 时 input 提取不得超过实际受影响节点。纯 offset 修改不重提取未变化 node 的 records。实际本机数据和 fallback 边界见 `->{{2026-09 graph 验收快照} ../history/performance/incremental-syntax-semantics-graph-2026-09.plumb}。profile_event_policies 同时输出 extracted、recomputed、propagated 和 visited_intervals，避免把 input 扫描藏在命中率之后。

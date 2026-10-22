@@ -5,96 +5,103 @@ This file provides records for document queries, reverse references, task and ev
 
 `# Document queries
 
-Run these commands from the repository root:
+ Run these commands from the repository root:
 
-`sh"
-  cargo run -q -p plumb -- note --root examples --query 'title.matches("playground")'
-  cargo run -q -p plumb -- note --root examples --query 'path.endsWith("plumb-ls.plumb")'
-  cargo run -q -p plumb -- note --root examples --query '"index.plumb" in directly_referenced_by'
-  cargo run -q -p plumb -- note --root examples --query '"plumb-ls.plumb" in transitively_referenced_by'
+ `sh"
+   cargo run -q -p plumb -- note --root examples --query 'title.matches("playground")'
+   cargo run -q -p plumb -- note --root examples --query 'path.endsWith("plumb-ls.plumb")'
+   cargo run -q -p plumb -- note --root examples --query '"index.plumb" in directly_referenced_by'
+   cargo run -q -p plumb -- note --root examples --query '"plumb-ls.plumb" in transitively_referenced_by'
 
 `# Interactive mode
 
-`sh"
-  EDITOR=nvim cargo run -q -p plumb -- note --root examples --interactive
+ `sh"
+   EDITOR=nvim cargo run -q -p plumb -- note --root examples --interactive
 
-The picker supports fuzzy matching, source previews, multiple selections, `"$EDITOR" opening, and Ctrl-N file creation.
+ The picker supports fuzzy matching, source previews, multiple selections, `"$EDITOR" opening, and Ctrl-N file creation.
 
 `# Task queries
 
-`sh"
-  cargo run -q -p plumb -- task --root examples
-  cargo run -q -p plumb -- task --root examples --flat
-  cargo run -q -p plumb -- task --root examples --query 'created != null && done == null'
-  cargo run -q -p plumb -- task --root examples --query 'actionable'
-  cargo run -q -p plumb -- task --root examples --query 'blocked'
-  cargo run -q -p plumb -- task --root examples --query 'done != null'
-  cargo run -q -p plumb -- task --root examples --query 'canceled != null'
-  cargo run -q -p plumb -- event --root examples --query 'start >= timestamp("2026-07-30T00:00:00Z")'
-  cargo run -q -p plumb -- event --root examples export-vdir --output /tmp/plumb-calendar
+ `sh"
+   cargo run -q -p plumb -- task --root examples
+   cargo run -q -p plumb -- task --root examples --flat
+   cargo run -q -p plumb -- task --root examples --query 'created != null && done == null'
+   cargo run -q -p plumb -- task --root examples --query 'actionable'
+   cargo run -q -p plumb -- task --root examples --query 'blocked'
+   cargo run -q -p plumb -- task --root examples --query 'done != null'
+   cargo run -q -p plumb -- task --root examples --query 'canceled != null'
+   cargo run -q -p plumb -- event --root examples --query 'start >= timestamp("2026-07-30T00:00:00Z")'
+   cargo run -q -p plumb -- event --root examples export-vdir --output /tmp/plumb-calendar
 
-`- Try a task query
- `+ task
+ `- Try a task query
 
- `@ try-task-query
-
- `= created 2026-07-20T09:00:00+08:00
- `= wait 2026-07-20T18:00:00+08:00
-
- `note This open task becomes actionable when `"wait <= now".
-
- `- Inspect nested task output
   `+ task
 
-  `@ nested-task
+  `@ try-task-query
 
-`- Read completed results
- `+ task
+  `= created 2026-07-20T09:00:00+08:00
+  `= wait 2026-07-20T18:00:00+08:00
 
- `@ finished-query
+  `note This open task becomes actionable when `"wait <= now".
 
- `= created 2026-07-20T10:00:00+08:00
- `= done 2026-07-20T11:00:00+08:00
+  `- Inspect nested task output
 
-`- Inspect canceled results
- `+ task
+   `+ task
 
- `@ canceled-query
+   `@ nested-task
 
- `= created 2026-07-20T12:00:00+08:00
- `= canceled 2026-07-20T13:00:00+08:00
+ `- Read completed results
 
-`- Inspect a blocked task
- `+ task
+  `+ task
 
- `@ blocked-query
+  `@ finished-query
 
- `= depends #try-task-query
+  `= created 2026-07-20T10:00:00+08:00
+  `= done 2026-07-20T11:00:00+08:00
 
-`- Review recurring task advancement
- `+ task
+ `- Inspect canceled results
 
- `@ weekly-review
+  `+ task
 
- `= due 2026-07-27T17:00:00+08:00
- `= wait 2026-07-27T09:00:00+08:00
- `= recur P1W
+  `@ canceled-query
 
-`- 2026-07-30T14:00:00+08:00--15:00 Review task query behavior
- `+ event
+  `= created 2026-07-20T12:00:00+08:00
+  `= canceled 2026-07-20T13:00:00+08:00
 
- `@ query-review
+ `- Inspect a blocked task
 
- `= tasks #try-task-query
+  `+ task
 
- `note This event appears in event CEL queries, Web Agenda, and the read-only vdir projection.
+  `@ blocked-query
 
-Complete or cancel copies of these tasks with an explicit target:
+  `= depends #try-task-query
 
-`sh"
-  cargo run -q -p plumb -- task --root examples complete plumb-notes.plumb#try-task-query
-  cargo run -q -p plumb -- task --root examples cancel plumb-notes.plumb#blocked-query
+ `- Review recurring task advancement
+
+  `+ task
+
+  `@ weekly-review
+
+  `= due 2026-07-27T17:00:00+08:00
+  `= wait 2026-07-27T09:00:00+08:00
+  `= recur P1W
+
+ `- 2026-07-30T14:00:00+08:00--15:00 Review task query behavior
+
+  `+ event
+
+  `@ query-review
+
+  `= tasks #try-task-query
+
+  `note This event appears in event CEL queries, Web Agenda, and the read-only vdir projection.
+
+ Complete or cancel copies of these tasks with an explicit target:
+
+ `sh"
+   cargo run -q -p plumb -- task --root examples complete plumb-notes.plumb#try-task-query
+   cargo run -q -p plumb -- task --root examples cancel plumb-notes.plumb#blocked-query
 
 `# Cross references
 
-This file links to the `->{index index.plumb} and the `->{{language server playground} plumb-ls.plumb#navigation}, giving the reverse-reference graph multiple edges.
+ This file links to the `->{index index.plumb} and the `->{{language server playground} plumb-ls.plumb#navigation}, giving the reverse-reference graph multiple edges.

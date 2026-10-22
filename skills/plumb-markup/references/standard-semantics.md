@@ -4,16 +4,27 @@ Core keeps marker spellings generic. This file defines the official profile.
 
 ## Headings and Anchors
 
-One through six `#` characters are heading markers. Add direct `@` when a
-heading or other marked owner needs an explicit link target.
+A single `#` is section shorthand, equivalent to a `-` or `.` list item
+with a direct leaf `+ section` facet.
+Its complete head is the heading; its indented non-declaration children are the body.
+Level is one plus the number of section ancestors, with no six-level limit.
+Ordinary containers do not increase the level. Sections interrupt ordinary list groups
+and export a Header plus body without a bullet. Multi-hash markers such as `##` are generic owners.
+Section is orthogonal to task/event facets. Table structural rows/cells are excluded.
 
 ```plumb
 `# Introduction
  `@ intro
-`## Details
+
+ Body.
+
+ `# Details
+
+  Nested body.
 ```
 
-No implicit anchor is generated from a title.
+No implicit anchor is generated from a title. Add direct `@` for an explicit target.
+Pandoc import rejects heading levels that cannot be expressed by section ancestry.
 
 ## Lists and Definitions
 
@@ -305,12 +316,12 @@ accounting. Calendar `CATEGORIES` is only a set; use summary JSON for exact allo
 
 ## Tables
 
-`table` owns direct `-` rows. Every direct row-head positional element is a compact cell;
+`|` owns direct `-` rows. Every direct row-head positional element is a compact cell;
 one or more spaces are one separator, so explicit alignment padding does not
 change arity. Group a multiword cell and use `{}` for an empty cell.
 
 ```plumb
-`table
+`|
  `- name             age
   `+ header
  `- {Alice Smith}    10
@@ -320,7 +331,7 @@ change arity. Group a multiword cell and use `{}` for an empty cell.
 An empty-head row uses direct non-declaration block children as expanded cells:
 
 ```plumb
-`table
+`|
  `-
   `+ header
   name

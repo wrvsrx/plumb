@@ -4,281 +4,281 @@
 
 `# LSP boundary
 
-`"plumb lsp" 提供 diagnostics、document symbols、definition、references、hover、completion、rename、 CodeAction、CodeLens、semantic tokens、folding ranges、formatting、range formatting 和 workspace search。
+ `"plumb lsp" 提供 diagnostics、document symbols、definition、references、hover、completion、rename、 CodeAction、CodeLens、semantic tokens、folding ranges、formatting、range formatting 和 workspace search。
 
-索引未完成时，diagnostics 提供当前文档的语法与本地语义检查；索引完成后自动补充跨文件与已启用的
-规则检查。正常编辑会保留上一次诊断显示，直到新版本的检查完成后整体替换，避免后台分析阶段之间
-反复清空 warnings。语法错误与有效区域的语义诊断一并显示。详细规则见 `->{诊断参考 ../reference/diagnostics.plumb}。
+ 索引未完成时，diagnostics 提供当前文档的语法与本地语义检查；索引完成后自动补充跨文件与已启用的
+  规则检查。正常编辑会保留上一次诊断显示，直到新版本的检查完成后整体替换，避免后台分析阶段之间
+  反复清空 warnings。语法错误与有效区域的语义诊断一并显示。详细规则见 `->{诊断参考 ../reference/diagnostics.plumb}。
 
-LSP protocol 由 editor client 选择 `"rootUri"/`"workspaceFolders"。plumb server 不向上查找 marker，也 不向 client 声明 marker；client integration 应优先使用 `".plumb"，再 fallback 到 editor 自己的 project marker。workspace 与 ignore 行为见 `->{{workspace 指南} workspace.plumb}。
+ LSP protocol 由 editor client 选择 `"rootUri"/`"workspaceFolders"。plumb server 不向上查找 marker，也 不向 client 声明 marker；client integration 应优先使用 `".plumb"，再 fallback 到 editor 自己的 project marker。workspace 与 ignore 行为见 `->{{workspace 指南} workspace.plumb}。
 
-当前官方 editor integration 只覆盖 Neovim 0.12。未来其它 editor 应复用相同的 LSP 与 workspace contract，并在本文增加同级章节。
+ 当前官方 editor integration 只覆盖 Neovim 0.12。未来其它 editor 应复用相同的 LSP 与 workspace contract，并在本文增加同级章节。
 
 `# Neovim setup
 
-确保 `"plumb" binary 可从 `"PATH" 启动，并将 packaged `"contrib/nvim" 或 source checkout 中的同名 directory 加入 `"runtimepath"。在打开首个 plumb buffer 前显式调用 setup：
+ 确保 `"plumb" binary 可从 `"PATH" 启动，并将 packaged `"contrib/nvim" 或 source checkout 中的同名 directory 加入 `"runtimepath"。在打开首个 plumb buffer 前显式调用 setup：
 
-`lua"
-  require('plumb').setup({
-    command = 'plumb',
-    lsp = { root_markers = { '.plumb', '.git' } },
-    codelens = { picker = 'quickfix' },
-    search = { picker = 'native', task_filter = 'state == "ready"' },
-  })
+ `lua"
+   require('plumb').setup({
+     command = 'plumb',
+     lsp = { root_markers = { '.plumb', '.git' } },
+     codelens = { picker = 'quickfix' },
+     search = { picker = 'native', task_filter = 'state == "ready"' },
+   })
 
-setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；重复 setup 不会重复 commands、autocmds 或 clients，并可直接接受 function-valued options：
+ setup 默认启用 LSP、CodeLens 与 search，不创建 keymaps；重复 setup 不会重复 commands、autocmds 或 clients，并可直接接受 function-valued options：
 
-`lua"
-  require('plumb').setup({
-    lsp = { on_attach = function(client, bufnr) end },
-  })
+ `lua"
+   require('plumb').setup({
+     lsp = { on_attach = function(client, bufnr) end },
+   })
 
-packaged runtime 的标准 `"ftplugin/plumb.lua" 会对每个 plumb buffer 启用 `"expandtab"，设置 `"shiftwidth=1"，并让 `"softtabstop" 跟随它。这样 Tab/indent commands 产生 formatter 使用的单个 structural space；buffer 改为其它 filetype 时这些 local options 会恢复。plugin 不修改 `"tabstop"，因此 verbatim payload 中真实 tab bytes 的显示宽度继续服从用户配置。
+ packaged runtime 的标准 `"ftplugin/plumb.lua" 会对每个 plumb buffer 启用 `"expandtab"，设置 `"shiftwidth=1"，并让 `"softtabstop" 跟随它。这样 Tab/indent commands 产生 formatter 使用的单个 structural space；buffer 改为其它 filetype 时这些 local options 会恢复。plugin 不修改 `"tabstop"，因此 verbatim payload 中真实 tab bytes 的显示宽度继续服从用户配置。
 
-底层等价的 Neovim native LSP 配置是：
+ 底层等价的 Neovim native LSP 配置是：
 
-`lua"
-  vim.filetype.add({ extension = { plumb = 'plumb' } })
-  local capabilities = vim.lsp.protocol.make_client_capabilities()
-  capabilities.workspace.workspaceEdit.documentChanges = true
-  capabilities.workspace.workspaceEdit.resourceOperations = { 'rename' }
-  capabilities.workspace.didChangeWatchedFiles =
-    capabilities.workspace.didChangeWatchedFiles or {}
-  capabilities.workspace.didChangeWatchedFiles.dynamicRegistration = true
-  capabilities.workspace.didChangeWatchedFiles.relativePatternSupport = true
-  vim.lsp.config.plumb = {
-    cmd = { 'plumb', 'lsp' },
-    filetypes = { 'plumb' },
-    root_markers = { '.plumb', '.git' },
-    capabilities = capabilities,
-  }
-  require('plumb.codelens').setup({ picker = 'quickfix' })
-  vim.lsp.enable('plumb')
+ `lua"
+   vim.filetype.add({ extension = { plumb = 'plumb' } })
+   local capabilities = vim.lsp.protocol.make_client_capabilities()
+   capabilities.workspace.workspaceEdit.documentChanges = true
+   capabilities.workspace.workspaceEdit.resourceOperations = { 'rename' }
+   capabilities.workspace.didChangeWatchedFiles =
+     capabilities.workspace.didChangeWatchedFiles or {}
+   capabilities.workspace.didChangeWatchedFiles.dynamicRegistration = true
+   capabilities.workspace.didChangeWatchedFiles.relativePatternSupport = true
+   vim.lsp.config.plumb = {
+     cmd = { 'plumb', 'lsp' },
+     filetypes = { 'plumb' },
+     root_markers = { '.plumb', '.git' },
+     capabilities = capabilities,
+   }
+   require('plumb.codelens').setup({ picker = 'quickfix' })
+   vim.lsp.enable('plumb')
 
-Linux 上 Neovim 默认可能不启用 dynamic file watching；上述 capability 允许 client 注册 `"..plumb" 与 `".ignore" watchers，系统还需要可用的 watch backend。
+ Linux 上 Neovim 默认可能不启用 dynamic file watching；上述 capability 允许 client 注册 `"..plumb" 与 `".ignore" watchers，系统还需要可用的 watch backend。
 
 `# Tree-sitter
 
-tree-sitter parser 只负责 highlight、fold、indent、text object 和 injection，不负责 strict diagnostics。parser 与 queries 独立于 `"plumb.nvim" 安装；plugin 不注册 parser、不携带 queries，也不调用 `"vim.treesitter.start()"。editor configuration 可以统一启动已注册 parser：
+ tree-sitter parser 只负责 highlight、fold、indent、text object 和 injection，不负责 strict diagnostics。parser 与 queries 独立于 `"plumb.nvim" 安装；plugin 不注册 parser、不携带 queries，也不调用 `"vim.treesitter.start()"。editor configuration 可以统一启动已注册 parser：
 
-`lua"
-  vim.api.nvim_create_autocmd('FileType', {
-    pattern = 'plumb',
-    callback = function(args)
-      vim.treesitter.start(args.buf, 'plumb')
-    end,
-  })
+ `lua"
+   vim.api.nvim_create_autocmd('FileType', {
+     pattern = 'plumb',
+     callback = function(args)
+       vim.treesitter.start(args.buf, 'plumb')
+     end,
+   })
 
-repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 plugin、parser 与 queries。它会在 setup 时强制重置较早加载的 packaged plumb plugin 所留下的默认 semantic-token 与 fold-only highlight groups，使 checkout defaults 生效；正式 plugin setup 仍保留用户和 colorscheme overrides。先运行：
+ repository development 使用 `"dev/nvim.lua" 加载当前 checkout 的 plugin、parser 与 queries。它会在 setup 时强制重置较早加载的 packaged plumb plugin 所留下的默认 semantic-token 与 fold-only highlight groups，使 checkout defaults 生效；正式 plugin setup 仍保留用户和 colorscheme overrides。先运行：
 
-`text"
-  ./tree-sitter-plumb/build-parser.sh
-  nvim -u dev/nvim.lua document.plumb
+ `text"
+   ./tree-sitter-plumb/build-parser.sh
+   nvim -u dev/nvim.lua document.plumb
 
 `# Folding
 
-`"textDocument/foldingRange" 使用 recovered strict syntax：heading覆盖 section，anonymous/marked VerbatimBlock
-覆盖 raw body，anonymous/marked parsed owner有 children时覆盖完整 subtree。ordinary leaf paragraph 与 inline group
-不单独折叠。syntax error 未影响的 recovered owners仍可折叠；rangeLimit按 source order保留外层范围。
+ `"textDocument/foldingRange" 使用 recovered strict syntax：heading覆盖 section，anonymous/marked VerbatimBlock
+  覆盖 raw body，anonymous/marked parsed owner有 children时覆盖完整 subtree。ordinary leaf paragraph 与 inline group
+  不单独折叠。syntax error 未影响的 recovered owners仍可折叠；rangeLimit按 source order保留外层范围。
 
-首次 workspace index 进行期间，folding request 不等待完整索引。metadata、event 与可由当前 snapshot 唯一确定状态的 task 继续携带 custom text；依赖未进入当前 index snapshot 的 document、暂时无法 区分 ready 与 blocked 的 task 使用普通 opener fold text。不支持 `"workspace/foldingRange/refresh" 的 client 会在下一次 document lifecycle 或 client folding request 时更新这类跨文件降级 label；结构 fold 不受影响。 实现 `"workspace/foldingRange/refresh" 的 client 可以在 initialize client capabilities 中声明 `"experimental.plumb.foldingRangeRefreshSupport = true"；server 会在 initial index 完成及后续 dependency facts 改变后请求重新获取 folds。server initialize result 的 `"experimental.plumb.foldingRangeRefresh" 公布 request method 与 handshake path。未声明时 server 不发送 该 request；当前 Neovim 配置保持未声明状态。
+ 首次 workspace index 进行期间，folding request 不等待完整索引。metadata、event 与可由当前 snapshot 唯一确定状态的 task 继续携带 custom text；依赖未进入当前 index snapshot 的 document、暂时无法 区分 ready 与 blocked 的 task 使用普通 opener fold text。不支持 `"workspace/foldingRange/refresh" 的 client 会在下一次 document lifecycle 或 client folding request 时更新这类跨文件降级 label；结构 fold 不受影响。 实现 `"workspace/foldingRange/refresh" 的 client 可以在 initialize client capabilities 中声明 `"experimental.plumb.foldingRangeRefreshSupport = true"；server 会在 initial index 完成及后续 dependency facts 改变后请求重新获取 folds。server initialize result 的 `"experimental.plumb.foldingRangeRefresh" 公布 request method 与 handshake path。未声明时 server 不发送 该 request；当前 Neovim 配置保持未声明状态。
 
-编辑后，若当前文档的语义分析仍在运行，需要 custom text 的 folding request 会异步等待该 revision 完成，再一次
-返回 ranges 与 labels。这不要求 client 支持 refresh，也不等待其它文件的索引。没有 custom-text capability 或
-文档有 syntax error 时，structural folds 仍立即可用。后续编辑或关闭会取消旧 revision 的等待结果，避免混用新旧位置。
+ 编辑后，若当前文档的语义分析仍在运行，需要 custom text 的 folding request 会异步等待该 revision 完成，再一次
+  返回 ranges 与 labels。这不要求 client 支持 refresh，也不等待其它文件的索引。没有 custom-text capability 或
+  文档有 syntax error 时，structural folds 仍立即可用。后续编辑或关闭会取消旧 revision 的等待结果，避免混用新旧位置。
 
-客户端声明 `"foldingRange.foldingRange.collapsedText" support 时，task 与 event fold text 保留 backtick 与完整 marker。Task 使用固定五字符 state slot：ready 使用空白槽，waiting 使用波浪号，blocked 使用等号， done 使用 o，canceled 使用 x；conflicted 组合为 ox。常见状态 slot 后补齐空格， 使同级 task title 对齐，但不为 conflicted 状态改变组合表达，并保留 task block opener 的原始结构缩进。 Task text 保留 backtick 与原 list marker，后接 state 和 title。event fold 把 date、timezone、when 属性 解析出的时间（省秒、省偏移）与 title 拼成保留 backtick 与原 list marker 的摘要；时间与 title 只用一个 ASCII space 分隔，不额外插入 pipe，point 使用精确到分钟 的时间与 title，interval 追加两个短横线和结束时间；开放 interval 使用 START--now。可折叠的顶层 metadata entry 使用 `"key  scalar value"，list、map、null 或不可展示 value 只使用 `"key"。label 规范为空格分隔的单行并在 80 characters 后截断。三者都保留原始结构 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom label。
+ 客户端声明 `"foldingRange.foldingRange.collapsedText" support 时，task 与 event fold text 保留 backtick 与完整 marker。Task 使用固定五字符 state slot：ready 使用空白槽，waiting 使用波浪号，blocked 使用等号， done 使用 o，canceled 使用 x；conflicted 组合为 ox。常见状态 slot 后补齐空格， 使同级 task title 对齐，但不为 conflicted 状态改变组合表达，并保留 task block opener 的原始结构缩进。 Task text 保留 backtick 与原 list marker，后接 state 和 title。event fold 把 date、timezone、when 属性 解析出的时间（省秒、省偏移）与 title 拼成保留 backtick 与原 list marker 的摘要；时间与 title 只用一个 ASCII space 分隔，不额外插入 pipe，point 使用精确到分钟 的时间与 title，interval 追加两个短横线和结束时间；开放 interval 使用 START--now。可折叠的顶层 metadata entry 使用 `"key  scalar value"，list、map、null 或不可展示 value 只使用 `"key"。label 规范为空格分隔的单行并在 80 characters 后截断。三者都保留原始结构 缩进。没有该 capability、无可靠 valid task/metadata facts 或无可用时间的 event fold 不携带 custom label。
 
-非 heading subtree 与紧邻的同层 parsed sibling marker 相同时，把两者之间一个直接相邻的空白分隔行包含在 subtree fold range 中，使同类 block 关闭后不遗留孤立空行；只消费一个直接相邻的空白行，不跨过下一条 非空内容。next sibling 使用不同 marker、verbatim 或其他 block boundary 时，空白分隔行保留在 fold range 外，继续显示 block 种类变化形成的分组边界。heading section fold 不适用该规则。
+ 非 heading subtree 与紧邻的同层 parsed sibling marker 相同时，把两者之间一个直接相邻的空白分隔行包含在 subtree fold range 中，使同类 block 关闭后不遗留孤立空行；只消费一个直接相邻的空白行，不跨过下一条 非空内容。next sibling 使用不同 marker、verbatim 或其他 block boundary 时，空白分隔行保留在 fold range 外，继续显示 block 种类变化形成的分组边界。heading section fold 不适用该规则。
 
-Task/event 只有一条 physical line 时，server 也会向声明 `"lineFoldingOnly = true" 的 client 返回 `"startLine == endLine" 的 semantic fold，且省略 character boundaries。该 capability 只要求 range 使用整行 boundary，不排除单行 range。支持这类 range 的 editor 还需要类似 `"foldminlines = 0" 的设置，才能关闭只占一个 screen line 的 fold。上游 Neovim 0.12 的 LSP fold adapter 会忽略这类 range；plugin 不补充 folding-range adapter。
+ Task/event 只有一条 physical line 时，server 也会向声明 `"lineFoldingOnly = true" 的 client 返回 `"startLine == endLine" 的 semantic fold，且省略 character boundaries。该 capability 只要求 range 使用整行 boundary，不排除单行 range。支持这类 range 的 editor 还需要类似 `"foldminlines = 0" 的设置，才能关闭只占一个 screen line 的 fold。上游 Neovim 0.12 的 LSP fold adapter 会忽略这类 range；plugin 不补充 folding-range adapter。
 
-当前官方 Neovim integration 使用 `"~/Documents/nur-packages" 提供的 patched Neovim 0.12.4，以及原生 `"vim.lsp.foldexpr()" 和 `"vim.lsp.foldtext()"。patch 修复多个相邻 nested folding ranges 在同一行结束时 被 foldexpr 合并的问题，使 section/subtree 等 nested ranges 不会吞并后续 sibling；它不增加 single-physical-line fold support，也不恢复 folding topology 重建前的手动 open/closed state。原生 adapter 仍按 `"foldlevel"、`"foldmethod=expr" 和自身的 fold engine 规则重建 folding tree；编辑造成 topology 变化时， 用户通过 `"zo"、`"zc" 选择的局部状态不保证跨越所有结构重建继续保留。plugin 不在 Lua 层复制 fold engine，也不使用 range overlap、cursor visibility 或延迟 `"foldopen"/`"foldclose" 猜测并恢复用户状态。
+ 当前官方 Neovim integration 使用 `"~/Documents/nur-packages" 提供的 patched Neovim 0.12.4，以及原生 `"vim.lsp.foldexpr()" 和 `"vim.lsp.foldtext()"。patch 修复多个相邻 nested folding ranges 在同一行结束时 被 foldexpr 合并的问题，使 section/subtree 等 nested ranges 不会吞并后续 sibling；它不增加 single-physical-line fold support，也不恢复 folding topology 重建前的手动 open/closed state。原生 adapter 仍按 `"foldlevel"、`"foldmethod=expr" 和自身的 fold engine 规则重建 folding tree；编辑造成 topology 变化时， 用户通过 `"zo"、`"zc" 选择的局部状态不保证跨越所有结构重建继续保留。plugin 不在 Lua 层复制 fold engine，也不使用 range overlap、cursor visibility 或延迟 `"foldopen"/`"foldclose" 猜测并恢复用户状态。
 
-这是当前的兼容性取舍，不是最终设计。长期愿景是让 Neovim 拥有现代的 identity-aware folding：fold source 以稳定 identity 和可随编辑移动的 anchor 表示，状态仍按 window 保存，更新按受影响的局部 结构增量完成，并能通过正式 API 区分不同 namespace、读取实际 fold tree 与保留手动 open/closed override。LSP 的无 identity `"FoldingRange" 仍需采用明确的保守匹配策略；不能确认对应关系时，应 遵守 window 的 `"foldlevel"，而不是强行改变用户状态。
+ 这是当前的兼容性取舍，不是最终设计。长期愿景是让 Neovim 拥有现代的 identity-aware folding：fold source 以稳定 identity 和可随编辑移动的 anchor 表示，状态仍按 window 保存，更新按受影响的局部 结构增量完成，并能通过正式 API 区分不同 namespace、读取实际 fold tree 与保留手动 open/closed override。LSP 的无 identity `"FoldingRange" 仍需采用明确的保守匹配策略；不能确认对应关系时，应 遵守 window 的 `"foldlevel"，而不是强行改变用户状态。
 
-plugin 不修改 window-local folding 设置。editor configuration 可以在 `"LspAttach" 中仅对支持该 method 的 client 启用：
+ plugin 不修改 window-local folding 设置。editor configuration 可以在 `"LspAttach" 中仅对支持该 method 的 client 启用：
 
-`lua"
-  vim.api.nvim_create_autocmd('LspAttach', {
-    callback = function(args)
-      local client = vim.lsp.get_client_by_id(args.data.client_id)
-      if client and client:supports_method('textDocument/foldingRange') then
-        vim.wo.foldmethod = 'expr'
-        vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'
-        vim.wo.foldtext = "v:lua.require'plumb'.foldtext()"
-        vim.wo.foldminlines = 0
-        vim.wo.foldlevel = 99
-      end
-    end,
-  })
+ `lua"
+   vim.api.nvim_create_autocmd('LspAttach', {
+     callback = function(args)
+       local client = vim.lsp.get_client_by_id(args.data.client_id)
+       if client and client:supports_method('textDocument/foldingRange') then
+         vim.wo.foldmethod = 'expr'
+         vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+         vim.wo.foldtext = "v:lua.require'plumb'.foldtext()"
+         vim.wo.foldminlines = 0
+         vim.wo.foldlevel = 99
+       end
+     end,
+   })
 
-独立 tree-sitter package 的 `"folds.scm" 可以作为没有 LSP client 时的 lenient fallback；editor 可以在 plumb LSP 支持 folding 时优先使用 LSP ranges。
+ 独立 tree-sitter package 的 `"folds.scm" 可以作为没有 LSP client 时的 lenient fallback；editor 可以在 plumb LSP 支持 folding 时优先使用 LSP ranges。
 
-`"require('plumb').foldtext()" 包装原生 `"vim.lsp.foldtext()"，并为 waiting、blocked、done、canceled、 conflicted task 的整条 fold label 分别使用 PlumbTaskFoldWaiting、PlumbTaskFoldBlocked、PlumbTaskFoldDone、 PlumbTaskFoldCanceled、PlumbTaskFoldConflicted。waiting、blocked、done、conflicted 默认分别链接到 DiagnosticInfo、DiagnosticHint、Comment、DiagnosticWarn。Canceled 使用 resolved `"Comment" 的弱化颜色， 同时保留 DiagnosticDeprecated 的删除线，但不采用它的颜色。ready、event、metadata 与 fallback labels 保持原样；fold-only groups 不改变展开 task body 的 semantic highlight。LSP `"collapsedText" 本身只携带文字，highlight chunks 由 plugin 在 editor 端补充。
+ `"require('plumb').foldtext()" 包装原生 `"vim.lsp.foldtext()"，并为 waiting、blocked、done、canceled、 conflicted task 的整条 fold label 分别使用 PlumbTaskFoldWaiting、PlumbTaskFoldBlocked、PlumbTaskFoldDone、 PlumbTaskFoldCanceled、PlumbTaskFoldConflicted。waiting、blocked、done、conflicted 默认分别链接到 DiagnosticInfo、DiagnosticHint、Comment、DiagnosticWarn。Canceled 使用 resolved `"Comment" 的弱化颜色， 同时保留 DiagnosticDeprecated 的删除线，但不采用它的颜色。ready、event、metadata 与 fallback labels 保持原样；fold-only groups 不改变展开 task body 的 semantic highlight。LSP `"collapsedText" 本身只携带文字，highlight chunks 由 plugin 在 editor 端补充。
 
 `# Closed task highlighting
 
-LSP semantic tokens 将 done task 的完整 block 标为 `"task + completed"，将 canceled task 标为 `"task + canceled"；同时具有两个 closure fields 的 conflicted task 携带两个 modifiers。父 task 的 range 会扣除 nested task blocks，child task 始终按自身状态着色。空行不产生 token。
+ LSP semantic tokens 将 done task 的完整 block 标为 `"task + completed"，将 canceled task 标为 `"task + canceled"；同时具有两个 closure fields 的 conflicted task 携带两个 modifiers。父 task 的 range 会扣除 nested task blocks，child task 始终按自身状态着色。空行不产生 token。
 
-`"textDocument/semanticTokens/full" 在当前文档语义分析仍在运行时异步等待同一 revision，完成任务或编辑 metadata
-不会因 temporary empty response 丢失高亮。等待期间其它请求与编辑继续处理；新 revision、关闭或 request cancellation
-会结束旧请求。此处的本地结果不依赖 semantic-token refresh 或完整 workspace index。
+ `"textDocument/semanticTokens/full" 在当前文档语义分析仍在运行时异步等待同一 revision，完成任务或编辑 metadata
+  不会因 temporary empty response 丢失高亮。等待期间其它请求与编辑继续处理；新 revision、关闭或 request cancellation
+  会结束旧请求。此处的本地结果不依赖 semantic-token refresh 或完整 workspace index。
 
-完整 plugin 默认把两种 token 链接到 `"Comment" highlight，因此 closed task 保持可读但降低对比度。 不使用 plugin 时可以直接配置 Neovim 0.12：
+ 完整 plugin 默认把两种 token 链接到 `"Comment" highlight，因此 closed task 保持可读但降低对比度。 不使用 plugin 时可以直接配置 Neovim 0.12：
 
-`lua"
-  vim.api.nvim_set_hl(0, '@lsp.typemod.task.completed.plumb', {
-    link = 'Comment',
-  })
-  vim.api.nvim_set_hl(0, '@lsp.typemod.task.canceled.plumb', {
-    link = 'Comment',
-  })
+ `lua"
+   vim.api.nvim_set_hl(0, '@lsp.typemod.task.completed.plumb', {
+     link = 'Comment',
+   })
+   vim.api.nvim_set_hl(0, '@lsp.typemod.task.canceled.plumb', {
+     link = 'Comment',
+   })
 
-颜色方案或用户配置可以把这两个 groups 改成任意颜色、italic 或 strikethrough；semantic token 只提供 状态与 source ranges，不 conceal 文本，也不自动关闭 fold。
+ 颜色方案或用户配置可以把这两个 groups 改成任意颜色、italic 或 strikethrough；semantic token 只提供 状态与 source ranges，不 conceal 文本，也不自动关闭 fold。
 
 `# Authoring workflow
 
-普通 Neovim LSP mappings 可以直接调用 plumb 标准功能：
+ 普通 Neovim LSP mappings 可以直接调用 plumb 标准功能：
 
-`lua"
-  vim.keymap.set('n', 'gd', vim.lsp.buf.definition)
-  vim.keymap.set('n', 'gr', vim.lsp.buf.references)
-  vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename)
-  vim.keymap.set({ 'n', 'x' }, '<leader>ca', vim.lsp.buf.code_action)
-  vim.keymap.set('n', '<leader>f', function()
-    vim.lsp.buf.format({ name = 'plumb' })
-  end)
+ `lua"
+   vim.keymap.set('n', 'gd', vim.lsp.buf.definition)
+   vim.keymap.set('n', 'gr', vim.lsp.buf.references)
+   vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename)
+   vim.keymap.set({ 'n', 'x' }, '<leader>ca', vim.lsp.buf.code_action)
+   vim.keymap.set('n', '<leader>f', function()
+     vim.lsp.buf.format({ name = 'plumb' })
+   end)
 
-在 list item 的直接 property 或 document 根层 metadata 中输入 `"`= " 或 `"`= event-c"，属性名补全会提供 `"event-category"，并把光标留在待填值处。普通列表项、task/event 列表项和普通文档都支持；同一 owner 已有该声明时不重复建议，文档根层判重不受正文分隔影响。
+ 在 list item 的直接 property 或 document 根层 metadata 中输入 `"`= " 或 `"`= event-c"，属性名补全会提供 `"event-category"，并把光标留在待填值处。普通列表项、task/event 列表项和普通文档都支持；同一 owner 已有该声明时不重复建议，文档根层判重不受正文分隔影响。
 
-construct completion 按 marker prefix 与 syntax owner 触发：bare introducer 不提供候选；line-start `"-" 提供
-Task/Event/Link，ordinary inline `"-"/`"->" 只提供 canonical parsed Link。`"->{" 保持 parsed Link template；
-`"->\"" 提供同名 compact verbatim Link。完成后 one-element/two-or-more-element forms分别使用 derived/explicit
-label。`"c" 至 `"cite" prefix
-提供 Citation snippet，完整/recovered `"cite{...}" 从 declared CSL
-files补全 ids；legacy task/event marker prefixes 不提供候选。
+ construct completion 按 marker prefix 与 syntax owner 触发：bare introducer 不提供候选；line-start `"-" 提供
+  Task/Event/Link，ordinary inline `"-"/`"->" 只提供 canonical parsed Link。`"->{" 保持 parsed Link template；
+  `"->\"" 提供同名 compact verbatim Link。完成后 one-element/two-or-more-element forms分别使用 derived/explicit
+  label。`"c" 至 `"cite" prefix
+  提供 Citation snippet，完整/recovered `"cite{...}" 从 declared CSL
+  files补全 ids；legacy task/event marker prefixes 不提供候选。
 
-直接输入文字替换 Link snippet 的选中占位符后，路径补全可按文件名或当前文档标题匹配，包括中文。路径候选不等待当前或无关文档的后台分析；锚点候选等待目标文档就绪后返回，无需再次输入或手动重试。等待期间继续编辑会取消旧请求，避免使用过期的替换范围。
+ 直接输入文字替换 Link snippet 的选中占位符后，路径补全可按文件名或当前文档标题匹配，包括中文。路径候选不等待当前或无关文档的后台分析；锚点候选等待目标文档就绪后返回，无需再次输入或手动重试。等待期间继续编辑会取消旧请求，避免使用过期的替换范围。
 
-snippets 使用 current braces/space syntax：Link `"`->{{label} target}"，properties `"`= key value"。Task/Event
-skeleton 生成 list item 与 direct facet children，child relative indentation 一格；client insertTextMode 只改变
-base indentation projection。CodeAction 包括 SpaceRun alignment、metadata、explicit id、event shorthand、task
-conversion/status。Align arguments只处理 same-marker/same-positional-element-count childless runs，以 Unicode width扩大 direct
-SpaceRun，不写 pipe。whole/range formatting 使用同一 formatter与 changed-line edits。
+ snippets 使用 current braces/space syntax：Link `"`->{{label} target}"，properties `"`= key value"。Task/Event
+  skeleton 生成 list item 与 direct facet children，child relative indentation 一格；client insertTextMode 只改变
+  base indentation projection。CodeAction 包括 SpaceRun alignment、metadata、explicit id、event shorthand、task
+  conversion/status。Align arguments只处理 same-marker/same-positional-element-count childless runs，以 Unicode width扩大 direct
+  SpaceRun，不写 pipe。whole/range formatting 使用同一 formatter与 changed-line edits。
 
-光标位于顶层 `"meta" marker 时，`"vim.lsp.buf.rename()" 重命名当前 document file，并更新 workspace 内指向它的 Links 和 task references。rename input 只显示当前 filename stem；输入同目录的新 stem 时不写 `".plumb" extension，server 会自动保留它。operation 不修改 metadata `"title"。client 必须 支持 `"workspaceEdit.documentChanges" 与 `"RenameFile" resource operation。
-该 document rename 只在首个顶层 metadata/document declaration 的 opener marker 上提供；title 值、其它 metadata entry、nested property、正文或没有 declaration 的文档不提供。Link/task path rename 与 explicit anchor rename 仍通过各自的 target 提供。
+ 光标位于顶层 `"meta" marker 时，`"vim.lsp.buf.rename()" 重命名当前 document file，并更新 workspace 内指向它的 Links 和 task references。rename input 只显示当前 filename stem；输入同目录的新 stem 时不写 `".plumb" extension，server 会自动保留它。operation 不修改 metadata `"title"。client 必须 支持 `"workspaceEdit.documentChanges" 与 `"RenameFile" resource operation。
+  该 document rename 只在首个顶层 metadata/document declaration 的 opener marker 上提供；title 值、其它 metadata entry、nested property、正文或没有 declaration 的文档不提供。Link/task path rename 与 explicit anchor rename 仍通过各自的 target 提供。
 
 `# Note and task search
 
-`"plumb.search" 使用 `"plumb/search" custom request。native picker 基于 `"vim.ui.input/select"：
+ `"plumb.search" 使用 `"plumb/search" custom request。native picker 基于 `"vim.ui.input/select"：
 
-`lua"
-  vim.keymap.set('n', '<leader>pn', function()
-    require('plumb.search').search_notes()
-  end)
-  vim.keymap.set('n', '<leader>pt', function()
-    require('plumb.search').search_tasks({ filter = 'state == "ready"' })
-  end)
+ `lua"
+   vim.keymap.set('n', '<leader>pn', function()
+     require('plumb.search').search_notes()
+   end)
+   vim.keymap.set('n', '<leader>pt', function()
+     require('plumb.search').search_tasks({ filter = 'state == "ready"' })
+   end)
 
-`"live_search" 允许 picker adapter 提供 debounce、cancellation、preview 和 incomplete-result UI；Lua API 见 `"contrib/nvim/README.plumb"。
+ `"live_search" 允许 picker adapter 提供 debounce、cancellation、preview 和 incomplete-result UI；Lua API 见 `"contrib/nvim/README.plumb"。
 
-`"plumb.search.search_notes(opts)" 与 `"search_tasks(opts)" 使用当前 buffer，或者显式的 `"opts.bufnr"， 选择 attached clients 中声明 `"experimental.plumb.search"、`"{method = "plumb/search"}" 与 `"schemaVersion = 3" 的一个。 `"plumb.next.open(opts)" 与 `"toggle(item, opts)" 同理选择声明 `"experimental.plumb.next"、`"{method = "plumb/next"}" 与 `"schemaVersion = 1" 的 client，并把两段 shortlist 交给 `"vim.ui.select"，Focus/Unfocus 由 server 的 task code action 完成。没有兼容 client、schema 不匹配、request error 与 malformed response 都通过 `"vim.notify" 报告；空结果交给 `"vim.ui.select"，选择结果后使用对应 client 的 `"offset_encoding" 调用 `"vim.lsp.util.show_document" 跳转到 `"Location"。
+ `"plumb.search.search_notes(opts)" 与 `"search_tasks(opts)" 使用当前 buffer，或者显式的 `"opts.bufnr"， 选择 attached clients 中声明 `"experimental.plumb.search"、`"{method = "plumb/search"}" 与 `"schemaVersion = 3" 的一个。 `"plumb.next.open(opts)" 与 `"toggle(item, opts)" 同理选择声明 `"experimental.plumb.next"、`"{method = "plumb/next"}" 与 `"schemaVersion = 1" 的 client，并把两段 shortlist 交给 `"vim.ui.select"，Focus/Unfocus 由 server 的 task code action 完成。没有兼容 client、schema 不匹配、request error 与 malformed response 都通过 `"vim.notify" 报告；空结果交给 `"vim.ui.select"，选择结果后使用对应 client 的 `"offset_encoding" 调用 `"vim.lsp.util.show_document" 跳转到 `"Location"。
 
-可以直接执行一行命令：
+ 可以直接执行一行命令：
 
-`text"
-  :lua require('plumb.search').search_notes()
-  :lua require('plumb.search').search_tasks({ filter = 'state == "ready"' })
+ `text"
+   :lua require('plumb.search').search_notes()
+   :lua require('plumb.search').search_tasks({ filter = 'state == "ready"' })
 
-也可以注册稳定的 user commands 与 keymaps：
+ 也可以注册稳定的 user commands 与 keymaps：
 
-`lua"
-  vim.api.nvim_create_user_command('PlumbNotes', function()
-    require('plumb.search').search_notes()
-  end, {})
-  vim.api.nvim_create_user_command('PlumbTasks', function()
-    require('plumb.search').search_tasks({ filter = 'state == "ready"' })
-  end, {})
-  vim.keymap.set('n', '<leader>pn', '<cmd>PlumbNotes<cr>')
-  vim.keymap.set('n', '<leader>pt', '<cmd>PlumbTasks<cr>')
+ `lua"
+   vim.api.nvim_create_user_command('PlumbNotes', function()
+     require('plumb.search').search_notes()
+   end, {})
+   vim.api.nvim_create_user_command('PlumbTasks', function()
+     require('plumb.search').search_tasks({ filter = 'state == "ready"' })
+   end, {})
+   vim.keymap.set('n', '<leader>pn', '<cmd>PlumbNotes<cr>')
+   vim.keymap.set('n', '<leader>pt', '<cmd>PlumbTasks<cr>')
 
-底层调用不经过 `"workspace/executeCommand"；它直接发送 `"plumb/search"：
+ 底层调用不经过 `"workspace/executeCommand"；它直接发送 `"plumb/search"：
 
-`lua"
-  local client = assert(vim.lsp.get_clients({ bufnr = 0, name = 'plumb' })[1])
-  client:request('plumb/search', {
-    kind = 'task',
-    query = 'review',
-    filter = 'state == "ready" && due < now',
-    limit = 100,
-  }, function(err, result)
-    if err then
-      vim.notify(err.message, vim.log.levels.ERROR)
-      return
-    end
-    if vim.tbl_isempty(result.items) then
-      vim.notify('plumb: no matching tasks', vim.log.levels.INFO)
-      return
-    end
-    vim.lsp.util.show_document(result.items[1].location, client.offset_encoding, { focus = true })
-  end, 0)
+ `lua"
+   local client = assert(vim.lsp.get_clients({ bufnr = 0, name = 'plumb' })[1])
+   client:request('plumb/search', {
+     kind = 'task',
+     query = 'review',
+     filter = 'state == "ready" && due < now',
+     limit = 100,
+   }, function(err, result)
+     if err then
+       vim.notify(err.message, vim.log.levels.ERROR)
+       return
+     end
+     if vim.tbl_isempty(result.items) then
+       vim.notify('plumb: no matching tasks', vim.log.levels.INFO)
+       return
+     end
+     vim.lsp.util.show_document(result.items[1].location, client.offset_encoding, { focus = true })
+   end, 0)
 
-params 的 `"kind" 是 `"note"、`"task" 或 `"event"；`"query" 是 fuzzy text，`"filter" 是 CEL，`"limit" 最大 200。result 是 `"schemaVersion = 3"、`"complete" 与 `"items"。每个 item 都有 `"kind"、`"title"、 workspace-relative `"path"、LSP `"location" 和 `"provenance = { source, revision }"；task item 还可有 `"id"、`"state"、`"waitReasons"、`"due"、`"blocked" 与 `"actionable"；event item 还可有 `"id"、 `"start"、`"end" 与 `"tasks"。`"complete = false" 表示 index 或 limit 导致结果不完整。推荐 wrapper 已处理 capability、buffer/client selection、空结果、错误、Location jump 与 cancellation；自选 picker 应复用同一 schema，而不是解析 display label。
+ params 的 `"kind" 是 `"note"、`"task" 或 `"event"；`"query" 是 fuzzy text，`"filter" 是 CEL，`"limit" 最大 200。result 是 `"schemaVersion = 3"、`"complete" 与 `"items"。每个 item 都有 `"kind"、`"title"、 workspace-relative `"path"、LSP `"location" 和 `"provenance = { source, revision }"；task item 还可有 `"id"、`"state"、`"waitReasons"、`"due"、`"blocked" 与 `"actionable"；event item 还可有 `"id"、 `"start"、`"end" 与 `"tasks"。`"complete = false" 表示 index 或 limit 导致结果不完整。推荐 wrapper 已处理 capability、buffer/client selection、空结果、错误、Location jump 与 cancellation；自选 picker 应复用同一 schema，而不是解析 display label。
 
 `# Reference 与用时 CodeLens
 
-任务行显示整个 workspace 关联事件分摊后的累计用时，例如 `"total 3h 20m"；文档任务显示在文件首行，
-不合并子任务的用时。事件行显示自身完整时长，例如 `"duration 45m"。开放事件显示 `"ongoing"，不计入累计；
-时间点事件不显示时长。任务 focused history 不参与用时计算。重复事项引用去重后均分，跨日不裁剪，重叠事件照常累加。
+ 任务行显示整个 workspace 关联事件分摊后的累计用时，例如 `"total 3h 20m"；文档任务显示在文件首行，
+  不合并子任务的用时。事件行显示自身完整时长，例如 `"duration 45m"。开放事件显示 `"ongoing"，不计入累计；
+  时间点事件不显示时长。任务 focused history 不参与用时计算。重复事项引用去重后均分，跨日不裁剪，重叠事件照常累加。
 
-有显式 id 的普通列表项收到有限事件的核算份额时，也显示 `"total" 并可查看贡献事件，不需要 task 或 activity facet。
-无关联份额的普通条目不显示，父项不累加子项；普通正文链接不参与核算。
+ 有显式 id 的普通列表项收到有限事件的核算份额时，也显示 `"total" 并可查看贡献事件，不需要 task 或 activity facet。
+  无关联份额的普通条目不显示，父项不累加子项；普通正文链接不参与核算。
 
-点击任务用时可通过下述 picker 查看贡献事件；点击事件用时定位该事件。任务无有效有限事件份额时显示 `"total 0s"。
-语法错误节点及其子节点被排除，时间、标题、分类或核算引用无效的事件单独跳过；其余有效事件正常累计，错误由诊断显示。
-有效事件自身仍显示时长，非法时间显示 `"duration unavailable"。真正的读取失败仍显示 `"total unavailable (incomplete)"。
-等待索引或当前区域语义分析就绪期间暂不返回 CodeLens；支持 refresh 的客户端会在就绪或关联事件更新后自动刷新。
-用时按秒显示，非零但不足一秒显示 `"<1s"。
+ 点击任务用时可通过下述 picker 查看贡献事件；点击事件用时定位该事件。任务无有效有限事件份额时显示 `"total 0s"。
+  语法错误节点及其子节点被排除，时间、标题、分类或核算引用无效的事件单独跳过；其余有效事件正常累计，错误由诊断显示。
+  有效事件自身仍显示时长，非法时间显示 `"duration unavailable"。真正的读取失败仍显示 `"total unavailable (incomplete)"。
+  等待索引或当前区域语义分析就绪期间暂不返回 CodeLens；支持 refresh 的客户端会在就绪或关联事件更新后自动刷新。
+  用时按秒显示，非零但不足一秒显示 `"<1s"。
 
-metadata 与 explicit anchors 的 CodeLens 返回 `"plumb.showReferences" client command。 `"plumb.codelens.setup()" 将 locations 显示在 quickfix；`"picker = 'snacks'" 使用 Snacks picker，并在 Snacks 不可用时回退 quickfix。
+ metadata 与 explicit anchors 的 CodeLens 返回 `"plumb.showReferences" client command。 `"plumb.codelens.setup()" 将 locations 显示在 quickfix；`"picker = 'snacks'" 使用 Snacks picker，并在 Snacks 不可用时回退 quickfix。
 
-该 command 不是 server-side `"workspace/executeCommand"。CodeLens arguments 固定为 target URI、target position 与完整 `"Location list"；wrapper 直接使用第三个 argument，不再发送 `"textDocument/references"。 光标位于 metadata marker 或 explicit anchor block 时可以运行：
+ 该 command 不是 server-side `"workspace/executeCommand"。CodeLens arguments 固定为 target URI、target position 与完整 `"Location list"；wrapper 直接使用第三个 argument，不再发送 `"textDocument/references"。 光标位于 metadata marker 或 explicit anchor block 时可以运行：
 
-`text"
-  :lua vim.lsp.codelens.run()
+ `text"
+   :lua vim.lsp.codelens.run()
 
-推荐直接注册 keymap：
+ 推荐直接注册 keymap：
 
-`lua"
-  vim.keymap.set('n', '<leader>pr', vim.lsp.codelens.run)
+ `lua"
+   vim.keymap.set('n', '<leader>pr', vim.lsp.codelens.run)
 
-这要求当前 buffer attached 到提供 CodeLens 的 plumb client，并且已调用 `"require('plumb.codelens').setup()" 注册 `"plumb.showReferences"。0 references 显示 info notification； client 已退出、payload 无效或 picker 失败时显示明确错误。quickfix 与 Snacks 都使用 Location 跳转， Snacks additionally 提供 preview、tagstack 与 single-result auto-confirm。
+ 这要求当前 buffer attached 到提供 CodeLens 的 plumb client，并且已调用 `"require('plumb.codelens').setup()" 注册 `"plumb.showReferences"。0 references 显示 info notification； client 已退出、payload 无效或 picker 失败时显示明确错误。quickfix 与 Snacks 都使用 Location 跳转， Snacks additionally 提供 preview、tagstack 与 single-result auto-confirm。
 
 `# Workspace Web app
 
-Web viewer 独立于 LSP process 与 Neovim plugin，通过统一 CLI 启动：
+ Web viewer 独立于 LSP process 与 Neovim plugin，通过统一 CLI 启动：
 
-`text"
-  plumb site serve --root /path/to/workspace
+ `text"
+   plumb site serve --root /path/to/workspace
 
-Note preview 对 `"cite" 运行 Pandoc citeproc。Bibliography relative path 从各 note 所在目录 解析，必须保持在 workspace root 内；CSL JSON 改变会触发 preview cache invalidation。
+ Note preview 对 `"cite" 运行 Pandoc citeproc。Bibliography relative path 从各 note 所在目录 解析，必须保持在 workspace root 内；CSL JSON 改变会触发 preview cache invalidation。
 
 `# Troubleshooting
 
-`- `":checkhealth vim.treesitter" 检查 parser 是否注册；highlight 正常不代表 strict parser 接受文档。
-`- `":LspInfo" 检查 `"plumb" client、root directory 与 attached buffers。
-`- nested workspace 未生效时，确认 marker 是 `".plumb/" directory，并在重新打开 buffer 后检查 root。
-`- ignored note 意外出现在 search 或 graph 时，检查生效 workspace root 及其 root-scoped `".ignore"。
-`- repository-local parser 或 LSP 需要调试时，以 `"dev/nvim.lua" 作为可运行参考配置。
+ `- `":checkhealth vim.treesitter" 检查 parser 是否注册；highlight 正常不代表 strict parser 接受文档。
+ `- `":LspInfo" 检查 `"plumb" client、root directory 与 attached buffers。
+ `- nested workspace 未生效时，确认 marker 是 `".plumb/" directory，并在重新打开 buffer 后检查 root。
+ `- ignored note 意外出现在 search 或 graph 时，检查生效 workspace root 及其 root-scoped `".ignore"。
+ `- repository-local parser 或 LSP 需要调试时，以 `"dev/nvim.lua" 作为可运行参考配置。
 
 `# 文档任务操作
 
-在空文档或根层 metadata/facet 声明处，尚非文档任务时，LSP code action 提供 Convert document to task；列表项转换命名为 Convert list item to task。Insert document metadata 与文档转换同时可用时，metadata 在服务端返回顺序中先于文档转换，客户端可能自行排序。已有文档任务还可使用 Complete task、Cancel task、Focus task 和 Unfocus task。子任务内部的操作只作用于对应列表任务。Neovim 使用原生 code action 入口即可，无需另写编辑命令。
+ 在空文档或根层 metadata/facet 声明处，尚非文档任务时，LSP code action 提供 Convert document to task；列表项转换命名为 Convert list item to task。Insert document metadata 与文档转换同时可用时，metadata 在服务端返回顺序中先于文档转换，客户端可能自行排序。已有文档任务还可使用 Complete task、Cancel task、Focus task 和 Unfocus task。子任务内部的操作只作用于对应列表任务。Neovim 使用原生 code action 入口即可，无需另写编辑命令。
 
-文档任务完成或取消时，仅对 title 或 task facet 的选择范围提供状态高亮，不覆盖正文或子任务；文档任务不生成整文件的列表折叠标签，现有结构折叠继续使用原有边界。
+ 文档任务完成或取消时，仅对 title 或 task facet 的选择范围提供状态高亮，不覆盖正文或子任务；文档任务不生成整文件的列表折叠标签，现有结构折叠继续使用原有边界。
 
-文档任务的新增声明按光标所在 metadata 区域插入：连续 properties 及其后 facets 构成一区域，空行不拆组。新增属性放在本组 properties 末尾、facets 前，新增 facet 放在 facets 末尾。已有字段原位更新，其他区域不重排；metadata 空白行不提供区域操作。CLI/Web 默认使用文件开头的第一区域，没有头部 metadata 时在文件开头创建。
+ 文档任务的新增声明按光标所在 metadata 区域插入：连续 properties 及其后 facets 构成一区域，空行不拆组。新增属性放在本组 properties 末尾、facets 前，新增 facet 放在 facets 末尾。已有字段原位更新，其他区域不重排；metadata 空白行不提供区域操作。CLI/Web 默认使用文件开头的第一区域，没有头部 metadata 时在文件开头创建。
 
-在 event-category 的标量值或分类列表项中触发补全，可选择工作区所有文档、列表项已声明的有效分类。候选按输入前缀筛选、去重排序；多词分类保留为一个完整值，特殊字符自动转义。
+ 在 event-category 的标量值或分类列表项中触发补全，可选择工作区所有文档、列表项已声明的有效分类。候选按输入前缀筛选、去重排序；多词分类保留为一个完整值，特殊字符自动转义。

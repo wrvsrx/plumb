@@ -4,126 +4,126 @@
 
 `# Workspace root
 
-`".plumb/" directory 标记一个 plumb workspace root。省略 `"--root" 的 workspace commands 从当前 directory 向上选择最近的 marker；找不到 marker 时使用当前 directory。显式 `"--root DIR" 始终优先， 不会继续向上 discovery。
+ `".plumb/" directory 标记一个 plumb workspace root。省略 `"--root" 的 workspace commands 从当前 directory 向上选择最近的 marker；找不到 marker 时使用当前 directory。显式 `"--root DIR" 始终优先， 不会继续向上 discovery。
 
-一个较大的 notes directory 可以包含 nested workspace：
+ 一个较大的 notes directory 可以包含 nested workspace：
 
-`text"
-  notes/
-    .plumb/
-    .ignore
-    public.plumb
-    private/
-      .plumb/
-      note.plumb
+ `text"
+   notes/
+     .plumb/
+     .ignore
+     public.plumb
+     private/
+       .plumb/
+       note.plumb
 
-从 `"notes/" 工作时，parent workspace 的 ignore policy 生效；从 `"notes/private/" 工作时，更近的 marker 建立独立 root，不读取 parent ignore rules。
+ 从 `"notes/" 工作时，parent workspace 的 ignore policy 生效；从 `"notes/private/" 工作时，更近的 marker 建立独立 root，不读取 parent ignore rules。
 
 `# Ignore
 
-每个 workspace root 使用 gitignore-style `".ignore" 控制 index。规则从 root 向下分层生效，但不读取 root parent、`".gitignore"、Git global ignore 或 `".git/info/exclude"。dot files 和 dot directories 没有内置特殊处理，需要排除时显式声明：
+ 每个 workspace root 使用 gitignore-style `".ignore" 控制 index。规则从 root 向下分层生效，但不读取 root parent、`".gitignore"、Git global ignore 或 `".git/info/exclude"。dot files 和 dot directories 没有内置特殊处理，需要排除时显式声明：
 
-`gitignore"
-  .git/
-  .obsidian/
-  private/
+ `gitignore"
+   .git/
+   .obsidian/
+   private/
 
-scanner 不进入 directory symlink；扩展名为 `"..plumb" 的 file symlink 仍可索引。ignored documents 不进入 check、note/task、LSP workspace index、graph 或 site。editor 直接打开 ignored document 时， LSP 仍分析当前 buffer；关闭后不保留在 index。
+ scanner 不进入 directory symlink；扩展名为 `"..plumb" 的 file symlink 仍可索引。ignored documents 不进入 check、note/task、LSP workspace index、graph 或 site。editor 直接打开 ignored document 时， LSP 仍分析当前 buffer；关闭后不保留在 index。
 
-`".ignore" 是 discovery policy，不是 filesystem security boundary。若某个 ignored subtree 仍需要完整 workspace features，应显式将其作为 root，或在其中创建 `".plumb/"。
+ `".ignore" 是 discovery policy，不是 filesystem security boundary。若某个 ignored subtree 仍需要完整 workspace features，应显式将其作为 root，或在其中创建 `".plumb/"。
 
 `# Note and task queries
 
-这些 workspace 命令默认使用内容校验的持久化缓存；`"--no-cache" 和 `"--cache-stats" 的使用见
-`->{工具链缓存说明 toolchain.plumb}。缓存不会改变 CEL、排序、任务状态或文件修改语义。
+ 这些 workspace 命令默认使用内容校验的持久化缓存；`"--no-cache" 和 `"--cache-stats" 的使用见
+  `->{工具链缓存说明 toolchain.plumb}。缓存不会改变 CEL、排序、任务状态或文件修改语义。
 
-`"plumb note" 与 `"plumb task" 提供 document/task CEL query、interactive picker 和 task operations：
+ `"plumb note" 与 `"plumb task" 提供 document/task CEL query、interactive picker 和 task operations：
 
-`text"
-  plumb note --query 'title.contains("parser")'
-  plumb note --interactive
-  plumb task --query 'state == "ready" && due < now'
-  plumb task complete notes/tasks.plumb#write-parser
-  plumb task cancel notes/tasks.plumb#obsolete-task
-  plumb task focus notes/tasks.plumb#write-parser
-  plumb task unfocus notes/tasks.plumb#write-parser
-  plumb task next --limit 3
+ `text"
+   plumb note --query 'title.contains("parser")'
+   plumb note --interactive
+   plumb task --query 'state == "ready" && due < now'
+   plumb task complete notes/tasks.plumb#write-parser
+   plumb task cancel notes/tasks.plumb#obsolete-task
+   plumb task focus notes/tasks.plumb#write-parser
+   plumb task unfocus notes/tasks.plumb#write-parser
+   plumb task next --limit 3
 
-任务操作的 TARGET 可以是文档任务的 `"path.plumb"，或列表任务的 `"path.plumb#task-id"。
+ 任务操作的 TARGET 可以是文档任务的 `"path.plumb"，或列表任务的 `"path.plumb#task-id"。
 
-task output 默认是 nested table；`"--flat" 省略 nesting indentation，`"--no-heading" 适合脚本。 complete/cancel 使用带 revision guard 的 shared operation 修改文件，并在同一次编辑里为 open 的 `"focused" 区间补上结束时间。
+ task output 默认是 nested table；`"--flat" 省略 nesting indentation，`"--no-heading" 适合脚本。 complete/cancel 使用带 revision guard 的 shared operation 修改文件，并在同一次编辑里为 open 的 `"focused" 区间补上结束时间。
 
-`"focus" 与 `"unfocus" 手工标记任务是否列入当前工作线：focus 写入或追加一个 open 区间（已有全部结束的历史时追加并把 single value 转成列表）， 已经 focused 时幂等不变；unfocus 为 open 区间补当前时刻，没有 open 区间时同一幂等。两者都支持多目标， 拒绝 closed task，focus 允许 waiting/blocked 的未关闭任务；非法区间历史或时间回拨导致无法满足顺序时明确失败且不写入。
+ `"focus" 与 `"unfocus" 手工标记任务是否列入当前工作线：focus 写入或追加一个 open 区间（已有全部结束的历史时追加并把 single value 转成列表）， 已经 focused 时幂等不变；unfocus 为 open 区间补当前时刻，没有 open 区间时同一幂等。两者都支持多目标， 拒绝 closed task，focus 允许 waiting/blocked 的未关闭任务；非法区间历史或时间回拨导致无法满足顺序时明确失败且不写入。
 
-`"next" 打印两段短名单：`"In flight" 是当前 focused 的任务（含 waiting/blocked，按关注起点升序，显示关注起点，不受候选上限限制）， `"Ready to start" 是 `"state == ready" 且未 focused 的任务（按现有 effective priority 降序，默认 3 条、`"--limit" 可设 1–10， 严格按任务数截断）。focus 数据无效的任务不会被当成候选，而是在末尾列出所在任务与诊断码；workspace 索引不完整时会显式提示。
+ `"next" 打印两段短名单：`"In flight" 是当前 focused 的任务（含 waiting/blocked，按关注起点升序，显示关注起点，不受候选上限限制）， `"Ready to start" 是 `"state == ready" 且未 focused 的任务（按现有 effective priority 降序，默认 3 条、`"--limit" 可设 1–10， 严格按任务数截断）。focus 数据无效的任务不会被当成候选，而是在末尾列出所在任务与诊断码；workspace 索引不完整时会显式提示。
 
 `# Web app
 
-`"plumb site serve --root DIR" 启动默认只监听 `"127.0.0.1" 的本地 Web server，并在 stdout 输出 ready URL；进程不主动打开浏览器。`"--current path.plumb" 初始选择一个 note，`"--port" 指定 port。server 监听 `"..plumb" 与 `".ignore" changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布 workspace revision。
+ `"plumb site serve --root DIR" 启动默认只监听 `"127.0.0.1" 的本地 Web server，并在 stdout 输出 ready URL；进程不主动打开浏览器。`"--current path.plumb" 初始选择一个 note，`"--port" 指定 port。server 监听 `"..plumb" 与 `".ignore" changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布 workspace revision。
 
-浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、pan、 zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。 unresolved document targets 显示为独立 node。
+ 浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、pan、 zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。 unresolved document targets 显示为独立 node。
 
-Graph 的 fuzzy search 只隐藏当前基础图中未匹配的 nodes 和相关 edges，不重新布局。搜索和清空输入都保持节点位置、按基础图连接数计算的大小，以及 camera center 与 zoom；隐藏节点不能点击。初始 URL 带搜索词时同样保留完整基础图，清空即可显示全部节点。结果数量只统计可见 nodes/edges。Fit 调整当前可见 nodes 的视角，其效果在清空搜索后继续保留；清空不会恢复搜索前的视角。基础图达到节点上限时，搜索只过滤当前已加载的图，并继续显示 truncated 提示。
+ Graph 的 fuzzy search 只隐藏当前基础图中未匹配的 nodes 和相关 edges，不重新布局。搜索和清空输入都保持节点位置、按基础图连接数计算的大小，以及 camera center 与 zoom；隐藏节点不能点击。初始 URL 带搜索词时同样保留完整基础图，清空即可显示全部节点。结果数量只统计可见 nodes/edges。Fit 调整当前可见 nodes 的视角，其效果在清空搜索后继续保留；清空不会恢复搜索前的视角。基础图达到节点上限时，搜索只过滤当前已加载的图，并继续显示 truncated 提示。
 
-本地视频附件使用浏览器原生播放控件。媒体服务支持分段读取，浏览器支持且具备有效索引的视频可以拖动进度条跳转到未缓冲的位置，无需先下载整个文件。
+ 本地视频附件使用浏览器原生播放控件。媒体服务支持分段读取，浏览器支持且具备有效索引的视频可以拖动进度条跳转到未缓冲的位置，无需先下载整个文件。
 
-`"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、 selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。 Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。没有 task facet 的 document 是 task forest 的虚拟结构节点；文档任务直接替代该文件行，不重复显示。Document heading 与含 subtasks 的 task 都可折叠：点击 heading 收起该文件的全部 tasks， 点击 task 的 disclosure control 收起其完整 subtask subtree，collapsed row 仍显示被隐藏的 subtask 数量； 选中被折叠的 task 会自动展开其 ancestors，折叠状态在同一浏览器 session 的 task list 刷新之间保持， 但不进入 URL 或跨刷新保存。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时 默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后， Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task 不会参与这些聚合；详情显示 derived state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示， 切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。 点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
+ `"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、 selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。 Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。没有 task facet 的 document 是 task forest 的虚拟结构节点；文档任务直接替代该文件行，不重复显示。Document heading 与含 subtasks 的 task 都可折叠：点击 heading 收起该文件的全部 tasks， 点击 task 的 disclosure control 收起其完整 subtask subtree，collapsed row 仍显示被隐藏的 subtask 数量； 选中被折叠的 task 会自动展开其 ancestors，折叠状态在同一浏览器 session 的 task list 刷新之间保持， 但不进入 URL 或跨刷新保存。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时 默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后， Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task 不会参与这些聚合；详情显示 derived state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示， 切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。 点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
 
-Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。
+ Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、details 与 task references。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 
-窄屏（`"width < 900px"，包含横屏手机与窄窗口）保持同一套 views，但改变呈现：顶栏固定一行，只留 brand、 view tab 与 `"⋯" overflow menu，Direction/Depth/Fit/Workspace-Local/Now 与当前统计收进 menu；filters 收成一行 preset chips（`"🔍" 展开 fuzzy 输入、`"⚙" 打开 filters sheet，sort/edges/labels/CEL 都在 sheet 内）；列表占满可用高度。note、task 与 event 的详情统一是覆盖屏幕的 push 层，共用同一个返回控件：浏览器返回键、Android 返回手势、edge swipe 与 `"‹" button 都回到列表（窄屏 selection 使用 `"pushState"，宽屏仍是 replace）；底部 sheet 只承载 filters 与 `"⋯" menu 这类临时控件。`"New task" 与 `"New event" 在窄屏是右下 FAB。
+ 窄屏（`"width < 900px"，包含横屏手机与窄窗口）保持同一套 views，但改变呈现：顶栏固定一行，只留 brand、 view tab 与 `"⋯" overflow menu，Direction/Depth/Fit/Workspace-Local/Now 与当前统计收进 menu；filters 收成一行 preset chips（`"🔍" 展开 fuzzy 输入、`"⚙" 打开 filters sheet，sort/edges/labels/CEL 都在 sheet 内）；列表占满可用高度。note、task 与 event 的详情统一是覆盖屏幕的 push 层，共用同一个返回控件：浏览器返回键、Android 返回手势、edge swipe 与 `"‹" button 都回到列表（窄屏 selection 使用 `"pushState"，宽屏仍是 replace）；底部 sheet 只承载 filters 与 `"⋯" menu 这类临时控件。`"New task" 与 `"New event" 在窄屏是右下 FAB。
 
-Tasks 使用单一任务树。当前结果有关注任务时，默认显示 focused tasks 及必要祖先路径；每层其余完整子树整体收进一个 `"Unfocused tasks" 分组，完全未关注的文件整体收进 `"Unfocused files"，点击即可展开。没有关注任务时正常展示全部结果。分组作为展示树节点，与同层任务对齐；每深入一级固定缩进 20px，展开后的任务位于分组下一级。任务状态显示在标题右侧。分组里的任务保持原有结构和排序，手动展开在当前浏览器 session 的查询刷新间保留；选择被隐藏任务会展开对应分组与祖先，新关注任务也会展开其祖先路径。分页仍可 Load more，分组数量只统计已加载结果。
+ Tasks 使用单一任务树。当前结果有关注任务时，默认显示 focused tasks 及必要祖先路径；每层其余完整子树整体收进一个 `"Unfocused tasks" 分组，完全未关注的文件整体收进 `"Unfocused files"，点击即可展开。没有关注任务时正常展示全部结果。分组作为展示树节点，与同层任务对齐；每深入一级固定缩进 20px，展开后的任务位于分组下一级。任务状态显示在标题右侧。分组里的任务保持原有结构和排序，手动展开在当前浏览器 session 的查询刷新间保留；选择被隐藏任务会展开对应分组与祖先，新关注任务也会展开其祖先路径。分页仍可 Load more，分组数量只统计已加载结果。
 
-任务更新会保留已加载的文件范围和手动展开状态，不退回第一页；排序变化后会按需扩大加载范围，保留正在浏览的文件。改变搜索或筛选条件会开始新的加载范围。当前任务仍在结果树中时保持选中；完成或删除使它退出结果时，按原可见顺序选择后继、前驱，最后回退到父任务。周期任务的下一期作为新任务出现，不自动抢走 selection。列表、详情与 URL 同步使用新的 selection，但数据更新不跟随选中任务滚动：Focus、Unfocus、完成和属性修改保留当前阅读区域，由仍存在的邻近任务承接浏览位置。点击详情中的任务跳转才会展开目标并滚动到它。窗口大小改变不重置上下文；Load more 不拉回旧的选中位置。
+ 任务更新会保留已加载的文件范围和手动展开状态，不退回第一页；排序变化后会按需扩大加载范围，保留正在浏览的文件。改变搜索或筛选条件会开始新的加载范围。当前任务仍在结果树中时保持选中；完成或删除使它退出结果时，按原可见顺序选择后继、前驱，最后回退到父任务。周期任务的下一期作为新任务出现，不自动抢走 selection。列表、详情与 URL 同步使用新的 selection，但数据更新不跟随选中任务滚动：Focus、Unfocus、完成和属性修改保留当前阅读区域，由仍存在的邻近任务承接浏览位置。点击详情中的任务跳转才会展开目标并滚动到它。窗口大小改变不重置上下文；Load more 不拉回旧的选中位置。
 
-显式 id 的任务在修改和重排后保持身份；临时筛掉再恢复也保留手动折叠状态。没有显式 id 的任务只以当前源码位置定位，文件修改后会回退到可识别的邻近任务，不以标题或相同 offset 猜测原任务。
+ 显式 id 的任务在修改和重排后保持身份；临时筛掉再恢复也保留手动折叠状态。没有显式 id 的任务只以当前源码位置定位，文件修改后会回退到可识别的邻近任务，不以标题或相同 offset 猜测原任务。
 
-任务树把已关注任务及其祖先子树固定排在前面，排序控件旁的 `"Focused first" 说明这一点；该规则在用户清空或重排 Priority/Due/Relevance keys 后仍然生效，也不绕过当前筛选，另一个 document 里的关注子任务会带动整个 document group 前移。文件路径显示筛选后树中的 focused 数量，文件折叠后仍保留标记；未关注但包含 focused 后代的父任务显示聚合数量，不改变父任务自身的关注状态。折叠隐藏的任务仍参与聚合，被筛选掉的任务不参与。
+ 任务树把已关注任务及其祖先子树固定排在前面，排序控件旁的 `"Focused first" 说明这一点；该规则在用户清空或重排 Priority/Due/Relevance keys 后仍然生效，也不绕过当前筛选，另一个 document 里的关注子任务会带动整个 document group 前移。文件路径显示筛选后树中的 focused 数量，文件折叠后仍保留标记；未关注但包含 focused 后代的父任务显示聚合数量，不改变父任务自身的关注状态。折叠隐藏的任务仍参与聚合，被筛选掉的任务不参与。
 
-关注状态由任务的关注徽标、关注时长及文件的关注数量表达；整行底色与左侧竖线只标识当前选中的任务，关注与选择可以同时存在。
+ 关注状态由任务的关注徽标、关注时长及文件的关注数量表达；整行底色与左侧竖线只标识当前选中的任务，关注与选择可以同时存在。
 
-任务列表和详情中的 `"Time spent" 显示关联事件分摊后的累计用时，与 CodeLens 使用同一口径。
-例如 `"Time spent: 1h 20m"；没有有效有限事件份额时显示 `"0s"。文档任务只统计直接关联自身的事件份额，
-不合并子任务。搜索、筛选和分页不裁剪累计事件；事件修改后随 workspace 更新刷新列表与详情。
-focused 的关注时长保持独立，不计入 Time spent；开放事件和时间点事件也不贡献用时。
-语法错误节点及其子节点、语义无效的事件不参与累计，其余有效事件正常统计，排除原因保留为诊断。索引或分析未完成、真实读取失败时仍显示 `"Unavailable (incomplete)"，不会冒充零用时。
+ 任务列表和详情中的 `"Time spent" 显示关联事件分摊后的累计用时，与 CodeLens 使用同一口径。
+  例如 `"Time spent: 1h 20m"；没有有效有限事件份额时显示 `"0s"。文档任务只统计直接关联自身的事件份额，
+  不合并子任务。搜索、筛选和分页不裁剪累计事件；事件修改后随 workspace 更新刷新列表与详情。
+  focused 的关注时长保持独立，不计入 Time spent；开放事件和时间点事件也不贡献用时。
+  语法错误节点及其子节点、语义无效的事件不参与累计，其余有效事件正常统计，排除原因保留为诊断。索引或分析未完成、真实读取失败时仍显示 `"Unavailable (incomplete)"，不会冒充零用时。
 
-任务详情提供 Focus / Unfocus 操作并可展开完整关注区间历史；任务行显示本轮关注时长，不表示工作时长，且只有执行操作才写入文档。graph 画布在触摸设备上自行处理单指平移与双指缩放。布局以 `"100dvh" 与 safe-area inset 适配移动浏览器，宽屏继续使用左右分栏。
+ 任务详情提供 Focus / Unfocus 操作并可展开完整关注区间历史；任务行显示本轮关注时长，不表示工作时长，且只有执行操作才写入文档。graph 画布在触摸设备上自行处理单指平移与双指缩放。布局以 `"100dvh" 与 safe-area inset 适配移动浏览器，宽屏继续使用左右分栏。
 
-`"plumb event --root DIR export-vdir --output DIR" 将 workspace events 原子投影到受管理 vdir，每个 event 对应一个 `"..ics" file。khal calendar 配置使用该目录并设置 `"readonly = true"；`".plumb" 仍是唯一 writable source，Calendar 修改不会回写。
+ `"plumb event --root DIR export-vdir --output DIR" 将 workspace events 原子投影到受管理 vdir，每个 event 对应一个 `"..ics" file。khal calendar 配置使用该目录并设置 `"readonly = true"；`".plumb" 仍是唯一 writable source，Calendar 修改不会回写。
 
-open task 无论是否具有 explicit id 都可以一键 complete 或 cancel，不弹 confirmation dialog；request pending 时当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 使用 server-issued id 或 source-offset locator，携带 document revision guard 并复用 shared task edit，因此 recurring completion 仍生成下一实例；success/error 使用 non-blocking notification，conflict 后重新读取 snapshot。
+ open task 无论是否具有 explicit id 都可以一键 complete 或 cancel，不弹 confirmation dialog；request pending 时当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 使用 server-issued id 或 source-offset locator，携带 document revision guard 并复用 shared task edit，因此 recurring completion 仍生成下一实例；success/error 使用 non-blocking notification，conflict 后重新读取 snapshot。
 
-Tasks detail 的 `"New task" 与 `"Edit" 打开结构化表单。创建时选择 source document；创建和编辑都可设置 title、parent、同层 position、created、due、wait、priority、recurrence、previous task 与 dependencies。 Datetime 使用本地 date/time control，保存时转为 RFC 3339；priority 是 signed integer，recurrence 从标准 interval 中选择并要求同时设置 due。state 由 task semantics 推导，表单不允许直接修改；关闭 task 仍使用 Complete 或 Cancel。
+ Tasks detail 的 `"New task" 与 `"Edit" 打开结构化表单。创建时选择 source document；创建和编辑都可设置 title、parent、同层 position、created、due、wait、priority、recurrence、previous task 与 dependencies。 Datetime 使用本地 date/time control，保存时转为 RFC 3339；priority 是 signed integer，recurrence 从标准 interval 中选择并要求同时设置 due。state 由 task semantics 推导，表单不允许直接修改；关闭 task 仍使用 Complete 或 Cancel。
 
-Parent 与 position 只列出目标 document 中已索引的 tasks。Previous task 和 dependencies 显示可读 title、 source path 与 explicit id，并向 server 提交 opaque document identity 和 task locator；same-file 或 cross-file reference spelling 由 shared authoring operation 生成。创建操作生成 explicit id 与 created timestamp；编辑保留不属于标准表单的 declaration children、nested tasks 和其它 child blocks。
+ Parent 与 position 只列出目标 document 中已索引的 tasks。Previous task 和 dependencies 显示可读 title、 source path 与 explicit id，并向 server 提交 opaque document identity 和 task locator；same-file 或 cross-file reference spelling 由 shared authoring operation 生成。创建操作生成 explicit id 与 created timestamp；编辑保留不属于标准表单的 declaration children、nested tasks 和其它 child blocks。
 
-所有 create/edit requests 携带 document revision。server 在写入前再次比较 indexed source 与 disk source， 应用 owned syntax edit，并验证结果仍是严格有效的 plumb；stale revision、external edit、invalid field、 unresolved dependency 或 dependency cycle 都不会覆盖文件。失败时表单显示 field/global error 并刷新 snapshot； 成功时保持当前 filters、sort 与 document context，并选中新建或更新后的 task。
+ 所有 create/edit requests 携带 document revision。server 在写入前再次比较 indexed source 与 disk source， 应用 owned syntax edit，并验证结果仍是严格有效的 plumb；stale revision、external edit、invalid field、 unresolved dependency 或 dependency cycle 都不会覆盖文件。失败时表单显示 field/global error 并刷新 snapshot； 成功时保持当前 filters、sort 与 document context，并选中新建或更新后的 task。
 
-非-loopback `"--host" 默认禁用 task mutations；只有显式添加 `"--allow-mutations" 才启用。browser mutation 必须是 same-origin JSON POST，server route 只接受已索引的 opaque document id 与 server-issued task locator，不接受 filesystem path；source-offset locator 还必须精确匹配当前 revision 中 task block 的 opener start。把 server 暴露到非-loopback network 前需要自行提供访问控制。
+ 非-loopback `"--host" 默认禁用 task mutations；只有显式添加 `"--allow-mutations" 才启用。browser mutation 必须是 same-origin JSON POST，server route 只接受已索引的 opaque document id 与 server-issued task locator，不接受 filesystem path；source-offset locator 还必须精确匹配当前 revision 中 task block 的 opener start。把 server 暴露到非-loopback network 前需要自行提供访问控制。
 
-反向代理后的 HTTPS mutation 使用 `"--public-origin" 显式声明 browser 访问的 origin，例如：
+ 反向代理后的 HTTPS mutation 使用 `"--public-origin" 显式声明 browser 访问的 origin，例如：
 
-`sh"
- plumb site serve --host 127.0.0.1 --port 3000 \
-   --public-origin https://zettelkasten.example.org:9162
+ `sh"
+  plumb site serve --host 127.0.0.1 --port 3000 \
+    --public-origin https://zettelkasten.example.org:9162
 
-该 option 只接受没有 path/query/fragment/userinfo 的 HTTP(S) origin，并要求 mutation request 的 browser `"Origin" 完全匹配；server 不把代理 headers 当作可信 origin。配置后，缺少 `"Origin" 的 mutation request 也会被拒绝。
+ 该 option 只接受没有 path/query/fragment/userinfo 的 HTTP(S) origin，并要求 mutation request 的 browser `"Origin" 完全匹配；server 不把代理 headers 当作可信 origin。配置后，缺少 `"Origin" 的 mutation request 也会被拒绝。
 
-server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
+ server URL 单独写入 stdout；启动状态、task mutation、所有 non-GET requests 和任何 HTTP 4xx/5xx responses 写入 stderr。task operation 同时记录 received、rejected reason 或 completed，例如：
 
-`text"
-  plumb site serve: received task complete for DOCUMENT (Id { id: "TASK" })
-  plumb site serve: POST /api/task/DOCUMENT/complete -> 409
+ `text"
+   plumb site serve: received task complete for DOCUMENT (Id { id: "TASK" })
+   plumb site serve: POST /api/task/DOCUMENT/complete -> 409
 
-`"--exclude EXPR" 使用 note CEL fields 隐藏 predicate 为 true 的 node 及其 connections：
+ `"--exclude EXPR" 使用 note CEL fields 隐藏 predicate 为 true 的 node 及其 connections：
 
-`text"
-  plumb site serve --exclude 'path in ["closed.plumb", "diary.plumb"]'
+ `text"
+   plumb site serve --exclude 'path in ["closed.plumb", "diary.plumb"]'
 
-`".ignore" 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document 的其它工具能力，只从 graph projection 移除 node、degree、local traversal 和 force layout effects。
+ `".ignore" 与 graph CEL 的职责不同：前者阻止 document 进入整个 workspace index；后者保留 document 的其它工具能力，只从 graph projection 移除 node、degree、local traversal 和 force layout effects。
 
-文档任务在详情中可修改字段、focus 或关闭；展开子树与选中任务使用独立控件。New task 表单的 Use selected document as task 把所选文件标记为任务；文档任务详情的 Remove task facet 只移除身份，保留文件内容。文档任务隐藏 Parent、Position 和 Recurrence 控件。
+ 文档任务在详情中可修改字段、focus 或关闭；展开子树与选中任务使用独立控件。New task 表单的 Use selected document as task 把所选文件标记为任务；文档任务详情的 Remove task facet 只移除身份，保留文件内容。文档任务隐藏 Parent、Position 和 Recurrence 控件。
 
-筛选命中子任务时，任务树保留完整祖先链；这些结构性父节点不计入任务匹配数量，行提示说明其上下文用途。文档任务的标题或 facet 可以写在文件后面，仍显示为整棵任务树的父节点。
+ 筛选命中子任务时，任务树保留完整祖先链；这些结构性父节点不计入任务匹配数量，行提示说明其上下文用途。文档任务的标题或 facet 可以写在文件后面，仍显示为整棵任务树的父节点。

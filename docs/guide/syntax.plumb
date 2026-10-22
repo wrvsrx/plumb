@@ -1,145 +1,145 @@
 `= title plumb syntax guide
 
 本文介绍 current recursive-owner syntax。精确 validity/recovery 以
-`->{{core syntax reference} ../reference/core-syntax.plumb} 为准。旧 brackets/pipe spelling 属于普通文本。
+ `->{{core syntax reference} ../reference/core-syntax.plumb} 为准。旧 brackets/pipe spelling 属于普通文本。
 
 `# Blocks and indentation
 
-每条 nonblank physical line 开始一个 block，或作为当前 open parsed block 的 plain continuation。普通 line 是
-anonymous parsed block；反引号加 marker 是 marked block：
+ 每条 nonblank physical line 开始一个 block，或作为当前 open parsed block 的 plain continuation。普通 line 是
+  anonymous parsed block；反引号加 marker 是 marked block：
 
-`plumb"
- ordinary paragraph
- `note Head content
+ `plumb"
+  ordinary paragraph
+  `note Head content
 
-newline 分隔 blocks，indentation 建立 children。anonymous/marked parsed block 都可以拥有 children；canonical
-indentation 是一格 ASCII space：
+ newline 分隔 blocks，indentation 建立 children。anonymous/marked parsed block 都可以拥有 children；canonical
+  indentation 是一格 ASCII space：
 
-`plumb"
- `parent
-  `child
+ `plumb"
+  `parent
+   `child
 
-`plumb"
- `parent Head
-  `child One
-  `child Two
+ `plumb"
+  `parent Head
+   `child One
+   `child Two
 
-open block 之后没有前置 blank 的 plain line继续该 block 的 inline content：同列或更深缩进都算 continuation，
-continuation 的缩进不建立 column；typed projection把 boundary视为一个 space。blank line结束 open block，之后的
-同列 plain line开始新的 sibling block，更深缩进的成为 anonymous child。显式 empty anonymous block 写作 `"{}"，
-并用 blank line 或 introducer 与 preceding block 分开。
+ open block 之后没有前置 blank 的 plain line继续该 block 的 inline content：同列或更深缩进都算 continuation，
+  continuation 的缩进不建立 column；typed projection把 boundary视为一个 space。blank line结束 open block，之后的
+  同列 plain line开始新的 sibling block，更深缩进的成为 anonymous child。显式 empty anonymous block 写作 `"{}"，
+  并用 blank line 或 introducer 与 preceding block 分开。
 
-block marker 后必须是 ASCII space 或 line ending。marker 紧邻 brace/quote 时是 inline owner，因此：
+ block marker 后必须是 ASCII space 或 line ending。marker 紧邻 brace/quote 时是 inline owner，因此：
 
-`plumb"
- `note content
- `note{content}
+ `plumb"
+  `note content
+  `note{content}
 
-前者是 marked block，后者是 anonymous block 内的 marked inline group。
+ 前者是 marked block，后者是 anonymous block 内的 marked inline group。
 
 `# Inline elements and groups
 
-inline sequence losslessly 保存 Text、ASCII SpaceRun、SoftBreak、Group 与 Verbatim。Text 在 space、special entry
-或 boundary处结束；每个 Text/Group/Verbatim 是一个 positional element，SpaceRun/SoftBreak不占 positional index。
-空格数量是 formatting，不产生 empty element；adjacency不会合并 elements：
+ inline sequence losslessly 保存 Text、ASCII SpaceRun、SoftBreak、Group 与 Verbatim。Text 在 space、special entry
+  或 boundary处结束；每个 Text/Group/Verbatim 是一个 positional element，SpaceRun/SoftBreak不占 positional index。
+  空格数量是 formatting，不产生 empty element；adjacency不会合并 elements：
 
-`plumb"
- prefix`!{strong}suffix
- `row Alice   10   {}
+ `plumb"
+  prefix`!{strong}suffix
+  `row Alice   10   {}
 
-上例第一行产生 Text、Group、Text 三个 positional elements。anonymous group `"{...}" 在 parent 中占一个
-element，用于让多个 inner elements共同形成一个 positional value；marked group 把 marker
-放在 braces 外：
+ 上例第一行产生 Text、Group、Text 三个 positional elements。anonymous group `"{...}" 在 parent 中占一个
+  element，用于让多个 inner elements共同形成一个 positional value；marked group 把 marker
+  放在 braces 外：
 
-`plumb"
- {guide with spaces}
- `!{strong}
- `->{{guide page} {Project Guide.plumb}}
- `node{visible `@{stable} `={key value}}
+ `plumb"
+  {guide with spaces}
+  `!{strong}
+  `->{{guide page} {Project Guide.plumb}}
+  `node{visible `@{stable} `={key value}}
 
-group 可以 nesting，但不跨 physical line。empty group `"{}" 是 explicit empty positional element。brackets 与 pipe 是
-ordinary text。
+ group 可以 nesting，但不跨 physical line。empty group `"{}" 是 explicit empty positional element。brackets 与 pipe 是
+  ordinary text。
 
 `# Escapes
 
-parsed text 只有三种 introducer escape：
+ parsed text 只有三种 introducer escape：
 
-`plumb"
- `` literal backtick
- `{ literal opening brace
- `} literal closing brace
+ `plumb"
+  `` literal backtick
+  `{ literal opening brace
+  `} literal closing brace
 
-不要使用 Markdown backslash escape。tab/control 在 parsed content 非法；verbatim payload 可以保留任意 bytes。
+ 不要使用 Markdown backslash escape。tab/control 在 parsed content 非法；verbatim payload 可以保留任意 bytes。
 
 `# Inline verbatim
 
-常见 raw 使用 compact quote pair，可带 opaque marker且允许 empty：
+ 常见 raw 使用 compact quote pair，可带 opaque marker且允许 empty：
 
-`plumb"
- `"cargo test"
- `$"x^2"
- `$""
+ `plumb"
+  `"cargo test"
+  `$"x^2"
+  `$""
 
-payload 含 quote 或以 brace 开头时使用 full envelope；closing-like collision 通过增加 quote strength 解决：
+ payload 含 quote 或以 brace 开头时使用 full envelope；closing-like collision 通过增加 quote strength 解决：
 
-`plumb"
- `"{raw containing "quotes"}"
- `""{raw containing }" safely}""
+ `plumb"
+  `"{raw containing "quotes"}"
+  `""{raw containing }" safely}""
 
-两种 spelling 产生同一个 Verbatim node，且只能占一条 physical line。
+ 两种 spelling 产生同一个 Verbatim node，且只能占一条 physical line。
 
 `# Block verbatim
 
-own-line quote opener 进入 indentation-terminated raw。anonymous/marked forms：
+ own-line quote opener 进入 indentation-terminated raw。anonymous/marked forms：
 
-`plumb"
- `"
-  anonymous raw
+ `plumb"
+  `"
+   anonymous raw
 
-`plumb"
- `rust"
-  fn main() {}
-
-payload 每行携带 opener indentation 加一 structural space；只 strip 这一格，其余 bytes 完整保留。raw block 中间的空行可以省略 margin；最后的空行必须携带 margin 才属于 payload。没有 closing fence 或 quote-count margin。
-
-verbatim block 不能拥有 parsed children。需要 id/properties 时使用 ordinary wrapper 与 marked raw child：
-
-`plumb"
- `()
-  `@ example
-  `= language rust
+ `plumb"
   `rust"
    fn main() {}
 
+ payload 每行携带 opener indentation 加一 structural space；只 strip 这一格，其余 bytes 完整保留。raw block 中间的空行可以省略 margin；最后的空行必须携带 margin 才属于 payload。没有 closing fence 或 quote-count margin。
+
+ verbatim block 不能拥有 parsed children。需要 id/properties 时使用 ordinary wrapper 与 marked raw child：
+
+ `plumb"
+  `()
+   `@ example
+   `= language rust
+   `rust"
+    fn main() {}
+
 `# Direct ownership
 
-block direct children 与 inline group direct content 使用同一个 recursive model。official profile 把 direct
-leaf `"@"、`"+"、`"=" owners 投影为 id/facet/property；core 仍保留 generic source order：
+ block direct children 与 inline group direct content 使用同一个 recursive model。official profile 把 direct
+  leaf `"@"、`"+"、`"=" owners 投影为 id/facet/property；core 仍保留 generic source order：
 
-`plumb"
- `node Head
-  `@ stable
-  `+ notice
-  `= level 2
+ `plumb"
+  `node Head
+   `@ stable
+   `+ notice
+   `= level 2
 
-`plumb"
- `node{visible `@{stable} `+{notice} `={level 2}}
+ `plumb"
+  `node{visible `@{stable} `+{notice} `={level 2}}
 
-property/definition 没有 children 时 first positional element是 key/term，remaining elements是 value/body；有
-children 时完整 head 是 key/term，children 是 value/body：
+ property/definition 没有 children 时 first positional element是 key/term，remaining elements是 value/body；有
+  children 时完整 head 是 key/term，children 是 value/body：
 
-`plumb"
- `= title Document title
- `: {Term with spaces} Inline body
+ `plumb"
+  `= title Document title
+  `: {Term with spaces} Inline body
 
-`plumb"
- `= author
-  `= name Alice
+ `plumb"
+  `= author
+   `= name Alice
 
-`plumb"
- `: Term with spaces
-  `() Block definition body
+ `plumb"
+  `: Term with spaces
+   `() Block definition body
 
 `# Version boundary
 
-工具链只接受本指南描述的 current syntax，不检测或转换历史 syntax epoch。
+ 工具链只接受本指南描述的 current syntax，不检测或转换历史 syntax epoch。

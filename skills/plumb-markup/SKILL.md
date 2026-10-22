@@ -93,7 +93,7 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
 `: {Term with spaces}
  Definition body.
 
-`table
+`|
  `- name    age
   `+ header
  `- {Alice Smith}    10
@@ -110,7 +110,10 @@ Inline `$"x^2" math.
  fn main() {}
 ```
 
-Use `-` and `.` for list items and direct leaf `+ task` or `+ event` facets.
+Use `-` and `.` for list items. Direct leaf `+ section` turns an item
+into a heading with an indented body; `+ task` and `+ event` add orthogonal facets.
+A single `#` is the preferred section shorthand; `##` and other multi-hash
+markers remain generic owners. Section ancestors determine level.
 Letter prefixes such as `t`/`task` and `e`/`event` offer no legacy construct
 completion. Use `->` as the sole Link kind: one element derives its label from
 the target; with two or more elements, the first is the explicit label and all
@@ -124,6 +127,6 @@ The six standard inline styles are whole-content containers: they accept zero
 or more visible elements, including spaces and nested styles, while direct
 declarations remain attributes.
 
-`table` owns direct `-` rows. Nonempty row-head positional elements are compact cells; an empty
+`|` owns direct `-` rows. Nonempty row-head positional elements are compact cells; an empty
 row uses direct non-declaration block children as expanded cells. Direct
 `+ header` marks leading header rows or expanded row-header cells.

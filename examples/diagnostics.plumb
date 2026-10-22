@@ -4,24 +4,27 @@ This document is the only playground source expected to emit semantic diagnostic
 
 `# Links
 
-`- Missing same-file anchor: `->{missing #missing-anchor}
-`- Missing document: `->{{missing file} missing-target.plumb}
+ `- Missing same-file anchor: `->{missing #missing-anchor}
+ `- Missing document: `->{{missing file} missing-target.plumb}
 
 `# Duplicate anchor
 
-`node First duplicate target.
- `@ duplicate-anchor
+ `node First duplicate target.
 
-`node Second duplicate target.
- `@ duplicate-anchor
+  `@ duplicate-anchor
+
+ `node Second duplicate target.
+
+  `@ duplicate-anchor
 
 `# Invalid event
 
-`- {Event without a positional schedule and title}
- `+ event
+ `- {Event without a positional schedule and title}
+
+  `+ event
 
 `# Images
 
-`->{`+{embed}}
+ `->{`+{embed}}
 
-`->{{unresolved image} static/missing.png `+{embed}}
+ `->{{unresolved image} static/missing.png `+{embed}}
