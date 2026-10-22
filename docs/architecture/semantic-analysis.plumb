@@ -641,8 +641,6 @@
 
 `# Tags: local facts and indexed queries
 
- 实现状态：待实现并验证。
-
  输入是当前有效区域中的 direct tags properties、owner title/id 与 source geometry。block tags 在 immutable green shard
  内提取并复用，document tags 作为 metadata reducer 跨 root shards 判重；标签不进入 Event context key。
  语法错误声明阻止该 owner 的旧标签复用，健康 siblings 继续参与；pending document 撤回贡献，查询显式 Partial。

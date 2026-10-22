@@ -90,7 +90,7 @@
 
 `# Cache
 
- check、note（含 interactive）、task 查询、next 和任务操作，以及 event 查询与 export-vdir 默认复用持久化语义
+ check、note（含 interactive）、task 查询、next 和任务操作，以及 event 查询、export-vdir 和 tag 查询默认复用持久化语义
   缓存。每次运行仍扫描并读取文件，只有内容变化的文档重新解析；没有保存到磁盘的编辑器内容不进入 CLI 查询。
   跨文件诊断、附件存在性和当前时间相关的任务状态每次重新检查。
 
@@ -189,3 +189,26 @@
  Pandoc 中不存在标准 plumb 表示的 node 会明确失败，不会静默丢失内容。例如带属性的 figure、raw HTML、horizontal rule、line block、footnote、复杂 citation、非 decimal 或非 1 起始 ordered list 当前均不受支持。Figure caption 必须是单个 inline 段落。Table 的 rowspan、colspan、alignment、column widths、foot 与复杂 body grouping 也不可表示。 Pandoc attribute name 不能表示为 declaration name，或 Link/Image property 与 target tuple 冲突时也会失败。 importer 不读取 Pandoc Markdown source；需要先让 Pandoc 输出 JSON。
 
  项目方向与尚需验证的工作统一记录在 `->{路线图 ../project/roadmap.plumb}；可直接实施的 工作见 `->{当前任务 ../project/tasks.plumb}。本指南不复制实现进度。
+
+`# Tags 查询
+
+ `sh"
+  plumb tag --root DIR
+  plumb tag --root DIR --prefix neo
+  plumb tag --root DIR neovim
+  plumb tag --root DIR 'programming languages' --json
+  plumb tag --root DIR --document day.plumb --json
+  plumb tag --root DIR --document day.plumb --scope 20:120 --json
+
+ 无 label 时列出去重、按字典序排列的标签词汇；给出 label 时精确匹配直接声明该标签的 document/block。
+ 匹配大小写敏感，不包含继承或标签层级。文本结果给出 path:line:column、节点标题和该节点全部标签；
+ JSON 给出 owner 类型、source revision、UTF-8 byte ranges、optional id 与 direct tags。
+
+ --document 的路径相对 root，返回该文档全部带标签节点；--scope 使用有序 UTF-8 byte START:END，
+ 仅保留完整包含于该范围的 block owners。它适合子树汇总，不会把后代标签赋给祖先。
+ 词汇和精确匹配默认最多 100 条，--limit 可指定 1 到 1000；文本提示与 JSON has_more 显示是否截断。
+ 标签列表很长时可缩小 prefix，或通过 --document 查看完整的单文档结果。
+
+ 命令复用 workspace discovery、ignore 与语义缓存；--no-cache 可改用内存分析，--cache-stats 可显示缓存统计。
+ CLI 读取已保存文件；查询失败返回非零状态。语法错误区域和无效标签集合不进入结果，使用 plumb check 查看诊断。
+ 标签查询使用 label、prefix 与 document 参数；--query CEL 属于 note/task/event 查询。

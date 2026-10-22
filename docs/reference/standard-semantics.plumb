@@ -111,8 +111,6 @@
 
  `# 5.1 Tags
 
-  实现状态：本节为 tags-system 的待实现契约，验证完成后移除此状态。
-
   文档根层与任意 parsed block（包括 anonymous block、heading、普通/task/event list item）可声明 tags。
   只消费 owner 的 direct block property；inline owner、declaration value 内部与 verbatim payload 不产生标签 owner。
   标签为大小写敏感的 plain string，不做 Unicode normalization；允许内部空格，去除首尾 whitespace。

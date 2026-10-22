@@ -366,3 +366,27 @@ participate. Whole-document links inherit root event-category; item links do not
 fall back to their document. Ordinary documents do not become tasks. Summary report JSON fields are unchanged.
 
 Editor event-category value completion reuses all valid category sets declared by workspace documents and list items, including items without ids. Both scalar values and direct category-list items support prefix completion; multiword values remain a single category.
+
+## Owner Tags
+
+Document roots and parsed blocks, including list items, headings, tasks, events,
+and anonymous blocks, can declare `tags`. A scalar is one complete label;
+multiple labels use direct leaf `+` children. Labels are case-sensitive, trimmed,
+and deduplicated in first-occurrence order. Empty/rich values, malformed
+sequences, or repeated `tags` properties invalidate that owner's whole set.
+
+```plumb
+`= tags journal
+`- Fix folding
+ `= tags
+  `+ neovim
+  `+ debugging
+ `- Read help
+```
+
+Tags belong only to their declaring owner: `Read help` has no tags. Queries can
+summarize a document or subtree while retaining the original owners. Tags do not
+create task facets, event categories, reference edges, or implicit hierarchy.
+`plumb tag --root DIR neovim` locates tagged owners;
+`plumb tag --root DIR --document day.plumb --json` inspects document-local facts.
+Inline owners and declaration payloads do not acquire owner-tag semantics.

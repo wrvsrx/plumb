@@ -130,3 +130,7 @@ declarations remain attributes.
 `|` owns direct `-` rows. Nonempty row-head positional elements are compact cells; an empty
 row uses direct non-declaration block children as expanded cells. Direct
 `+ header` marks leading header rows or expanded row-header cells.
+
+Document and parsed-block `tags` properties classify only their declaring owner.
+Use a scalar for one label or direct leaf `+` children for several; tags never
+inherit. `plumb tag` queries owners or vocabulary. See the semantic reference.

@@ -372,3 +372,27 @@ core 只识别结构；本页介绍官方工具链赋予常用 marker、inline k
  done task 仍有 open dependency 时发布 `"task.done-with-open-dependency" warning；仍有 open descendant 时发布 `"task.done-with-open-descendant" warning。同一个 child 同时是 descendant 与显式 dependency 时 只报告 dependency inconsistency。warnings 不阻止 operation，canceled parent 不受此检查。
 
  精确 recognition、diagnostics 和 export semantics 见 `->{{standard semantics reference} ../reference/standard-semantics.plumb}。
+
+`# Tags
+
+ 文档与 parsed block 可以用 tags 分类，包括普通列表项、task、event、heading 和 anonymous block。
+ 标签只属于显式声明的节点，不向下继承，也不变成祖先自身的标签。
+
+ `plumb"
+  `= tags journal
+  `- 修复折叠
+   `= tags
+    `+ neovim
+    `+ debugging
+   `- 阅读帮助
+  `- 跑步
+   `= tags exercise
+
+ 这里 document 的标签是 journal，修复折叠的标签是 neovim 与 debugging；阅读帮助没有标签。
+ 一个 scalar 的完整内容是一个标签，例如 tags programming languages 表示一个带空格的标签；多个标签使用 + sequence。
+ 标签大小写敏感，同一 owner 内重复值去重。空值、rich inline、非法 sequence 或重复 tags 声明会产生 warning，
+ 该 owner 的整个集合不进入标签查询。标签不要求节点有 id；持久链接仍使用显式 anchor。
+
+ 用 `"plumb tag" 查词汇或定位节点，用 `"--document" 汇总一篇笔记中的标签来源；汇总不改变节点自身分类。
+ tags 与 task facet、事件用时分类 event-category 分开。Pandoc export 将 block 标签保存在 attributes 中，
+ 不会作为正文列表显示；plumb import 可恢复这些标签。
