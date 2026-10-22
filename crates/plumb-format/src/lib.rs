@@ -809,8 +809,39 @@ impl<'a> Formatter<'a> {
             {
                 // Line-end padding is layout, not inline spelling.
             } else {
-                self.output
-                    .push_str(&self.source[inline_range(inline).clone()]);
+                self.inline(inline);
+            }
+        }
+    }
+
+    /// Traverse groups without using the call stack; copy every other spelling verbatim.
+    fn inline(&mut self, inline: &Inline) {
+        enum Part<'a> {
+            Inline(&'a Inline),
+            Source(Range<usize>),
+        }
+        let mut pending = vec![Part::Inline(inline)];
+        while let Some(part) = pending.pop() {
+            match part {
+                Part::Source(range) => self.output.push_str(&self.source[range]),
+                Part::Inline(Inline::Group { range, content, .. }) => {
+                    // The envelope is source-backed, including any marker spelling.
+                    let open_end = content
+                        .items
+                        .first()
+                        .map_or(range.end - 1, |item| inline_range(item).start);
+                    self.output.push_str(&self.source[range.start..open_end]);
+                    pending.push(Part::Source(range.end - 1..range.end));
+                    let first = content.items.iter().position(|item| !item.is_whitespace());
+                    let last = content.items.iter().rposition(|item| !item.is_whitespace());
+                    if let (Some(first), Some(last)) = (first, last) {
+                        pending.extend(content.items[first..=last].iter().rev().map(Part::Inline));
+                    }
+                }
+                Part::Inline(item) => {
+                    self.output
+                        .push_str(&self.source[inline_range(item).clone()]);
+                }
             }
         }
     }
@@ -980,11 +1011,19 @@ mod tests {
     }
 
     #[test]
-    fn preserves_inline_group_source_spelling() {
-        assert_formats("Text { fn()  {} }\n", "Text { fn()  {} }\n");
+    fn trims_group_padding_and_preserves_other_inline_spelling() {
+        assert_formats("Text { fn()  {} }\n", "Text {fn()  {}}\n");
         assert_formats(
             "`marker{brace} value{inside}\n",
             "`marker{brace} value{inside}\n",
+        );
+    }
+
+    #[test]
+    fn trims_style_and_transparent_groups_but_preserves_raw_envelopes() {
+        assert_formats(
+            "x`!{  bold  }y `(){  {   }   `\"{  raw { x }  }\"  }z\n",
+            "x`!{bold}y `(){{}   `\"{  raw { x }  }\"}z\n",
         );
     }
 
@@ -1164,7 +1203,7 @@ mod tests {
             ..block_content_range(&parsed.syntax.blocks[1]).end;
         let edits = format_contained_blocks(source, selection).unwrap();
         assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "`\"\n   payload\n\nParagraph { text }.");
+        assert_eq!(edits[0].new_text, "`\"\n   payload\n\nParagraph {text}.");
     }
 
     #[test]

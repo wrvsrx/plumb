@@ -42,8 +42,10 @@ canonical rules 生成：
  typed payload。
 `- raw blank payload line输出 margin；terminal raw 不添加 synthetic closing/layout bytes。
 
-已有 valid source 的 formatter 只管理 block layout。它保持 InlineContents 中现有的 Text、element间 SpaceRun、Group 与
-Verbatim source bytes，包括 group boundary padding、escape spelling 与 verbatim delimiter strength。formatter
+已有 valid source 的 formatter 管理 block layout，并递归清除 anonymous/marked parsed group 内边界的 ASCII SpaceRun。
+例如 `"`->{   xxx yyy   }" 变为 `"`->{xxx yyy}"，`"{   }" 变为 `"{}"；group 本身与 parent positional arity 不变。
+内部 element 间 SpaceRun width、group 外侧空格、escape spelling 与 Verbatim source bytes（含 payload 与 delimiter strength）保持。
+此规则也适用于 style、transparent 与 declaration group；有意保留的首尾内容空格使用 Verbatim。formatter
 不插入、删除或折叠 physical wrapping；SoftBreak 的 line ending 保持 document style，其 structural indentation
 保持 source spelling。marked block 与同一 physical line 首个 content element之间规范化为 one
 ASCII space；line-end padding 不保留。CRLF edits 保持 document line ending。

@@ -3714,6 +3714,31 @@ mod tests {
     }
 
     #[test]
+    fn formatting_trims_recursive_group_padding_through_the_edit_boundary() {
+        for ending in ["\n", "\r\n"] {
+            let source = "Before `->{   {  中文   label  }   target   `+{ embed } } after\n\n`note {   } `{literal`} `\"  raw { x }  \"\n".replace('\n', ending);
+            let expected = "Before `->{{中文   label}   target   `+{embed}} after\n\n`note {} `{literal`} `\"  raw { x }  \"\n".replace('\n', ending);
+            let parsed = parse(&source);
+            let green = GreenDocument::parse(&source);
+            let edits = format(&parsed, FormatScope::Document).unwrap();
+            assert_eq!(format_green(&green).unwrap(), edits);
+            let actual = apply_text_edits(source.clone(), edits).unwrap();
+            assert_eq!(actual, expected);
+            assert!(format_green(&GreenDocument::parse(&actual))
+                .unwrap()
+                .is_empty());
+
+            let selected = parsed.syntax.blocks[0].range().clone();
+            let edits = format(&parsed, FormatScope::ContainedBlocks(selected.clone())).unwrap();
+            assert_eq!(format_green_contained(&green, selected).unwrap(), edits);
+            let actual = apply_text_edits(source.clone(), edits).unwrap();
+            let tail = source.find("`note").unwrap();
+            assert!(actual.ends_with(&source[tail..]));
+            assert!(actual.starts_with("Before `->{{中文   label}   target   `+{embed}} after"));
+        }
+    }
+
+    #[test]
     fn formats_parsed_revisions_only_through_the_edit_boundary() {
         let source = "`meta\n   `= title\n\n      Unified command\n";
         let parsed = parse(source);

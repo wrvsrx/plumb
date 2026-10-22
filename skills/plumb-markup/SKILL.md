@@ -38,9 +38,10 @@ Inside the repository, `docs/reference/core-syntax.plumb`,
   positional element; whitespace elements occupy no positional index. Direct
   adjacency never merges elements. Write `{}` for an explicit empty element.
 - Formatting existing valid blocks preserves inline source spelling, including
-  inter-element SpaceRun widths, group padding, escapes, verbatim delimiters,
+  inter-element SpaceRun widths, escapes, verbatim delimiters,
   and continuation wrapping. It canonicalizes continuation structural
-  indentation and removes line-end padding.
+  indentation and removes line-end padding and parsed group boundary ASCII spaces
+  recursively. Whitespace-only groups become `{}`; verbatim payloads stay intact.
 - `{content}` is one anonymous group in its parent. `` `kind{content} `` is a
   marked group. Groups recurse and stay on one physical line.
 - Use `` `` `` for a literal backtick, `` `{ `` for a literal opening brace,

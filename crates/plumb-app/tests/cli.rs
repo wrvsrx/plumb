@@ -5,6 +5,16 @@ use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
+fn fmt_trims_inline_group_padding() {
+    let formatted = run_with_stdin(&["fmt"], "See `->{   xxx yyy   } and {   }.\n");
+    assert!(formatted.status.success());
+    assert_eq!(
+        String::from_utf8(formatted.stdout).unwrap(),
+        "See `->{xxx yyy} and {}.\n"
+    );
+}
+
+#[test]
 fn exposes_the_unified_command_surface() {
     let help = plumb_command().arg("--help").output().unwrap();
     assert!(help.status.success());

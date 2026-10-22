@@ -7,7 +7,7 @@ fn canonicalizes_recursive_owners_and_spaces() {
     let formatted = format(source).unwrap();
     assert_eq!(
         formatted,
-        "`node head   value\n\n `child{  nested   value  }\n"
+        "`node head   value\n\n `child{nested   value}\n"
     );
     assert_eq!(format(&formatted).unwrap(), formatted);
 }
