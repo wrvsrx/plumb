@@ -132,7 +132,10 @@ fn bundled_skill_tracks_current_standard_spellings() {
     let semantics = fs::read_to_string(root.join("references/standard-semantics.md")).unwrap();
 
     for required in [
-        "`+ task` or `+ event` facets",
+        "`+ section`",
+        "`#`",
+        "`|`",
+        "`+ task` and `+ event`",
         "Letter prefixes such as `t`/`task` and `e`/`event` offer no",
         "`(){container `+{notice}}",
         "`->{same-file target #intro}",

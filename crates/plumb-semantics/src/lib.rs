@@ -7,6 +7,7 @@ mod document;
 pub use document::profiling;
 mod events;
 mod headings;
+pub use headings::is_section;
 mod inline_styles;
 mod lists;
 mod math;
@@ -30,7 +31,7 @@ pub(crate) fn list_item_facet(block: &plumb_syntax::ParsedBlock) -> ListItemFace
     let Some(mark) = &block.mark else {
         return ListItemFacet::None;
     };
-    if !matches!(mark.marker.as_str(), "-" | ".") {
+    if !matches!(mark.marker.as_str(), "-" | "." | "#") {
         return ListItemFacet::None;
     }
     match (mark.attrs.has_class("task"), mark.attrs.has_class("event")) {

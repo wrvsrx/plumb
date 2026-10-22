@@ -2,120 +2,119 @@
 
 `# 1. Ownership
 
-syntax diagnostics 只报告 core syntax。official semantics 报告 marker/profile violations；workspace 报告
-cross-document resolution、identity 与 dependency；protocol adapters 不重新解释错误。
+ syntax diagnostics 只报告 core syntax。official semantics 报告 marker/profile violations；workspace 报告
+  cross-document resolution、identity 与 dependency；protocol adapters 不重新解释错误。
 
-每条 diagnostic 包含 stable code、severity、UTF-8 half-open source range、message 与 optional related
-ranges。missing token 不作为 synthetic lossless leaf。
+ 每条 diagnostic 包含 stable code、severity、UTF-8 half-open source range、message 与 optional related
+  ranges。missing token 不作为 synthetic lossless leaf。
 
 `# 2. Publication
 
-每次发布包含 current revision recovered tree 的 syntax diagnostics。合并同 revision 有效区域的 semantic diagnostics；错误 owner/subtree 不产生 semantic facts。
-上一 revision 的输出只作为内部增量基线，不能冒充 current facts 或 diagnostics。export 与 authoritative edits 只接受 ValidDocument；completion/folding 可以显式查询
-recovered view。
+ 每次发布包含 current revision recovered tree 的 syntax diagnostics。合并同 revision 有效区域的 semantic diagnostics；错误 owner/subtree 不产生 semantic facts。
+  上一 revision 的输出只作为内部增量基线，不能冒充 current facts 或 diagnostics。export 与 authoritative edits 只接受 ValidDocument；completion/folding 可以显式查询
+  recovered view。
 
-LSP 在 workspace index 未完成时只发布当前 revision 的 syntax 与 document-local semantic diagnostics，不使用 partial index 推导引用不存在、依赖关系或可选规则结论。protocol-neutral document_local_diagnostics 不查询 workspace graph 或磁盘，只读取 resident document 的当前语法与语义输出；pending revision 不沿用 last-valid diagnostics；syntax-invalid revision 完成有效区域分析后合并当前结果。
+ LSP 在 workspace index 未完成时只发布当前 revision 的 syntax 与 document-local semantic diagnostics，不使用 partial index 推导引用不存在、依赖关系或可选规则结论。protocol-neutral document_local_diagnostics 不查询 workspace graph 或磁盘，只读取 resident document 的当前语法与语义输出；pending revision 不沿用 last-valid diagnostics；syntax-invalid revision 完成有效区域分析后合并当前结果。
 
-索引完成后主动重新发布打开文档的完整诊断列表，合并仍有效的单文件结果与跨文件结果；publishDiagnostics 替换整份列表，不是追加。每次编辑立即使内部结果失效，但不通过中间空列表清除客户端显示；后台结果受 revision/generation 保护。索引等待引起的规则不完整属于正常状态，不产生 diagnostics.incomplete 通知或日志；真实 I/O 或查询失败记录具体原因，文件修复后重新检查。不完整的可选规则不发布该规则的推断结论。
+ 索引完成后主动重新发布打开文档的完整诊断列表，合并仍有效的单文件结果与跨文件结果；publishDiagnostics 替换整份列表，不是追加。每次编辑立即使内部结果失效，但不通过中间空列表清除客户端显示；后台结果受 revision/generation 保护。索引等待引起的规则不完整属于正常状态，不产生 diagnostics.incomplete 通知或日志；真实 I/O 或查询失败记录具体原因，文件修复后重新检查。不完整的可选规则不发布该规则的推断结论。
 
-诊断范围与计算状态分离：Local 范围由 workspace index 未就绪决定，包含 syntax 与 document-local
-semantics；Workspace 范围由 index 就绪决定，包含跨文档检查与已启用 policy。每个范围内只有完成的当前
-快照才能发布。有效文档的 analysis pending 或 policy pending 不改变范围，不发布 syntax-only、临时 unresolved
-或缺少 policy 的中间列表。Local 范围只等待该文档；Workspace 范围等待所有 pending documents 与当前
-policy generation 完成。等待期间客户端保留最近一次发布的列表，服务端不把旧结果作为 current diagnostics。
+ 诊断范围与计算状态分离：Local 范围由 workspace index 未就绪决定，包含 syntax 与 document-local
+  semantics；Workspace 范围由 index 就绪决定，包含跨文档检查与已启用 policy。每个范围内只有完成的当前
+  快照才能发布。有效文档的 analysis pending 或 policy pending 不改变范围，不发布 syntax-only、临时 unresolved
+  或缺少 policy 的中间列表。Local 范围只等待该文档；Workspace 范围等待所有 pending documents 与当前
+  policy generation 完成。等待期间客户端保留最近一次发布的列表，服务端不把旧结果作为 current diagnostics。
 
-语法无效文档同样等待当前有效区域分析后发布 syntax 与有效区域 semantic diagnostics；错误内容被排除不等于
-统计数据尚未齐备，不使有效事件累计或 timeline 变为 incomplete。真实查询失败沿用降级
-与日志策略，不伪装成计算成功。文档关闭仍立即清空诊断。索引、配置或相关文档变化使旧后台结果失效；
-过期结果不得发布，最终列表携带对应 document version。
+ 语法无效文档同样等待当前有效区域分析后发布 syntax 与有效区域 semantic diagnostics；错误内容被排除不等于
+  统计数据尚未齐备，不使有效事件累计或 timeline 变为 incomplete。真实查询失败沿用降级
+  与日志策略，不伪装成计算成功。文档关闭仍立即清空诊断。索引、配置或相关文档变化使旧后台结果失效；
+  过期结果不得发布，最终列表携带对应 document version。
 
-例如 index 未完成时编辑有效 event，先等待 Local analysis，再发布本地结果；index 完成后发布合并结果。
-之后只改 event 描述，即使 warnings 不变，也不得在两次完整结果之间发布空列表或缺少 event warnings 的列表。
-跨文档 anchor 的有效 pending revision 不得让引用方暂时收到 unresolved warning；修复真实语法错误后必须
-重新发布当前范围结果，即使 exported facts 与 last-valid 相等。
+ 例如 index 未完成时编辑有效 event，先等待 Local analysis，再发布本地结果；index 完成后发布合并结果。
+  之后只改 event 描述，即使 warnings 不变，也不得在两次完整结果之间发布空列表或缺少 event warnings 的列表。
+  跨文档 anchor 的有效 pending revision 不得让引用方暂时收到 unresolved warning；修复真实语法错误后必须
+  重新发布当前范围结果，即使 exported facts 与 last-valid 相等。
 
-一次 workspace diagnostic round 必须只构造一次全局 task dependency graph 与 cycle context，并在同一
-workspace snapshot 的所有 document diagnostics 之间复用；不能按文档重复构造全库上下文。复用不得改变
-diagnostic code、severity、message、range、related ranges 或顺序，也不能省略已关闭任务的检查。
+ 一次 workspace diagnostic round 必须只构造一次全局 task dependency graph 与 cycle context，并在同一
+  workspace snapshot 的所有 document diagnostics 之间复用；不能按文档重复构造全库上下文。复用不得改变
+  diagnostic code、severity、message、range、related ranges 或顺序，也不能省略已关闭任务的检查。
 
-disk generation 保存全部 syntax 与 document-local semantic
-diagnostics；syntax-invalid source 保存 syntax 与当前有效区域 semantic diagnostics，不沿用 previous semantic diagnostics。数据库与内存
-诊断输入必须产生相同结果，包含没有内存 DocumentEntry 的文档。跨文件 links、embeds、task prev/dependencies、
-event associations 和 cycles 仍针对当前 query snapshot 检查；外部文件存在性每轮读取。缓存命中不能跳过这些检查。
+ disk generation 保存全部 syntax 与 document-local semantic
+  diagnostics；syntax-invalid source 保存 syntax 与当前有效区域 semantic diagnostics，不沿用 previous semantic diagnostics。数据库与内存
+  诊断输入必须产生相同结果，包含没有内存 DocumentEntry 的文档。跨文件 links、embeds、task prev/dependencies、
+  event associations 和 cycles 仍针对当前 query snapshot 检查；外部文件存在性每轮读取。缓存命中不能跳过这些检查。
 
 `# 3. Syntax categories
 
-`- structural：top-level indentation、tab indentation、partial dedent 与 illegal parsed control。
-`- lexical/dispatch：incomplete introducer、invalid marker、marker 后非法 whitespace、不能完成的 inline/block
- entry。
-`- group：unexpected closing brace、physical line 结束前 unclosed group。
-`- inline verbatim：compact/full envelope missing closer 或 quote-strength mismatch。
+ `- structural：top-level indentation、tab indentation、partial dedent 与 illegal parsed control。
+ `- lexical/dispatch：incomplete introducer、invalid marker、marker 后非法 whitespace、不能完成的 inline/block
+  entry。
+ `- group：unexpected closing brace、physical line 结束前 unclosed group。
+ `- inline verbatim：compact/full envelope missing closer 或 quote-strength mismatch。
 
-brackets 与 pipe 是 ordinary text，不发布 delimiter diagnostics。bare braces 永远 special；literal brace 使用
-introducer escape。block raw 缺 structural margin 的 line 正常结束 payload，不是 error；该 line 随后按普通
-block grammar 诊断。core syntax 第 8 节允许的中间 blank line 例外：它仍属于 raw payload，不发布 structural diagnostic。
+ brackets 与 pipe 是 ordinary text，不发布 delimiter diagnostics。bare braces 永远 special；literal brace 使用
+  introducer escape。block raw 缺 structural margin 的 line 正常结束 payload，不是 error；该 line 随后按普通
+  block grammar 诊断。core syntax 第 8 节允许的中间 blank line 例外：它仍属于 raw payload，不发布 structural diagnostic。
 
-历史 member-envelope 的迁移说明只保留在 history 文档中；current document diagnostics 不处理历史格式。
+ 历史 member-envelope 的迁移说明只保留在 history 文档中；current document diagnostics 不处理历史格式。
 
 `# 4. Precedence and recovery
 
-block-start error 在 current physical line 恢复。invalid block introducer 可以建立 recovered placeholder owner，
-使随后 indentation/folding boundary 稳定；ordinary inline error 不建立 block owner。
+ block-start error 在 current physical line 恢复。invalid block introducer 可以建立 recovered placeholder owner，
+  使随后 indentation/folding boundary 稳定；ordinary inline error 不建立 block owner。
 
-`"syntax.unclosed-inline-group" 与 `"syntax.unexpected-inline-group-close" 在 current physical line 恢复；
-`"syntax.unclosed-verbatim" 在 line ending/EOF 恢复。structural tab/partial dedent 优先于由错误 indentation
-派生的 generic dispatch error。同一 range/root cause 只发布最具体 code；独立错误按 source/recovery order
-稳定排序。
+ `"syntax.unclosed-inline-group" 与 `"syntax.unexpected-inline-group-close" 在 current physical line 恢复；
+  `"syntax.unclosed-verbatim" 在 line ending/EOF 恢复。structural tab/partial dedent 优先于由错误 indentation
+  派生的 generic dispatch error。同一 range/root cause 只发布最具体 code；独立错误按 source/recovery order
+  稳定排序。
 
 `# 5. Current syntax codes
 
-`text"
- syntax.incomplete-introducer
- syntax.invalid-block-dispatch
- syntax.invalid-inline-dispatch
- syntax.unclosed-inline-group
- syntax.unexpected-inline-group-close
- syntax.unclosed-verbatim
- syntax.tab-indentation
- syntax.partial-indent
+ `text"
+  syntax.incomplete-introducer
+  syntax.invalid-block-dispatch
+  syntax.invalid-inline-dispatch
+  syntax.unclosed-inline-group
+  syntax.unexpected-inline-group-close
+  syntax.unclosed-verbatim
+  syntax.tab-indentation
+  syntax.partial-indent
 
-新增或重命名 code 是 editor/test automation interface change，必须同步 normative corpus、range/precedence 与
-recovery assertions。lenient tree-sitter corpus 不能代替 strict parser corpus。
+ 新增或重命名 code 是 editor/test automation interface change，必须同步 normative corpus、range/precedence 与
+  recovery assertions。lenient tree-sitter corpus 不能代替 strict parser corpus。
 
 `# 6. Semantic categories
 
-official profile 至少区分：
+ official profile 至少区分：
 
-`- association/property：invalid key/arity/value shape。
-`- heading/anchor：invalid level、duplicate explicit id。
-`- metadata：duplicate/invalid key、invalid location、mixed/unsupported value、invalid created timestamp、
- unsupported document identity；document.invalid-facet 表示根层 facet 不是单个非空 plain name 的 leaf declaration。
-`- link/embed/citation：missing/invalid target/source/id 与 workspace unresolved/ambiguous target。embed 的非 Link owner 发布 resource.invalid-owner；遗留 src 发布 resource.unexpected-source。未知媒体 type 是 Link fallback，不是 error。
-`- task/event：invalid fields/reference/time/interval/recurrence/closure state、dependency consistency 与 mutually
- exclusive facets；task.document-recur 表示 document owner 不支持 recur；task.invalid-field-shape 表示文档任务 scalar 字段为空或包含 children，range 覆盖该 property；focus interval 的 invalid format、duplicate property、顺序、重叠、多个或非末尾的 open interval，
- 以及 closed task 仍含 open interval。
-`- table：invalid row child、empty row、column mismatch、header-after-body、inconsistent row-header prefix。
-`- math：invalid owner 或 unsupported input language。
+ `- association/property：invalid key/arity/value shape。
+ `- section/anchor：structural owner recognition、duplicate explicit id。
+ `- metadata：duplicate/invalid key、invalid location、mixed/unsupported value、invalid created timestamp、 unsupported document identity；document.invalid-facet 表示根层 facet 不是单个非空 plain name 的 leaf declaration。
+ `- link/embed/citation：missing/invalid target/source/id 与 workspace unresolved/ambiguous target。embed 的非 Link owner 发布 resource.invalid-owner；遗留 src 发布 resource.unexpected-source。未知媒体 type 是 Link fallback，不是 error。
+ `- task/event：invalid fields/reference/time/interval/recurrence/closure state、dependency consistency 与 mutually
+  exclusive facets；task.document-recur 表示 document owner 不支持 recur；task.invalid-field-shape 表示文档任务 scalar 字段为空或包含 children，range 覆盖该 property；focus interval 的 invalid format、duplicate property、顺序、重叠、多个或非末尾的 open interval，
+  以及 closed task 仍含 open interval。
+ `- table：invalid row child、empty row、column mismatch、header-after-body、inconsistent row-header prefix。
+ `- math：invalid owner 或 unsupported input language。
 
-semantic diagnostic 指向最小 source-backed field；cross-document problem 可以携带 related locations。adapter
-不得用 guessed offset 替代 syntax/semantic layer 的 precise range。
+ semantic diagnostic 指向最小 source-backed field；cross-document problem 可以携带 related locations。adapter
+  不得用 guessed offset 替代 syntax/semantic layer 的 precise range。
 
-event.ongoing 是 document-local semantic Warning：合法开放事件 START-- 不论 start 位于过去或未来都发布一次，range 使用 event.selection_range，message 为 event has no end time; excluded from accounting and timeline checks。该提醒不读取 clock，不依赖 workspace policy 开关，不属于 invalid-time，也不改变 syntax validity、query completeness 或 CLI 成功退出码。补齐合法 end 后移除；非法 schedule 保留原有具体时间诊断，不追加 ongoing。
+ event.ongoing 是 document-local semantic Warning：合法开放事件 START-- 不论 start 位于过去或未来都发布一次，range 使用 event.selection_range，message 为 event has no end time; excluded from accounting and timeline checks。该提醒不读取 clock，不依赖 workspace policy 开关，不属于 invalid-time，也不改变 syntax validity、query completeness 或 CLI 成功退出码。补齐合法 end 后移除；非法 schedule 保留原有具体时间诊断，不追加 ongoing。
 
 `# 7. Optional workspace checks
 
-check 与 LSP 共享的 event-category 与 event-timeline 是默认禁用的 workspace policy queries，不改变 syntax
-validity，启用后发布为 LSP document diagnostics。配置和结果契约见 semantic-analysis 的 Workspace diagnostic
-configuration。启用后的缺分类、内部空档或重叠导致 CLI exit 1；配置/加载/查询失败或不完整导致 exit 2。
-基础 diagnostics 的 Warning/Hint 不导致失败；规则结果的 source locations 来自同一 workspace snapshot。
+ check 与 LSP 共享的 event-category 与 event-timeline 是默认禁用的 workspace policy queries，不改变 syntax
+  validity，启用后发布为 LSP document diagnostics。配置和结果契约见 semantic-analysis 的 Workspace diagnostic
+  configuration。启用后的缺分类、内部空档或重叠导致 CLI exit 1；配置/加载/查询失败或不完整导致 exit 2。
+  基础 diagnostics 的 Warning/Hint 不导致失败；规则结果的 source locations 来自同一 workspace snapshot。
 
-category/timeline 的 agenda.invalid-document 在 memory 与 persistent 查询中使用相同 message：document has no valid semantic output；backend 选择不能改变诊断文字、位置或 completeness。
+ category/timeline 的 agenda.invalid-document 在 memory 与 persistent 查询中使用相同 message：document has no valid semantic output；backend 选择不能改变诊断文字、位置或 completeness。
 
-增量 policy graph 只复用规则结论，不复用旧 revision 的 absolute source location。source geometry 改变时从 immutable node-relative provenance 重新投影；目标变化沿 category 反向边失效，时间变化只更新关联 interval segments。内部局部更新仍由 adapter 合并为受影响 document 的完整 publishDiagnostics 列表。full fallback 与增量路径必须逐项保持 code、message、range、related locations、顺序和 completeness 一致。
+ 增量 policy graph 只复用规则结论，不复用旧 revision 的 absolute source location。source geometry 改变时从 immutable node-relative provenance 重新投影；目标变化沿 category 反向边失效，时间变化只更新关联 interval segments。内部局部更新仍由 adapter 合并为受影响 document 的完整 publishDiagnostics 列表。full fallback 与增量路径必须逐项保持 code、message、range、related locations、顺序和 completeness 一致。
 
 `# 8. Excluded event diagnostics
 
-event 的无效时间和标题保留现有 precise local diagnostic；无效 event-category 声明在文档或 owner 的声明位置
-发布 event.invalid-category Warning，不依赖可选分类检查开关。无法解析的核算引用保留 workspace reference
-诊断。被排除的事件不贡献统计，也不让其它事项的正常累计显示 incomplete。数据读取失败与 pending 仍走独立的
-failure/completeness 通道。syntax error 与有效 sibling 的 semantic diagnostics 可以同时出现在同 revision 的发布中。
+ event 的无效时间和标题保留现有 precise local diagnostic；无效 event-category 声明在文档或 owner 的声明位置
+  发布 event.invalid-category Warning，不依赖可选分类检查开关。无法解析的核算引用保留 workspace reference
+  诊断。被排除的事件不贡献统计，也不让其它事项的正常累计显示 incomplete。数据读取失败与 pending 仍走独立的
+  failure/completeness 通道。syntax error 与有效 sibling 的 semantic diagnostics 可以同时出现在同 revision 的发布中。

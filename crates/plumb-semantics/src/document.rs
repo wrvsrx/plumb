@@ -622,7 +622,7 @@ impl DocumentOutput {
                     if block
                         .mark
                         .as_ref()
-                        .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "."))
+                        .is_some_and(|mark| matches!(mark.marker.as_str(), "-" | "." | "#"))
                     {
                         let category = crate::Category::from_blocks(&block.children);
                         if !category.invalid {
@@ -1841,6 +1841,9 @@ fn root_list_role(shard: &plumb_syntax::GreenShard) -> RootListRole {
     let Block::Parsed(block) = block else {
         return RootListRole::Other;
     };
+    if crate::is_section(block) {
+        return RootListRole::Other;
+    }
     match block.mark.as_ref().map(|mark| mark.marker.as_str()) {
         Some("-") => RootListRole::List(ListKind::Bullet),
         Some(".") => RootListRole::List(ListKind::Ordered),
@@ -2461,12 +2464,20 @@ fn collect_anchor(
         first_ids.insert(value.clone(), value_range.clone());
     }
     output.anchors.push(AnchorRecord {
-        category: if owner.is_some_and(|o| o.mark.as_ref().is_some_and(|m| matches!(m.marker.as_str(), "-" | "."))) {
+        category: if owner.is_some_and(|o| {
+            o.mark
+                .as_ref()
+                .is_some_and(|m| matches!(m.marker.as_str(), "-" | "." | "#"))
+        }) {
             effective_category.clone()
         } else {
             owner.map(|o| crate::Category::from_blocks(&o.children)).unwrap_or_default()
         },
-        list_item: owner.is_some_and(|o| o.mark.as_ref().is_some_and(|m| matches!(m.marker.as_str(), "-" | "."))),
+        list_item: owner.is_some_and(|o| {
+            o.mark
+                .as_ref()
+                .is_some_and(|m| matches!(m.marker.as_str(), "-" | "." | "#"))
+        }),
         id,
         kind,
         range,
@@ -2807,7 +2818,7 @@ mod tests {
 
     #[test]
     fn green_fresh_analysis_matches_the_complete_profile() {
-        let source = "`: first body\n`= date 2026-09-05\n`: second body\n`= timezone +08:00\n\n`# Main\n `@ duplicate\n\n`## Child\n `@ duplicate\n\n`- Task\n `+ task\n `= due 2026-09-06T09:00:00+08:00\n\n`- 10:00 Event\n `+ event\n\nParagraph `->{guide guide.plumb} with `cite{source} and `*{style}.\n\n`table\n `- name age\n  `+ header\n `- Alice 10\n";
+        let source = "`: first body\n`= date 2026-09-05\n`: second body\n`= timezone +08:00\n\n`# Main\n `@ duplicate\n\n`## Child\n `@ duplicate\n\n`- Task\n `+ task\n `= due 2026-09-06T09:00:00+08:00\n\n`- 10:00 Event\n `+ event\n\nParagraph `->{guide guide.plumb} with `cite{source} and `*{style}.\n\n`|\n `- name age\n  `+ header\n `- Alice 10\n";
         let parsed = parse(source);
         let valid = parsed.valid_syntax().unwrap();
         let headings = crate::analyze_headings(valid);
@@ -2964,7 +2975,7 @@ mod tests {
 
     #[test]
     fn semantic_tree_reuses_relative_nodes_across_a_file_start_shift() {
-        let old = "`# Heading\n `@ heading\n\n`- Task `->{guide guide.plumb}\n `+ task\n `@ task\n `->{icon `\"icon.png\" `+{embed}}\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n\n`table\n `- name age\n\n`> Quote `cite{paper} `!{strong} `$\"x\"\n";
+        let old = "`# Heading\n `@ heading\n\n`- Task `->{guide guide.plumb}\n `+ task\n `@ task\n `->{icon `\"icon.png\" `+{embed}}\n\n`- 2026-09-05T09:00:00+08:00 Event\n `+ event\n\n`|\n `- name age\n\n`> Quote `cite{paper} `!{strong} `$\"x\"\n";
         let prefix = "Prelude\n\n";
         let new = format!("{prefix}{old}");
         let previous = parse(old);
@@ -3027,7 +3038,7 @@ mod tests {
     #[test]
     fn semantic_tree_recomputes_metadata_and_empty_outline_fast_paths_when_introduced() {
         let old = "Body\n";
-        let addition = "\n`= title Added\n\n`# Added heading\n";
+        let addition = "\n`= title Added\n\n`- Added heading\n `+ section\n";
         let new = format!("{old}{addition}");
         let previous = parse(old);
         let previous_output = analyze_document(previous.valid_syntax().unwrap());
@@ -3052,7 +3063,7 @@ mod tests {
 
     #[test]
     fn semantic_tree_reuses_nonempty_heading_topology() {
-        let old = "`# Heading\n\nBody\n\nTail\n";
+        let old = "`- Heading\n `+ section\n\n Body\n\n Tail\n";
         let new = old.replace("Body", "Changed body");
         let previous = parse(old);
         let previous_output = analyze_document(previous.valid_syntax().unwrap());
@@ -3081,7 +3092,7 @@ mod tests {
 
     #[test]
     fn semantic_equal_local_change_reuses_document_reducers() {
-        let old = "`# One\n\nBody one\n\n`## Two\n\nBody two\n\n`# Three\n";
+        let old = "`- One\n `+ section\n\n Body one\n\n `- Two\n  `+ section\n\n  Body two\n\n`- Three\n `+ section\n";
         let new = old.replace("Body two", "Text two");
         let previous = parse(old);
         let previous_output = analyze_document(previous.valid_syntax().unwrap());
@@ -3108,7 +3119,7 @@ mod tests {
 
     #[test]
     fn semantic_equal_local_change_rebinds_nonempty_reducer_outputs() {
-        let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`node One\n `@ same\n\n`node Two\n `@ same\n\n`- Task\n `+ task\n `@ task\n\n`- 10:00 Event\n `+ event\n\n`table\n `- name 1\n  `+ header\n\nBody one\n";
+        let old = "`= date 2026-09-05\n`= timezone +08:00\n\n`node One\n `@ same\n\n`node Two\n `@ same\n\n`- Task\n `+ task\n `@ task\n\n`- 10:00 Event\n `+ event\n\n`|\n `- name 1\n  `+ header\n\nBody one\n";
         let new = old.replace("Body one", "Text one");
         let previous = parse(old);
         let previous_output = analyze_document(previous.valid_syntax().unwrap());
@@ -3448,7 +3459,7 @@ mod tests {
     #[test]
     fn semantic_changes_with_stable_geometry_do_not_reuse_document_reducers() {
         for (old, new) in [
-            ("`# Heading\n", "`! Heading\n"),
+            ("`- Heading\n `+ section\n", "`- Heading\n `+ ignored\n"),
             ("`- One\n\n`- Two\n", "`- One\n\n`. Two\n"),
             ("`: Term body\n", "`: Word body\n"),
             (
@@ -3461,8 +3472,8 @@ mod tests {
                 "`- 10:00 Event\n `+ event\n `= date 2026-09-06\n `= timezone +08:00\n",
             ),
             (
-                "`table\n `- name 1\n  `+ header\n",
-                "`table\n `- name 1\n  `+ footer\n",
+                "`|\n `- name 1\n  `+ header\n",
+                "`|\n `- name 1\n  `+ footer\n",
             ),
         ] {
             let previous = parse(old);
@@ -3711,7 +3722,8 @@ mod tests {
 
     #[test]
     fn only_shorthand_ids_create_anchors() {
-        let parsed = parse("`# Heading\n  `@ intro\n\n`## Pair only\n  `= id|pair\n");
+        let parsed =
+            parse("`- Heading\n `+ section\n `@ intro\n\n`- Pair only\n `+ section\n `= id|pair\n");
         let output = analyze_document(
             parsed
                 .valid_syntax()

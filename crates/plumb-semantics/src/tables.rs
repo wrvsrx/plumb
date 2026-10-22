@@ -150,11 +150,7 @@ fn collect_tables<'a>(blocks: impl IntoIterator<Item = &'a Block>, output: &mut 
         let Block::Parsed(block) = block else {
             continue;
         };
-        if block
-            .mark
-            .as_ref()
-            .is_some_and(|mark| mark.marker == "table")
-        {
+        if block.mark.as_ref().is_some_and(|mark| mark.marker == "|") {
             analyze_table(block, output);
             continue;
         }
@@ -325,7 +321,8 @@ mod tests {
 
     #[test]
     fn exact_table_lookup_preserves_caption_and_cell_ranges_across_shards() {
-        let source = "Prelude\n\n`table First\n `- one two\n\n`note\n `table Second\n  `- three four\n\nTail\n";
+        let source =
+            "Prelude\n\n`| First\n `- one two\n\n`note\n `| Second\n  `- three four\n\nTail\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let fresh = analyze_tables(parsed.valid_syntax().unwrap());
@@ -350,7 +347,7 @@ mod tests {
     #[test]
     fn recognizes_compact_rows_with_padding_headers_and_empty_cells() {
         let output = analyze(
-            "`table People\n `- name  age note\n  `+ header\n `- Alice 10  {}\n `- Bob   20  active\n",
+            "`| People\n `- name  age note\n  `+ header\n `- Alice 10  {}\n `- Bob   20  active\n",
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         let table = &output.tables.get(0).unwrap();
@@ -364,7 +361,7 @@ mod tests {
     #[test]
     fn recognizes_expanded_rich_and_row_header_cells() {
         let output = analyze(
-            "`table\n `-\n  `+ header\n  `- name\n  `- age\n `-\n  `- Alice\n   `+ header\n  `- 10\n\n   `note Approximate\n",
+            "`|\n `-\n  `+ header\n  `- name\n  `- age\n `-\n  `- Alice\n   `+ header\n  `- 10\n\n   `note Approximate\n",
         );
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
         let table = &output.tables.get(0).unwrap();
@@ -377,7 +374,7 @@ mod tests {
     #[test]
     fn diagnoses_invalid_structure_and_inconsistent_columns() {
         let output = analyze(
-            "`table\n `note invalid\n `- one two\n  `note invalid\n `-\n `- late\n  `+ header\n",
+            "`|\n `note invalid\n `- one two\n  `note invalid\n `-\n `- late\n  `+ header\n",
         );
         let codes = output
             .diagnostics

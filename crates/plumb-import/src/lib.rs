@@ -56,13 +56,23 @@ pub fn import_json(source: &str) -> Result<String, String> {
 }
 
 pub fn import(document: &Pandoc) -> Result<String, String> {
+    validate_heading_levels(&document.blocks, 0)?;
+    // Choose a private intermediate marker absent from user markers and attributes.
+    let input = serde_json::to_string(document).map_err(|error| error.to_string())?;
+    let mut prefix = "plumb-import-heading-".to_string();
+    while input.contains(&prefix) {
+        prefix.push('x');
+    }
+    let context = RenderContext {
+        heading_prefix: &prefix,
+    };
     let mut blocks = Vec::new();
     if !document.meta.is_empty() {
-        blocks.push(render_metadata(&document.meta)?);
+        blocks.push(render_metadata(&context, &document.meta)?);
     }
     for (index, block) in document.blocks.iter().enumerate() {
         if let Some(block) =
-            render_block(block).map_err(|error| format!("blocks[{index}]: {error}"))?
+            render_block(&context, block).map_err(|error| format!("blocks[{index}]: {error}"))?
         {
             blocks.push(block);
         }
@@ -86,6 +96,11 @@ pub fn import(document: &Pandoc) -> Result<String, String> {
             .join("; ");
         return Err(format!("generated plumb is invalid: {diagnostics}"));
     }
+    let migration = plumb_edit::sectionize_imported_headings(&parsed, &prefix)
+        .map_err(|_| "cannot construct structural sections".to_string())?;
+    let source = plumb_edit::apply_text_edits(source, migration)
+        .map_err(|_| "cannot apply section conversion".to_string())?;
+    let parsed = plumb_syntax::parse(&source);
     let edits = plumb_edit::format(&parsed, plumb_edit::FormatScope::Document)
         .map_err(|_| "generated plumb failed strict validation".to_string())?;
     let formatted = plumb_edit::apply_text_edits(source, edits)
@@ -97,19 +112,81 @@ pub fn import(document: &Pandoc) -> Result<String, String> {
     Ok(formatted)
 }
 
-fn render_metadata(meta: &HashMap<String, MetaValue>) -> Result<String, String> {
+fn validate_heading_levels(blocks: &[Block], base: i32) -> Result<(), String> {
+    let mut current = base;
+    for block in blocks {
+        match block {
+            Block::Header(level, ..) => {
+                if *level <= base || *level > current + 1 {
+                    return Err(format!(
+                        "heading level {level} cannot follow level {current} inside level {base}"
+                    ));
+                }
+                current = *level;
+            }
+            Block::BlockQuote(children)
+            | Block::Div(_, children)
+            | Block::Figure(_, _, children) => validate_heading_levels(children, current)?,
+            Block::BulletList(items) | Block::OrderedList(_, items) => {
+                for item in items {
+                    validate_heading_levels(item, current)?;
+                }
+            }
+            Block::DefinitionList(entries) => {
+                for (_, definitions) in entries {
+                    for definition in definitions {
+                        validate_heading_levels(definition, current)?;
+                    }
+                }
+            }
+            Block::Table(table) => {
+                for row in table
+                    .head
+                    .rows
+                    .iter()
+                    .chain(
+                        table
+                            .bodies
+                            .iter()
+                            .flat_map(|body| body.head.iter().chain(&body.body)),
+                    )
+                    .chain(&table.foot.rows)
+                {
+                    for cell in &row.cells {
+                        validate_heading_levels(&cell.content, current)?;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+struct RenderContext<'a> {
+    heading_prefix: &'a str,
+}
+
+fn render_metadata(
+    context: &RenderContext<'_>,
+    meta: &HashMap<String, MetaValue>,
+) -> Result<String, String> {
     let mut keys = meta.keys().collect::<Vec<_>>();
     keys.sort();
     let mut entries = Vec::new();
     for key in keys {
         require_attr_name(key, "metadata key")?;
-        entries.push(render_metadata_entry(key, &meta[key])?);
+        entries.push(render_metadata_entry(context, key, &meta[key])?);
     }
     Ok(entries.join("\n"))
 }
 
-fn render_metadata_entry(key: &str, value: &MetaValue) -> Result<String, String> {
-    let value_source = render_metadata_value(value)?;
+fn render_metadata_entry(
+    context: &RenderContext<'_>,
+    key: &str,
+    value: &MetaValue,
+) -> Result<String, String> {
+    let value_source = render_metadata_value(context, value)?;
     if value_source.is_empty() {
         return Ok(format!("`= {key}"));
     }
@@ -121,7 +198,7 @@ fn render_metadata_entry(key: &str, value: &MetaValue) -> Result<String, String>
     Ok(format!("`= {key}\n{}", indent(&value_source, 1)))
 }
 
-fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
+fn render_metadata_value(context: &RenderContext<'_>, value: &MetaValue) -> Result<String, String> {
     match value {
         MetaValue::MetaString(value) if value.contains(['\n', '\r']) => {
             render_verbatim_block(&Attr::default(), value)
@@ -131,7 +208,7 @@ fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
         MetaValue::MetaList(values) => {
             let mut items = Vec::new();
             for value in values {
-                let value = render_metadata_value(value)?;
+                let value = render_metadata_value(context, value)?;
                 if value.contains('\n')
                     || matches!(value.lines().next(), Some(line) if line.starts_with('`'))
                 {
@@ -148,12 +225,15 @@ fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
             let mut entries = Vec::new();
             for key in keys {
                 require_attr_name(key, "metadata key")?;
-                entries.push(render_metadata_entry(key, &values[key])?);
+                entries.push(render_metadata_entry(context, key, &values[key])?);
             }
             Ok(entries.join("\n"))
         }
-        MetaValue::MetaBlocks(blocks) if blocks.len() == 1 => render_block(&blocks[0])?
-            .ok_or_else(|| "metadata MetaBlocks cannot contain Null".to_string()),
+        MetaValue::MetaBlocks(blocks) if blocks.len() == 1 => {
+            validate_heading_levels(blocks, 0)?;
+            render_block(context, &blocks[0])?
+                .ok_or_else(|| "metadata MetaBlocks cannot contain Null".to_string())
+        }
         MetaValue::MetaBlocks(_) => {
             Err("metadata MetaBlocks requires exactly one representable block".into())
         }
@@ -163,25 +243,25 @@ fn render_metadata_value(value: &MetaValue) -> Result<String, String> {
     }
 }
 
-fn render_block(block: &Block) -> Result<Option<String>, String> {
+fn render_block(context: &RenderContext<'_>, block: &Block) -> Result<Option<String>, String> {
     match block {
         Block::Plain(inlines) | Block::Para(inlines) => Ok(Some(render_inlines(inlines, false)?)),
-        Block::Header(level, attrs, inlines) if (1..=6).contains(level) => {
+        Block::Header(level, attrs, inlines) if *level > 0 => {
             let mut output = format!(
                 "`{} {}",
-                "#".repeat(*level as usize),
+                format!("{}{level}", context.heading_prefix),
                 render_inlines(inlines, false)?
             );
             append_block_attrs(&mut output, &render_attrs(attrs, None)?);
             Ok(Some(output))
         }
-        Block::Header(level, ..) => Err(format!("heading level {level} is outside 1..=6")),
+        Block::Header(level, ..) => Err(format!("heading level {level} must be positive")),
         Block::CodeBlock(attrs, text) => Ok(Some(render_verbatim_block(attrs, text)?)),
         Block::BlockQuote(blocks) => {
             let (attrs, blocks) = unwrap_attributed_blocks(blocks);
-            Ok(Some(render_container(">", attrs, blocks)?))
+            Ok(Some(render_container(context, ">", attrs, blocks)?))
         }
-        Block::BulletList(items) => Ok(Some(render_list("-", items)?)),
+        Block::BulletList(items) => Ok(Some(render_list(context, "-", items)?)),
         Block::OrderedList(attributes, items) => {
             if attributes.start_number != 1
                 || !matches!(
@@ -197,19 +277,19 @@ fn render_block(block: &Block) -> Result<Option<String>, String> {
                     "ordered-list style is not representable by the standard extension".into(),
                 );
             }
-            Ok(Some(render_list(".", items)?))
+            Ok(Some(render_list(context, ".", items)?))
         }
-        Block::DefinitionList(entries) => Ok(Some(render_definitions(entries)?)),
+        Block::DefinitionList(entries) => Ok(Some(render_definitions(context, entries)?)),
         Block::Div(attrs, blocks) => {
             let marker = attr_pair(attrs, "data-plumb-marker").unwrap_or("()");
             require_marker(marker)?;
-            Ok(Some(render_container(marker, attrs, blocks)?))
+            Ok(Some(render_container(context, marker, attrs, blocks)?))
         }
         Block::Null => Ok(None),
         Block::LineBlock(_) => Err("LineBlock has no standard plumb representation".into()),
         Block::RawBlock(_, _) => Err("RawBlock has no standard plumb representation".into()),
         Block::HorizontalRule => Err("HorizontalRule has no standard plumb representation".into()),
-        Block::Table(table) => Ok(Some(render_table(table)?)),
+        Block::Table(table) => Ok(Some(render_table(context, table)?)),
         Block::Figure(attrs, caption, blocks) => {
             if !attrs.identifier.is_empty()
                 || !attrs.classes.is_empty()
@@ -219,7 +299,7 @@ fn render_block(block: &Block) -> Result<Option<String>, String> {
             }
             let mut rendered = Vec::new();
             for block in blocks {
-                if let Some(block) = render_block(block)? {
+                if let Some(block) = render_block(context, block)? {
                     rendered.push(block);
                 }
             }
@@ -239,14 +319,12 @@ fn render_figure_caption(caption: &Caption) -> Result<Option<String>, String> {
     }
     match caption.long.as_slice() {
         [] => Ok(None),
-        [Block::Plain(inlines) | Block::Para(inlines)] => {
-            Ok(Some(render_inlines(inlines, false)?))
-        }
+        [Block::Plain(inlines) | Block::Para(inlines)] => Ok(Some(render_inlines(inlines, false)?)),
         _ => Err("figure caption must be representable as one inline paragraph".into()),
     }
 }
 
-fn render_table(table: &Table) -> Result<String, String> {
+fn render_table(context: &RenderContext<'_>, table: &Table) -> Result<String, String> {
     if table.colspecs.iter().any(|spec| {
         !matches!(spec.0, Alignment::AlignDefault) || !matches!(spec.1, ColWidth::ColWidthDefault)
     }) {
@@ -262,7 +340,7 @@ fn render_table(table: &Table) -> Result<String, String> {
     let column_count = table.colspecs.len();
     let mut rendered_rows = Vec::new();
     for row in &table.head.rows {
-        rendered_rows.push(render_table_row(row, true, 0, column_count)?);
+        rendered_rows.push(render_table_row(context, row, true, 0, column_count)?);
     }
     if let Some(body) = table.bodies.first() {
         let row_head_columns = usize::try_from(body.row_head_columns)
@@ -272,6 +350,7 @@ fn render_table(table: &Table) -> Result<String, String> {
         }
         for row in &body.body {
             rendered_rows.push(render_table_row(
+                context,
                 row,
                 false,
                 row_head_columns,
@@ -282,9 +361,9 @@ fn render_table(table: &Table) -> Result<String, String> {
 
     let caption = render_table_caption(&table.caption)?;
     let mut output = if caption.is_empty() {
-        "`table".to_string()
+        "`|".to_string()
     } else {
-        format!("`table {caption}")
+        format!("`| {caption}")
     };
     append_block_attrs(&mut output, &render_attrs(&table.attr, None)?);
     if !rendered_rows.is_empty() {
@@ -308,6 +387,7 @@ fn render_table_caption(caption: &Caption) -> Result<String, String> {
 }
 
 fn render_table_row(
+    context: &RenderContext<'_>,
     row: &Row,
     header: bool,
     row_head_columns: usize,
@@ -348,7 +428,9 @@ fn render_table_row(
             .cells
             .iter()
             .enumerate()
-            .map(|(index, cell)| render_expanded_table_cell(cell, index < row_head_columns))
+            .map(|(index, cell)| {
+                render_expanded_table_cell(context, cell, index < row_head_columns)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         format!("`-\n{}", indent(&cells.join("\n\n"), 1))
     };
@@ -396,7 +478,11 @@ fn render_compact_table_cell(cell: &Cell) -> Result<String, String> {
     }
 }
 
-fn render_expanded_table_cell(cell: &Cell, header: bool) -> Result<String, String> {
+fn render_expanded_table_cell(
+    context: &RenderContext<'_>,
+    cell: &Cell,
+    header: bool,
+) -> Result<String, String> {
     let (head, children) = match split_head(&cell.content)? {
         Some((head, children)) => (Some(head), children),
         None => (None, cell.content.as_slice()),
@@ -417,12 +503,16 @@ fn render_expanded_table_cell(cell: &Cell, header: bool) -> Result<String, Strin
     append_block_attrs(&mut output, &attrs);
     if !children.is_empty() {
         output.push_str("\n\n");
-        output.push_str(&indent(&render_blocks(children)?, 1));
+        output.push_str(&indent(&render_blocks(context, children)?, 1));
     }
     Ok(output)
 }
 
-fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
+fn render_list(
+    context: &RenderContext<'_>,
+    marker: &str,
+    items: &[Vec<Block>],
+) -> Result<String, String> {
     let mut output = Vec::new();
     for item in items {
         let (attrs, blocks) = unwrap_attributed_blocks(item);
@@ -442,7 +532,7 @@ fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
             append_block_attrs(&mut rendered, &declarations);
             if !children.is_empty() {
                 rendered.push('\n');
-                rendered.push_str(&indent(&render_blocks(children)?, 1));
+                rendered.push_str(&indent(&render_blocks(context, children)?, 1));
             }
             output.push(rendered);
             continue;
@@ -453,11 +543,11 @@ fn render_list(marker: &str, items: &[Vec<Block>]) -> Result<String, String> {
             append_block_attrs(&mut rendered, &attrs);
             if !children.is_empty() {
                 rendered.push('\n');
-                rendered.push_str(&indent(&render_blocks(children)?, 1));
+                rendered.push_str(&indent(&render_blocks(context, children)?, 1));
             }
             output.push(rendered);
         } else {
-            let children = render_blocks(blocks)?;
+            let children = render_blocks(context, blocks)?;
             let mut rendered = format!("`{marker}");
             append_block_attrs(&mut rendered, &attrs);
             if !children.is_empty() {
@@ -485,7 +575,10 @@ fn task_item_parts(blocks: &[Block]) -> Option<(&Attr, &[Inline], &[Block])> {
     ))
 }
 
-fn render_definitions(entries: &[(Vec<Inline>, Vec<Vec<Block>>)]) -> Result<String, String> {
+fn render_definitions(
+    context: &RenderContext<'_>,
+    entries: &[(Vec<Inline>, Vec<Vec<Block>>)],
+) -> Result<String, String> {
     let mut output = Vec::new();
     for (term, definitions) in entries {
         if definitions.len() != 1 {
@@ -496,7 +589,7 @@ fn render_definitions(entries: &[(Vec<Inline>, Vec<Vec<Block>>)]) -> Result<Stri
         let (attrs, blocks) = unwrap_attributed_blocks(&definitions[0]);
         let mut entry = format!("`: {}", render_inlines(term, false)?);
         append_block_attrs(&mut entry, &render_attrs(attrs, None)?);
-        let body = render_blocks(blocks)?;
+        let body = render_blocks(context, blocks)?;
         if !body.is_empty() {
             entry.push_str("\n\n");
             entry.push_str(&indent(&body, 1));
@@ -506,18 +599,23 @@ fn render_definitions(entries: &[(Vec<Inline>, Vec<Vec<Block>>)]) -> Result<Stri
     Ok(output.join("\n\n"))
 }
 
-fn render_container(marker: &str, attrs: &Attr, blocks: &[Block]) -> Result<String, String> {
+fn render_container(
+    context: &RenderContext<'_>,
+    marker: &str,
+    attrs: &Attr,
+    blocks: &[Block],
+) -> Result<String, String> {
     let attrs = render_attrs(attrs, Some("data-plumb-marker"))?;
     if let Some((head, children)) = split_head(blocks)? {
         let mut output = format!("`{marker} {head}");
         append_block_attrs(&mut output, &attrs);
         if !children.is_empty() {
             output.push_str("\n\n");
-            output.push_str(&indent(&render_blocks(children)?, 1));
+            output.push_str(&indent(&render_blocks(context, children)?, 1));
         }
         Ok(output)
     } else {
-        let body = render_blocks(blocks)?;
+        let body = render_blocks(context, blocks)?;
         if body.is_empty() {
             let mut output = format!("`{marker}");
             append_block_attrs(&mut output, &attrs);
@@ -545,10 +643,10 @@ fn split_head(blocks: &[Block]) -> Result<Option<(String, &[Block])>, String> {
     Ok(Some((render_inlines(inlines, false)?, &blocks[1..])))
 }
 
-fn render_blocks(blocks: &[Block]) -> Result<String, String> {
+fn render_blocks(context: &RenderContext<'_>, blocks: &[Block]) -> Result<String, String> {
     let mut output = Vec::new();
     for block in blocks {
-        if let Some(block) = render_block(block)? {
+        if let Some(block) = render_block(context, block)? {
             output.push(block);
         }
     }
@@ -582,11 +680,7 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                 let mut attrs = attrs.clone();
                 if attr_pair(&attrs, "data-plumb-facet") == Some("embed") {
                     attrs.attributes.retain(|pair| pair.0 != "data-plumb-facet");
-                    output.push_str(&render_embed_reference(
-                        &attrs,
-                        label,
-                        &target.url,
-                    )?);
+                    output.push_str(&render_embed_reference(&attrs, label, &target.url)?);
                 } else {
                     output.push_str(&format!(
                         "`->{{{{{}}} {}{}}}",
@@ -597,11 +691,7 @@ fn render_inlines(inlines: &[Inline], bracketed: bool) -> Result<String, String>
                 }
             }
             Inline::Image(attrs, alt, target) => {
-                output.push_str(&render_embed_reference(
-                    attrs,
-                    alt,
-                    &target.url,
-                )?);
+                output.push_str(&render_embed_reference(attrs, alt, &target.url)?);
             }
             Inline::Math(MathType::InlineMath, text) => {
                 let mut attrs = Attr::default();
@@ -902,11 +992,7 @@ fn without_first_class(attrs: &Attr, class: &str) -> Option<Attr> {
     Some(attrs)
 }
 
-fn render_embed_reference(
-    attrs: &Attr,
-    label: &[Inline],
-    target: &str,
-) -> Result<String, String> {
+fn render_embed_reference(attrs: &Attr, label: &[Inline], target: &str) -> Result<String, String> {
     if !plumb_semantics::resource_target_is_valid(target) {
         return Err("invalid resource target".into());
     }
@@ -1023,6 +1109,81 @@ mod recursive_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn imports_structural_sections_beyond_six_levels_and_inside_lists() {
+        let mut blocks = (1..=8)
+            .map(|level| {
+                Block::Header(
+                    level,
+                    Attr::default(),
+                    vec![Inline::Str(format!("Level{level}"))],
+                )
+            })
+            .collect::<Vec<_>>();
+        blocks.push(Block::BulletList(vec![vec![Block::Header(
+            9,
+            Attr::default(),
+            vec![Inline::Strong(vec![Inline::Str("Nested".into())])],
+        )]]));
+        blocks.push(Block::Header(1, Attr::default(), vec![]));
+        let document = Pandoc {
+            meta: HashMap::new(),
+            blocks,
+        };
+        let source = import(&document).unwrap();
+        let roundtrip = plumb_export::export(&source).unwrap();
+        let expected = serde_json::to_value(&document).unwrap();
+        assert_eq!(roundtrip["blocks"], expected["blocks"], "{source}");
+        assert!(source.contains("`# Level1"));
+        assert!(!source.contains("`+ section"));
+    }
+
+    #[test]
+    fn import_keeps_generic_hash_owners_distinct_from_headers() {
+        let source =
+            "`## Generic\n\n`plumb-import-heading-1 Collision\n\n`- Actual\n `+ section\n\n Body\n";
+        let document = plumb_export::export(source).unwrap();
+        let imported = import_json(&document.to_string()).unwrap();
+        assert_eq!(
+            plumb_export::export(&imported).unwrap(),
+            document,
+            "{imported}"
+        );
+    }
+
+    #[test]
+    fn validates_heading_levels_in_metadata_blocks() {
+        let document = Pandoc {
+            meta: HashMap::from([(
+                "note".into(),
+                MetaValue::MetaBlocks(vec![Block::Header(2, Attr::default(), vec![])]),
+            )]),
+            blocks: vec![],
+        };
+        assert!(import(&document).unwrap_err().contains("heading level"));
+    }
+
+    #[test]
+    fn rejects_heading_levels_without_representable_section_ancestry() {
+        for levels in [vec![0], vec![2], vec![1, 3], vec![1, 2, 4]] {
+            let document = Pandoc {
+                meta: HashMap::new(),
+                blocks: levels
+                    .into_iter()
+                    .map(|level| Block::Header(level, Attr::default(), vec![]))
+                    .collect(),
+            };
+            assert!(import(&document).unwrap_err().contains("heading level"));
+        }
+        let document = Pandoc {
+            meta: HashMap::new(),
+            blocks: vec![
+                Block::Header(1, Attr::default(), vec![]),
+                Block::BlockQuote(vec![Block::Header(1, Attr::default(), vec![])]),
+            ],
+        };
+        assert!(import(&document).unwrap_err().contains("inside level 1"));
+    }
     use serde_json::{json, Value};
 
     use super::*;
@@ -1084,7 +1245,7 @@ mod tests {
         );
         assert!(source.contains("`> quoted"));
         assert!(source.contains("`- item"));
-        assert!(source.contains("`()\n `@ code\n\n `rust\"\n  fn main() {}"));
+        assert!(source.contains("`()\n  `@ code\n\n  `rust\"\n   fn main() {}"));
         assert!(plumb_syntax::parse(&source).is_valid());
     }
 
@@ -1109,7 +1270,10 @@ mod tests {
                 vec![Block::Para(vec![Inline::Image(
                     Attr::default(),
                     vec![Inline::Str("alt".into())],
-                    pandoc_types::definition::Target { url: "image.png".into(), title: "".into() },
+                    pandoc_types::definition::Target {
+                        url: "image.png".into(),
+                        title: "".into(),
+                    },
                 )])],
             )],
             meta: HashMap::new(),
@@ -1160,7 +1324,7 @@ mod tests {
         });
 
         let source = import_json(&document.to_string()).unwrap();
-        assert!(source.contains("`table People"), "{source}");
+        assert!(source.contains("`| People"), "{source}");
         assert!(source.contains("`@ people"), "{source}");
         assert!(source.contains("`+ wide"), "{source}");
         assert!(source.contains("`- name age\n"), "{source}");

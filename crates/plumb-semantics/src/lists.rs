@@ -272,11 +272,7 @@ fn collect_groups<'a>(blocks: impl IntoIterator<Item = &'a Block>, output: &mut 
 
 fn collect_child_groups(block: &Block, output: &mut ListOutput) {
     if let Block::Parsed(block) = block {
-        if block
-            .mark
-            .as_ref()
-            .is_some_and(|mark| mark.marker == "table")
-        {
+        if block.mark.as_ref().is_some_and(|mark| mark.marker == "|") {
             collect_table_cell_groups(block, output);
             return;
         }
@@ -312,6 +308,9 @@ fn list_item(block: &Block) -> Option<(&ParsedBlock, ListKind)> {
     let Block::Parsed(block) = block else {
         return None;
     };
+    if crate::is_section(block) {
+        return None;
+    }
     let kind = match block.mark.as_ref()?.marker.as_str() {
         "-" => ListKind::Bullet,
         "." => ListKind::Ordered,
@@ -438,9 +437,8 @@ mod tests {
 
     #[test]
     fn table_rows_and_cells_are_not_lists_but_rich_cell_body_lists_are() {
-        let parsed = parse(
-            "`table\n `- name|age\n `- Alice|10\n `-\n  `- Rich\n\n   `- nested item\n  `- 20\n",
-        );
+        let parsed =
+            parse("`|\n `- name|age\n `- Alice|10\n `-\n  `- Rich\n\n   `- nested item\n  `- 20\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_lists(parsed.valid_syntax().unwrap());

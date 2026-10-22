@@ -1,5 +1,10 @@
 mod root;
+mod sections;
 pub use root::{edit_green_root_declarations_at, root_declaration_region, edit_green_root_declarations, green_root_declaration, RootDeclarationEdit};
+
+pub use sections::{
+    canonicalize_structure_markers, migrate_hash_sections, sectionize_imported_headings,
+};
 
 use std::{collections::HashMap, ops::Range};
 

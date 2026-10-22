@@ -2,194 +2,200 @@
 
 `# 1. Boundary
 
-plumb-edit 是 valid strict syntax tree 上的 protocol-neutral mutation/finalization layer。它依赖 plumb-syntax 与
-plumb-format，不依赖 semantics、workspace、LSP 或 filesystem。LSP/CLI/Web/workspace adapters 传同一
-GreenDocument revision 与 mutation intent，只翻译/apply returned byte edits。whole-document/contained formatting、
-structural mutation与syntax-aware authoring均接受GreenDocument authority；workspace revision不提供implicit
-ParsedDocument compatibility view。standalone ParsedDocument入口只服务独立parser consumer与differential tests。
+ plumb-edit 是 valid strict syntax tree 上的 protocol-neutral mutation/finalization layer。它依赖 plumb-syntax 与
+  plumb-format，不依赖 semantics、workspace、LSP 或 filesystem。LSP/CLI/Web/workspace adapters 传同一
+  GreenDocument revision 与 mutation intent，只翻译/apply returned byte edits。whole-document/contained formatting、
+  structural mutation与syntax-aware authoring均接受GreenDocument authority；workspace revision不提供implicit
+  ParsedDocument compatibility view。standalone ParsedDocument入口只服务独立parser consumer与differential tests。
 
-adapter 不得直接调用 plumb-format、重复 parse 已有 revision、手算 indentation/delimiters 或拼 subtree text。
-raw token replacement 只用于 validated mechanical rename；structure changes 使用 owned syntax。
+ adapter 不得直接调用 plumb-format、重复 parse 已有 revision、手算 indentation/delimiters 或拼 subtree text。
+  raw token replacement 只用于 validated mechanical rename；structure changes 使用 owned syntax。
 
 `# 2. Owned recursive syntax
 
-OwnedBlock/OwnedInline 是 source-independent constructible counterpart，不是 semantic AST。Owned block 表达
-optional marker、parsed head/direct children 或 terminal verbatim payload；Owned inline 表达 Text、Space、
-anonymous/marked Group 与 optional-marker Verbatim。
+ OwnedBlock/OwnedInline 是 source-independent constructible counterpart，不是 semantic AST。Owned block 表达
+  optional marker、parsed head/direct children 或 terminal verbatim payload；Owned inline 表达 Text、Space、
+  anonymous/marked Group 与 optional-marker Verbatim。
 
-positional arguments 由 structured API 构造：caller 传 ordered element arguments，edit layer 决定 SpaceRun、
-anonymous Group与 empty Group。caller 不在 flat sequence 中手工插 delimiter。property/definition helper 按
-first element + remaining sequence生成 current shape。
+ positional arguments 由 structured API 构造：caller 传 ordered element arguments，edit layer 决定 SpaceRun、
+  anonymous Group与 empty Group。caller 不在 flat sequence 中手工插 delimiter。property/definition helper 按
+  first element + remaining sequence生成 current shape。
 
-OwnedInline::with_arguments 接受 marker、完整 positional argument vectors 与 direct children，由 edit layer 的既有 argument binding helper 为 multi-element 或 empty argument 添加必要 Group，caller 不手工拼 envelope。
+ OwnedInline::with_arguments 接受 marker、完整 positional argument vectors 与 direct children，由 edit layer 的既有 argument binding helper 为 multi-element 或 empty argument 添加必要 Group，caller 不手工拼 envelope。
 
-generic declarations仍可由 OwnedAttribute convenience 转成 direct `"@"/`"+"/`"=" owners；meaning 不进入 edit
-layer。Owned conversion from syntax直接保持 InlineContent elements与 SpaceRun，使 property retain/remove/update
-能识别 first/rest boundaries；不得重建 hidden datum descriptors。
+ generic declarations仍可由 OwnedAttribute convenience 转成 direct `"@"/`"+"/`"=" owners；meaning 不进入 edit
+  layer。Owned conversion from syntax直接保持 InlineContent elements与 SpaceRun，使 property retain/remove/update
+  能识别 first/rest boundaries；不得重建 hidden datum descriptors。
 
 `# 3. Canonical rendering
 
-owned syntax rendering 与已有 valid source formatting 使用不同规则。owned syntax 没有 source spelling，按以下
-canonical rules 生成：
+ owned syntax rendering 与已有 valid source formatting 使用不同规则。owned syntax 没有 source spelling，按以下
+  canonical rules 生成：
 
-`- child column 是 owner column 加一 ASCII space。
-`- marked block content 与 marker 之间 one ASCII space；anonymous block无 marker prefix。
-`- ordinary direct element boundary在需要 separator时输出 one ASCII space；explicit alignment 可以增加 SpaceRun width。
-`- group boundary不保留 leading/trailing padding；empty positional element输出 `"{}"。
-`- literal backtick/braces 使用 core introducer escapes；brackets/pipe ordinary。
-`- inline verbatim优先 compact quote；quote/leading-brace/closing collision 使用 minimal full quote strength。
-`- block verbatim opener optional marker + one quote；每个 raw line只增加 one structural margin，并逐 byte 保持
- typed payload。
-`- raw blank payload line输出 margin；terminal raw 不添加 synthetic closing/layout bytes。
+ `- child column 是 owner column 加一 ASCII space。
+ `- marked block content 与 marker 之间 one ASCII space；anonymous block无 marker prefix。
+ `- ordinary direct element boundary在需要 separator时输出 one ASCII space；explicit alignment 可以增加 SpaceRun width。
+ `- group boundary不保留 leading/trailing padding；empty positional element输出 `"{}"。
+ `- literal backtick/braces 使用 core introducer escapes；brackets/pipe ordinary。
+ `- inline verbatim优先 compact quote；quote/leading-brace/closing collision 使用 minimal full quote strength。
+ `- block verbatim opener optional marker + one quote；每个 raw line只增加 one structural margin，并逐 byte 保持
+  typed payload。
+ `- raw blank payload line输出 margin；terminal raw 不添加 synthetic closing/layout bytes。
 
-已有 valid source 的 formatter 管理 block layout，并递归清除 anonymous/marked parsed group 内边界的 ASCII SpaceRun。
-例如 `"`->{   xxx yyy   }" 变为 `"`->{xxx yyy}"，`"{   }" 变为 `"{}"；group 本身与 parent positional arity 不变。
-内部 element 间 SpaceRun width、group 外侧空格、escape spelling 与 Verbatim source bytes（含 payload 与 delimiter strength）保持。
-此规则也适用于 style、transparent 与 declaration group；有意保留的首尾内容空格使用 Verbatim。formatter
-不插入、删除或折叠 physical wrapping；SoftBreak 的 line ending 保持 document style，其 structural indentation
-保持 source spelling。marked block 与同一 physical line 首个 content element之间规范化为 one
-ASCII space；line-end padding 不保留。CRLF edits 保持 document line ending。
+ 已有 valid source 的 formatter 管理 block layout，并递归清除 anonymous/marked parsed group 内边界的 ASCII SpaceRun。
+  例如 `"`->{   xxx yyy   }" 变为 `"`->{xxx yyy}"，`"{   }" 变为 `"{}"；group 本身与 parent positional arity 不变。
+  内部 element 间 SpaceRun width、group 外侧空格、escape spelling 与 Verbatim source bytes（含 payload 与 delimiter strength）保持。
+  此规则也适用于 style、transparent 与 declaration group；有意保留的首尾内容空格使用 Verbatim。formatter
+  不插入、删除或折叠 physical wrapping；SoftBreak 的 line ending 保持 document style，其 structural indentation
+  保持 source spelling。marked block 与同一 physical line 首个 content element之间规范化为 one
+  ASCII space；line-end padding 不保留。CRLF edits 保持 document line ending。
 
 `# 4. Spacing between blocks
 
-nonempty owner content 与 first child 之间保留一个 blank separator；empty-content owner 与 marked/verbatim first
-child 之间 one line ending。anonymous first child 无论 owner content 是否为空都保留 blank separator，避免重解析为
-inline continuation。该策略让 visible head 与 structural body分组，同时让 empty-head collection/container保持紧凑。
-direct siblings same marker、previous childless 时紧凑相邻；different marker、subtree/semantic separation 可保留一个
-blank separator。verbatim payload 与 following block 分隔但不让 layout blank进入 payload。range formatting 使用
-following sibling 作为 read-only spacing context，不扩大 mutation range。
+ nonempty owner content 与 first child 之间保留一个 blank separator；empty-content owner 与 marked/verbatim first
+  child 之间 one line ending。anonymous first child 无论 owner content 是否为空都保留 blank separator，避免重解析为
+  inline continuation。该策略让 visible head 与 structural body分组，同时让 empty-head collection/container保持紧凑。
+  direct siblings same marker、previous childless 时紧凑相邻；different marker、subtree/semantic separation 可保留一个
+  blank separator。verbatim payload 与 following block 分隔但不让 layout blank进入 payload。range formatting 使用
+  following sibling 作为 read-only spacing context，不扩大 mutation range。
 
 `# 5. TextEdit invariants
 
-TextEdit 使用 UTF-8 half-open byte range，必须位于同一 ParsedDocument source boundaries。一个 edit batch ranges
-non-overlap；apply 从后向前。revision-guarded WorkspaceEdit 每个 DocumentEdit 携 expected revision，resource
-operation 与 text edit order deterministic。
+ TextEdit 使用 UTF-8 half-open byte range，必须位于同一 ParsedDocument source boundaries。一个 edit batch ranges
+  non-overlap；apply 从后向前。revision-guarded WorkspaceEdit 每个 DocumentEdit 携 expected revision，resource
+  operation 与 text edit order deterministic。
 
-format document 先生成 canonical source，再使用 anchored line diff 产生 non-overlapping changed-line edits；
-fallback whole replacement 只在 diff projection 无法重建 canonical output 时使用。contained-block formatting只
-选择 selection 完整包含的 maximal subtrees。
+ format document 先生成 canonical source，再使用 anchored line diff 产生 non-overlapping changed-line edits；
+  fallback whole replacement 只在 diff projection 无法重建 canonical output 时使用。contained-block formatting只
+  选择 selection 完整包含的 maximal subtrees。
 
-green whole-document formatter逐 shard读取 local typed blocks，但 top-level sibling spacing必须跨 shard计算，且
-每个 block 的 existing inline source spelling必须从 owning shard保持；observable canonical source及 line diff必须与
-materialized ParsedDocument入口逐 byte相等。green contained formatting把完整覆盖的 top-level blocks组成跨 shard
-maximal sibling group；partial shard继续
-使用同一 local contained-group算法并把 edits平移到 document range。format adapter只能调用 plumb-edit的 green
-intent，不能自行拼接 shard output。
+ green whole-document formatter逐 shard读取 local typed blocks，但 top-level sibling spacing必须跨 shard计算，且
+  每个 block 的 existing inline source spelling必须从 owning shard保持；observable canonical source及 line diff必须与
+  materialized ParsedDocument入口逐 byte相等。green contained formatting把完整覆盖的 top-level blocks组成跨 shard
+  maximal sibling group；partial shard继续
+  使用同一 local contained-group算法并把 edits平移到 document range。format adapter只能调用 plumb-edit的 green
+  intent，不能自行拼接 shard output。
 
 `# 6. Structural mutations
 
-replace/insert/remove/move 只接受完整 syntax node ranges。replace/move 从 current syntax 构造 OwnedBlock，修改
-owned tree，再由 edit renderer决定 braces/spaces/indentation。不能截取 source fragment后自行 dedent/reindent。
+ replace/insert/remove/move 只接受完整 syntax node ranges。replace/move 从 current syntax 构造 OwnedBlock，修改
+  owned tree，再由 edit renderer决定 braces/spaces/indentation。不能截取 source fragment后自行 dedent/reindent。
 
-green structural mutation以 absolute complete block range定位唯一 owning shard。plumb-edit负责验证 target完整包含于
-该 shard、转换为 local range/OwnedBlock、执行 canonical replacement并把 TextEdit rebase回 document range；workspace
-不得读取 shard offset或自行平移 edit。单 target replace和 one-to-many replacement必须走该入口。document prepend/
-append、sibling insert和direct-child insert同样由plumb-edit定位首尾或验证完整 parent/sibling range；adapter只传
-OwnedBlock与位置意图。green move transaction接受source、optional direct parent/after ranges与replacement
-OwnedBlock：same-root move只replace共同top-level root，cross-root move产生互不重叠的source removal与target insert，
-从ancestor内提升到其后方使用one-to-many root replacement。所有location/path adjustment由plumb-edit完成，move不得
-materialize revision compatibility view。
+ green structural mutation以 absolute complete block range定位唯一 owning shard。plumb-edit负责验证 target完整包含于
+  该 shard、转换为 local range/OwnedBlock、执行 canonical replacement并把 TextEdit rebase回 document range；workspace
+  不得读取 shard offset或自行平移 edit。单 target replace和 one-to-many replacement必须走该入口。document prepend/
+  append、sibling insert和direct-child insert同样由plumb-edit定位首尾或验证完整 parent/sibling range；adapter只传
+  OwnedBlock与位置意图。green move transaction接受source、optional direct parent/after ranges与replacement
+  OwnedBlock：same-root move只replace共同top-level root，cross-root move产生互不重叠的source removal与target insert，
+  从ancestor内提升到其后方使用one-to-many root replacement。所有location/path adjustment由plumb-edit完成，move不得
+  materialize revision compatibility view。
 
-direct declaration insert position使用 First/Last/Before/After typed item。anonymous/marked parsed owner 均可拥有
-declaration children；verbatim leaf 需要先使用 wrapper structure。cursor-targeted declaration insert由green入口在
-owning shard中选择deepest marked owner并返回absolute owner identity，不得要求workspace遍历materialized blocks。
-按 marker集合进行的cursor-targeted conversion同样由plumb-edit返回deepest complete owner range与OwnedBlock；marker
-只有 syntax筛选作用，facet或kind含义仍由semantics/workspace判断。需要相邻上下文的conversion通过green query取得
-同一parent下一个direct sibling的absolute range与OwnedBlock；top-level sibling允许跨shard查找。
+ direct declaration insert position使用 First/Last/Before/After typed item。anonymous/marked parsed owner 均可拥有
+  declaration children；verbatim leaf 需要先使用 wrapper structure。cursor-targeted declaration insert由green入口在
+  owning shard中选择deepest marked owner并返回absolute owner identity，不得要求workspace遍历materialized blocks。
+  按 marker集合进行的cursor-targeted conversion同样由plumb-edit返回deepest complete owner range与OwnedBlock；marker
+  只有 syntax筛选作用，facet或kind含义仍由semantics/workspace判断。需要相邻上下文的conversion通过green query取得
+  同一parent下一个direct sibling的absolute range与OwnedBlock；top-level sibling允许跨shard查找。
 
-当一次 domain mutation需要在同一 root subtree中对应多个semantic records时，plumb-edit接受root与有序absolute
-complete target ranges，一次 ownership后返回与输入同序的 owned-tree index paths。所有 target必须位于root owning
-shard并对应完整 descendant（root自身 path为空）；workspace只按 path修改OwnedBlock，不得用range重建syntax topology。
-selection conversion由plumb-edit逐green top-level root返回一次ownership、匹配marker的candidate paths/content ranges
-及next-sibling snapshots。workspace从deepest path向root应用domain conversion，每个changed root只生成一个replacement，
-从而避免nested candidate edits重叠，也不materialize全文syntax。
+ 当一次 domain mutation需要在同一 root subtree中对应多个semantic records时，plumb-edit接受root与有序absolute
+  complete target ranges，一次 ownership后返回与输入同序的 owned-tree index paths。所有 target必须位于root owning
+  shard并对应完整 descendant（root自身 path为空）；workspace只按 path修改OwnedBlock，不得用range重建syntax topology。
+  selection conversion由plumb-edit逐green top-level root返回一次ownership、匹配marker的candidate paths/content ranges
+  及next-sibling snapshots。workspace从deepest path向root应用domain conversion，每个changed root只生成一个replacement，
+  从而避免nested candidate edits重叠，也不materialize全文syntax。
 
-Task/Event/metadata operations 先在 semantics/workspace 解析 intent，再调用 generic owned mutations。status field
-update 要 retain opaque declarations/body，property remove/add后重新 align 受影响的 direct property run，并格式化
-完整 task subtree。focus interval history 走同一 generic property path：single value 与 direct `"-" interval children
-的选择、渲染以及两者相互转换都由 edit layer 按 owned value shape 完成，consumer 不手算缩进或分隔符；结束 open
-interval 与写入 closure field 必须是同一 proposal 内不可分割的编辑。
+ Task/Event/metadata operations 先在 semantics/workspace 解析 intent，再调用 generic owned mutations。status field
+  update 要 retain opaque declarations/body，property remove/add后重新 align 受影响的 direct property run，并格式化
+  完整 task subtree。focus interval history 走同一 generic property path：single value 与 direct `"-" interval children
+  的选择、渲染以及两者相互转换都由 edit layer 按 owned value shape 完成，consumer 不手算缩进或分隔符；结束 open
+  interval 与写入 closure field 必须是同一 proposal 内不可分割的编辑。
 
-`## 6.1 Inline owner replacement
+ `# 6.1 Inline owner replacement
 
-plumb-edit 的 replace_owned_inline 与 replace_green_inline 接受已有 valid revision、完整 Group/Verbatim owner range 与一个 OwnedInline。edit layer 验证原 owner 存在、渲染 replacement、验证新 revision 的 syntax validity 与 replacement 完整 owner boundary，然后返回唯一 byte edit。green 入口在 owning shard 内验证并 rebase，consumer 不手算 envelope 或 CST replacement。嵌套 replacements 必须通过一次 owned 外层修改或不重叠 batch 完成。其它 source bytes 保持不变，不能为了局部 inline mutation 重写整个 block。这一通用能力可服务 source spelling 转换，但不建立 legacy parser 或 migration CLI。
+  plumb-edit 的 replace_owned_inline 与 replace_green_inline 接受已有 valid revision、完整 Group/Verbatim owner range 与一个 OwnedInline。edit layer 验证原 owner 存在、渲染 replacement、验证新 revision 的 syntax validity 与 replacement 完整 owner boundary，然后返回唯一 byte edit。green 入口在 owning shard 内验证并 rebase，consumer 不手算 envelope 或 CST replacement。嵌套 replacements 必须通过一次 owned 外层修改或不重叠 batch 完成。其它 source bytes 保持不变，不能为了局部 inline mutation 重写整个 block。这一通用能力可服务 source spelling 转换；显式 semantic-profile migration 见下文，不建立 legacy core parser。
 
 `# 7. Alignment
 
-Align arguments 在 current syntax 中对 direct positional element之间的 SpaceRun boundaries操作。eligible run 是
-至少两个 same-marker、same positional-element count、single-line、childless、non-verbatim sibling blocks。每个
-column 使用 locked unicode-width display width；每个 edit替换 adjacent element ranges之间现有的完整 direct SpaceRun，不在 boundary插入额外
-padding。只改 separator spaces，不改 content、groups、verbatim、marker、indentation 或 line ending；对已对齐 run
-再次执行必须返回 zero edits。green入口在 nested run只读取 cursor owning shard；top-level run跨相邻 shards计算
-相同 shape并返回 document-absolute edits，不得为该 code action materialize完整 ParsedDocument。
+ Align arguments 在 current syntax 中对 direct positional element之间的 SpaceRun boundaries操作。eligible run 是
+  至少两个 same-marker、same positional-element count、single-line、childless、non-verbatim sibling blocks。每个
+  column 使用 locked unicode-width display width；每个 edit替换 adjacent element ranges之间现有的完整 direct SpaceRun，不在 boundary插入额外
+  padding。只改 separator spaces，不改 content、groups、verbatim、marker、indentation 或 line ending；对已对齐 run
+  再次执行必须返回 zero edits。green入口在 nested run只读取 cursor owning shard；top-level run跨相邻 shards计算
+  相同 shape并返回 document-absolute edits，不得为该 code action materialize完整 ParsedDocument。
 
-formatter 不修改 existing direct SpaceRun，因此 alignment 无需 formatter-side run detection 即为 fixed point；
-formatter 也不主动对齐 ordinary source。table compact rows 因每个 direct positional element是 cell，alignment
-不改变 arity。tabs 或 incompatible shapes 时 operation unavailable。
+ formatter 不修改 existing direct SpaceRun，因此 alignment 无需 formatter-side run detection 即为 fixed point；
+  formatter 也不主动对齐 ordinary source。table compact rows 因每个 direct positional element是 cell，alignment
+  不改变 arity。tabs 或 incompatible shapes 时 operation unavailable。
 
 `# 8. Recovered-source assists
 
-completion 可以对 local invalid prefix 返回 replacement，但不是 authoritative valid-tree mutation。construct
-snippets 仍必须展开为 current syntax：
+ completion 可以对 local invalid prefix 返回 replacement，但不是 authoritative valid-tree mutation。construct
+  snippets 仍必须展开为 current syntax：
 
-`- Link `"`->{${1:target/label}}"；placeholder 是可整体替换的首项，不另设 explicit-label snippet。
-`- Citation `"`cite{${1:id}}"。
-`- Task/Event 使用 list item 与 direct facet children，property使用 spaces。
-`- nested completion 根据 client insertTextMode 只投影 base indentation；relative child depth保持一格。
+ `- Link `"`->{${1:target/label}}"；placeholder 是可整体替换的首项，不另设 explicit-label snippet。
+ `- Citation `"`cite{${1:id}}"。
+ `- Task/Event 使用 list item 与 direct facet children，property使用 spaces。
+ `- nested completion 根据 client insertTextMode 只投影 base indentation；relative child depth保持一格。
 
-apply 后的 source 必须 strict-valid且 formatter fixed point。bare/incomplete verbatim payload不猜测 construct。
-Link recovered completion按 owner positional view决定 target：首项未结束时补全单参数 target；首项后的 direct
-SpaceRun开启 explicit-label target，query包含其后全部 trailing target内容，而非最后一个 word。唯一首项是 anonymous
-Group时，组内始终是单参数 target，内部 spaces不改变 parent arity；grouped label之后的 target同样使用 rest。
-empty target与未闭合 group仍提供 completion。查询匹配沿用 workspace path/title fuzzy matching与anchor lookup。
-单参数 target插入含空格路径时由 edit layer生成一个 grouped argument，已有 fragment一同留在该 argument中；
-已在 anonymous group内时只替换其内部 target component并转义 literal introducers/braces，不再添加 envelope。
-explicit label之后允许 ungrouped multiword target。source range与query必须依据当前 recovered syntax，不能把 label、
-外围 group delimiter或direct declarations纳入 target replacement；LSP仅将 byte ranges投影为 UTF-16。
-rich one-argument Link rename 使用 Stringify 的 source mapping；当 decoded component跨 nested envelope时，替换该
-mapped source range并允许将被跨越的 presentation markup规范化为 plain escaped target，不猜测如何分配字符到多个
-semantic owners。compact verbatim仍优先 token edit，delimiter collision时 strengthen whole envelope。
-explicit Link target跨多个 positional elements时，document rename替换完整 rest target span并生成 plain escaped
-target，保留 fragment；span 内 interleaved direct declarations按原 source order移到新 target之后，不删除 declaration。
+ apply 后的 source 必须 strict-valid且 formatter fixed point。bare/incomplete verbatim payload不猜测 construct。
+  Link recovered completion按 owner positional view决定 target：首项未结束时补全单参数 target；首项后的 direct
+  SpaceRun开启 explicit-label target，query包含其后全部 trailing target内容，而非最后一个 word。唯一首项是 anonymous
+  Group时，组内始终是单参数 target，内部 spaces不改变 parent arity；grouped label之后的 target同样使用 rest。
+  empty target与未闭合 group仍提供 completion。查询匹配沿用 workspace path/title fuzzy matching与anchor lookup。
+  单参数 target插入含空格路径时由 edit layer生成一个 grouped argument，已有 fragment一同留在该 argument中；
+  已在 anonymous group内时只替换其内部 target component并转义 literal introducers/braces，不再添加 envelope。
+  explicit label之后允许 ungrouped multiword target。source range与query必须依据当前 recovered syntax，不能把 label、
+  外围 group delimiter或direct declarations纳入 target replacement；LSP仅将 byte ranges投影为 UTF-16。
+  rich one-argument Link rename 使用 Stringify 的 source mapping；当 decoded component跨 nested envelope时，替换该
+  mapped source range并允许将被跨越的 presentation markup规范化为 plain escaped target，不猜测如何分配字符到多个
+  semantic owners。compact verbatim仍优先 token edit，delimiter collision时 strengthen whole envelope。
+  explicit Link target跨多个 positional elements时，document rename替换完整 rest target span并生成 plain escaped
+  target，保留 fragment；span 内 interleaved direct declarations按原 source order移到新 target之后，不删除 declaration。
 
 `# 9. Version boundary
 
-editing 只接收 current parser 的 recovered/valid tree 或 current owned syntax。edit layer 不拥有 legacy reader、
-syntax epoch detection 或 source migration API。
+ editing 只接收 current parser 的 recovered/valid tree 或 current owned syntax。edit layer 不拥有 legacy reader 或
+  syntax epoch detection；显式 migration 仅转换当前 core syntax 可解析的旧 semantic profile。
 
 `# 10. Document task editing target
 
-OwnedDeclarationValue 除 Scalar 与 direct `"-" List 外，支持 direct `"+" Sequence。Sequence 每项是完整 scalar content，允许空格；set/read/remove 必须保留项边界。任务与 event authoring 在多个引用时使用 Sequence，不把 decoded paths 用空格拼成单个 Scalar；单项仍可用 Scalar。适配层只提供 owned values，分隔符与缩进由 plumb-edit 渲染。
+ OwnedDeclarationValue 除 Scalar 与 direct `"-" List 外，支持 direct `"+" Sequence。Sequence 每项是完整 scalar content，允许空格；set/read/remove 必须保留项边界。任务与 event authoring 在多个引用时使用 Sequence，不把 decoded paths 用空格拼成单个 Scalar；单项仍可用 Scalar。适配层只提供 owned values，分隔符与缩进由 plumb-edit 渲染。
 
-引用 component rename 向 plumb-edit 提供 current green revision、source-backed component range 与 decoded replacement。edit layer 为 parsed text 转义特殊字符；若 component 在 inline Verbatim payload 内，则保留其余 payload 并按需重建 quote envelope。验证新 revision 后才返回 edit，不能把 decoded filename 原样写进 parsed source 或破坏 raw delimiters。
+ 引用 component rename 向 plumb-edit 提供 current green revision、source-backed component range 与 decoded replacement。edit layer 为 parsed text 转义特殊字符；若 component 在 inline Verbatim payload 内，则保留其余 payload 并按需重建 quote envelope。验证新 revision 后才返回 edit，不能把 decoded filename 原样写进 parsed source 或破坏 raw delimiters。
 
-Document task 与 ListItem task 使用显式 owner variant，不以空 id、伪造 marker range 或 list wrapper 表达 document。根层声明可能跨 green shards；document reducer 汇总一次，并在 facet、title 或 task property 修改后正确失效。source ownership、导航选择和高亮范围分别定义，文档任务不能覆盖子任务的高亮或 folding。
+ Document task 与 ListItem task 使用显式 owner variant，不以空 id、伪造 marker range 或 list wrapper 表达 document。根层声明可能跨 green shards；document reducer 汇总一次，并在 facet、title 或 task property 修改后正确失效。source ownership、导航选择和高亮范围分别定义，文档任务不能覆盖子任务的高亮或 folding。
 
-plumb-edit 提供 root declaration 的 owned mutation，跨 shards 返回 non-overlapping edits，不 materialize revision-wide compatibility tree。标记文档为 task 是幂等操作，缺少 created 时补充，已有相关 properties 必须通过校验。取消身份仅移除 task facet。完成或取消时结束开放 focus interval 与 closure field 更新属于同一 guarded proposal。失败不应用部分编辑。
+ plumb-edit 提供 root declaration 的 owned mutation，跨 shards 返回 non-overlapping edits，不 materialize revision-wide compatibility tree。标记文档为 task 是幂等操作，缺少 created 时补充，已有相关 properties 必须通过校验。取消身份仅移除 task facet。完成或取消时结束开放 focus interval 与 closure field 更新属于同一 guarded proposal。失败不应用部分编辑。
 
-LSP、CLI 和 Web 使用同一 document task locator 与 revision guard。document task 不提供列表的 parent、position 或 recur 编辑；通用 task delete/move 不能隐式删除或移动文件。Web 以真实 document task 替代虚拟 file row，展开与选中使用独立 controls；无 task facet 的文件保持虚拟行。显示树沿用 focused 排序、unfocused siblings 整体分组与按树边统一缩进，focused 标识不同于 selection 样式，不恢复 Web Next 页面。筛选中的结构性父节点不计入实际匹配数量。
+ LSP、CLI 和 Web 使用同一 document task locator 与 revision guard。document task 不提供列表的 parent、position 或 recur 编辑；通用 task delete/move 不能隐式删除或移动文件。Web 以真实 document task 替代虚拟 file row，展开与选中使用独立 controls；无 task facet 的文件保持虚拟行。显示树沿用 focused 排序、unfocused siblings 整体分组与按树边统一缩进，focused 标识不同于 selection 样式，不恢复 Web Next 页面。筛选中的结构性父节点不计入实际匹配数量。
 
-LSP 将文档转换命名为 Convert document to task，将列表项转换命名为 Convert list item to task。文档转换仅在原有 document action context 且尚非文档任务时提供；不提供 Remove document task facet code action。当 Insert document metadata 与文档转换同时可用时，response 中 metadata 在前，并保留 preferred 标记；客户端可自行排序。
+ LSP 将文档转换命名为 Convert document to task，将列表项转换命名为 Convert list item to task。文档转换仅在原有 document action context 且尚非文档任务时提供；不提供 Remove document task facet code action。当 Insert document metadata 与文档转换同时可用时，response 中 metadata 在前，并保留 preferred 标记；客户端可自行排序。
 
-`## 10.1 Root declaration transaction
+ `# 10.1 Root declaration transaction
 
-已实现的 edit_green_root_declarations 接受同一 valid GreenDocument 与 ordered SetProperty/RemoveProperty/SetFacet intents。它只 ownership 根层声明，不 ownership 正文或伪造容器。相同 property value 与已存在 facet 的设置是 no-op；重复同 key property 的设置失败，显式 removal 删除全部匹配声明。child-bearing property 以完整 head 为 key，不将未知多词 key 误认为 task field。
+  已实现的 edit_green_root_declarations 接受同一 valid GreenDocument 与 ordered SetProperty/RemoveProperty/SetFacet intents。它只 ownership 根层声明，不 ownership 正文或伪造容器。相同 property value 与已存在 facet 的设置是 no-op；重复同 key property 的设置失败，显式 removal 删除全部匹配声明。child-bearing property 以完整 head 为 key，不将未知多词 key 误认为 task field。
 
-transaction 在原位置替换已有声明，在根层插入新声明；根层 facet removal 不匹配 nested facets。同一 source position 的 insertion 与 replacement 合并为一个 edit。返回 edits 按 source order 排列且不重叠，并以 next green revision 验证 batch syntax validity。未修改的 body、opaque declarations、focus history 和 line ending 保持原样；任何失败不返回部分编辑。green_root_declaration 提供同一 revision 上的 scalar/list property 查询，拒绝 ambiguous duplicate key。
+  transaction 在原位置替换已有声明，在根层插入新声明；根层 facet removal 不匹配 nested facets。同一 source position 的 insertion 与 replacement 合并为一个 edit。返回 edits 按 source order 排列且不重叠，并以 next green revision 验证 batch syntax validity。未修改的 body、opaque declarations、focus history 和 line ending 保持原样；任何失败不返回部分编辑。green_root_declaration 提供同一 revision 上的 scalar/list property 查询，拒绝 ambiguous duplicate key。
 
-Document task 字段 patch 只修改明确提供的根层属性；未提供的 title、字段、focus history 与正文保持原样。删除 title 恢复文件名显示。非空 recur 被拒绝，依赖修改按文档路径身份校验自环与混合 owner 环。带 placement 的更新和 move 明确拒绝 Document owner。
+  Document task 字段 patch 只修改明确提供的根层属性；未提供的 title、字段、focus history 与正文保持原样。删除 title 恢复文件名显示。非空 recur 被拒绝，依赖修改按文档路径身份校验自环与混合 owner 环。带 placement 的更新和 move 明确拒绝 Document owner。
 
-Document task 的显式操作按 document owner 定位，不转成任意 list offset。cursor 操作保留原有 list task 向开放 list ancestor 回退的规则，但命中 child 时不能进一步退回 document parent 并修改整个文件任务。
+  Document task 的显式操作按 document owner 定位，不转成任意 list offset。cursor 操作保留原有 list task 向开放 list ancestor 回退的规则，但命中 child 时不能进一步退回 document parent 并修改整个文件任务。
 
-列表任务的 create/move 若显式选择 Document task 为 parent，shared editing 将其映射到文档根层插入位置；不构造整文件列表 wrapper。文档任务本身不能作为 after sibling。
+  列表任务的 create/move 若显式选择 Document task 为 parent，shared editing 将其映射到文档根层插入位置；不构造整文件列表 wrapper。文档任务本身不能作为 after sibling。
 
-根层声明按连续 properties 组及紧随的 facets 组划分区域；空行不打断组，正文打断区域，facet 后的 property 开始下一区域。光标落在声明或子结构内时选择所属区域，空白行不匹配。新增 property 追加在本区域 properties 后、facets 前；新增 facet 追加在 facets 后。已有字段全局原位更新，不搬动或合并区域，不重排已有声明。
-无光标时选择文件开头的第一区域；开头没有声明时创建区域。无 metadata 的文件允许在 offset 0 创建区域。LSP 将 cursor byte offset 传入共享编辑层，CLI/Web 使用默认区域。formatter 负责本区域分隔与缩进，区域外源码保留，支持 LF/CRLF。
+  根层声明按连续 properties 组及紧随的 facets 组划分区域；空行不打断组，正文打断区域，facet 后的 property 开始下一区域。光标落在声明或子结构内时选择所属区域，空白行不匹配。新增 property 追加在本区域 properties 后、facets 前；新增 facet 追加在 facets 后。已有字段全局原位更新，不搬动或合并区域，不重排已有声明。
+   无光标时选择文件开头的第一区域；开头没有声明时创建区域。无 metadata 的文件允许在 offset 0 创建区域。LSP 将 cursor byte offset 传入共享编辑层，CLI/Web 使用默认区域。formatter 负责本区域分隔与缩进，区域外源码保留，支持 LF/CRLF。
 
-Event authoring 接受 start 存在而 end 缺省的开放区间，使用 compact START-- 并写入 date/timezone；更新 end 后变成闭区间，移除 end 恢复开放区间。at 与 start/end 互斥。已有 shorthand conversion 的下一 sibling end 推断规则不变，不能把 source event 的开放区间解析与快捷转换混为一谈。
+  Event authoring 接受 start 存在而 end 缺省的开放区间，使用 compact START-- 并写入 date/timezone；更新 end 后变成闭区间，移除 end 恢复开放区间。at 与 start/end 互斥。已有 shorthand conversion 的下一 sibling end 推断规则不变，不能把 source event 的开放区间解析与快捷转换混为一谈。
 
-属性名补全在普通、task、event 的 bullet/ordered list item 直接 property 和 document 根层 metadata 中提供 event-category；不要求 task/event facet 或 explicit id。支持空 key 和前缀，生成普通 direct property 与待填值，value 内不触发属性名补全。相同 owner 已有其他 event-category 声明（scalar 或 child list）时不重复建议；document 判重跨全部 green shards，不能因正文分隔漏判，也不把 nested item 声明当根层声明。无关 generic owner 不提供该项。ParsedDocument 与 green recovered 查询必须返回相同 byte replacement，LSP 只投影 UTF-16 range 和 snippet。
+  属性名补全在普通、task、event 的 bullet/ordered list item 直接 property 和 document 根层 metadata 中提供 event-category；不要求 task/event facet 或 explicit id。支持空 key 和前缀，生成普通 direct property 与待填值，value 内不触发属性名补全。相同 owner 已有其他 event-category 声明（scalar 或 child list）时不重复建议；document 判重跨全部 green shards，不能因正文分隔漏判，也不把 nested item 声明当根层声明。无关 generic owner 不提供该项。ParsedDocument 与 green recovered 查询必须返回相同 byte replacement，LSP 只投影 UTF-16 range 和 snippet。
 
-分类值补全适用于 document 根层及普通、task、event list item 的 event-category scalar value 和直接分类列表项。候选来自 workspace 当前有效语义快照中所有这些 owner 的有效分类集合，包括无 id 的条目；打开文档覆盖磁盘快照，语法无效时只使用当前 revision 的有效区域，不沿用 last-valid。去重后按字典序排列，按大小写敏感的 literal prefix 筛选，不限制候选数量。替换完整当前值，保留多词分类为一个值，并由 plumb-edit 转义特殊字符；不建议与当前值完全相同的候选。持久层独立投影分类词汇，不为补全加载全部 task/event records。
+  分类值补全适用于 document 根层及普通、task、event list item 的 event-category scalar value 和直接分类列表项。候选来自 workspace 当前有效语义快照中所有这些 owner 的有效分类集合，包括无 id 的条目；打开文档覆盖磁盘快照，语法无效时只使用当前 revision 的有效区域，不沿用 last-valid。去重后按字典序排列，按大小写敏感的 literal prefix 筛选，不限制候选数量。替换完整当前值，保留多词分类为一个值，并由 plumb-edit 转义特殊字符；不建议与当前值完全相同的候选。持久层独立投影分类词汇，不为补全加载全部 task/event records。
 
-Add explicit id code action 在属性 = 的位置仍定位其父 marked owner，并把 @ id 插入该 owner 的直接 declarations；不会把 id 插入 property 的 children。文档根层 metadata 没有可锚定父 owner，因此不提供该 action。
+  Add explicit id code action 在属性 = 的位置仍定位其父 marked owner，并把 @ id 插入该 owner 的直接 declarations；不会把 id 插入 property 的 children。文档根层 metadata 没有可锚定父 owner，因此不提供该 action。
+
+`# Legacy heading migration
+
+ 历史 hash heading 转 section 是显式一次性 migration，不是 parser 自动兼容。plumb-edit 接受当前 ParsedDocument，在 edit layer 内拥有 source-backed syntax structure 并转换每个 sibling sequence：按旧 hash level 收纳后继 siblings， 把 heading marker 改成单个 `"#"。原 children、id、声明、inline source spelling 与 verbatim payload 保留；raw 中的示例不作为可执行 heading 转换。level 跳级按实际 section 祖先 规范化，迁移后的 level 由实际祖先数决定。调用端只读取文件、请求 migration、应用返回 edits；不自行生成缩进。 操作拒绝无效 syntax，重新验证结果；没有变化时不改文件。migration 同时将旧 table marker 改为 `"|"。独立 canonical marker conversion 只把显式 section item 转成 `"#"（移除对应 direct leaf section declaration），并转换旧 table；不会按 hash 吸收后继 siblings，可安全用于当前结构文档。canonical conversion 保留 table 的结构 row/cell marker 及其 section facet，只转换 cell body；document declarations 与 property data 不参与结构 marker 转换。旧 heading migration 仅运行一次，不用于格式化新文档。外部 notebook 迁移只处理公开 `".plumb" 文件，遵守 notebook 的排除目录，并在迁移前保存可恢复备份。
+
+ 迁移将 interleaved document declarations 按原相对顺序集中到文档开头，避免 root metadata/facets 被收纳为 section declarations。Pandoc importer 使用在输入中不存在的专用 marker prefix，向 plumb-edit 请求无六级限制的 heading intermediate 转换；只有专用 marker 参与 heading 收纳；generic 多 hash owner 不参与转换。该中间文本不是用户格式，也不由普通 parser 自动兼容。metadata 中的 block sequence 同样验证可表达的 section ancestry。

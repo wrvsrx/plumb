@@ -319,7 +319,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
             "t": "Header",
-            "c": [heading.level, lower_attrs(attrs, None), lower_inlines(&block.content, analysis)],
+            "c": [heading.level, lower_facet_attrs(attrs, "section"), lower_inlines(&block.content, analysis)],
         }));
         output.extend(lower_body(block, analysis));
         return;
@@ -666,6 +666,10 @@ fn lower_task_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "task", |_| false)
 }
 
+fn lower_facet_attrs(attrs: &Attributes, facet: &str) -> Value {
+    lower_attrs_filtered(attrs, None, |class| class == facet, |_| false)
+}
+
 fn lower_event_attrs(attrs: &Attributes) -> Value {
     lower_attrs_filtered(attrs, None, |class| class == "event", |_| false)
 }
@@ -752,9 +756,37 @@ mod tests {
     }
 
     #[test]
+    fn sections_interrupt_lists_and_consume_only_the_section_facet() {
+        let source = "`- Before\n`- `!{Title}\n `+ section\n `+ task\n `+ notice\n `@ title\n `= priority 3\n\n Body.\n\n `. Nested\n  `+ section\n\n`- After\n\n`## Generic\n";
+        let document = export(source).unwrap();
+        let blocks = document["blocks"].as_array().unwrap();
+        assert_eq!(
+            blocks
+                .iter()
+                .map(|b| b["t"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "BulletList",
+                "Header",
+                "Para",
+                "Header",
+                "BulletList",
+                "Div"
+            ]
+        );
+        assert_eq!(blocks[1]["c"][0], 1);
+        assert_eq!(
+            blocks[1]["c"][1],
+            json!(["title", ["task", "notice"], [["priority", "3"]]])
+        );
+        assert_eq!(blocks[1]["c"][2][0]["t"], "Strong");
+        assert_eq!(blocks[3]["c"][0], 2);
+    }
+
+    #[test]
     fn exports_heading_paragraph_and_generic_block() {
         let document =
-            export("`# Intro\n  `@ intro\n\nParagraph text.\n\n`note Remember this.\n  `+ tip\n")
+            export("`- Intro\n `+ section\n `@ intro\n\nParagraph text.\n\n`note Remember this.\n  `+ tip\n")
                 .unwrap();
         let blocks = document["blocks"].as_array().unwrap();
         assert_eq!(blocks[0]["t"], "Header");
@@ -805,7 +837,7 @@ mod tests {
 
     #[test]
     fn exports_compact_and_expanded_tables() {
-        let source = "`table People\n `- name    age\n  `+ header\n `-\n\n  Alice\n   `+ header\n  10\n `-\n\n  Bob\n   `+ header\n  20\n   `note Approximate\n";
+        let source = "`| People\n `- name    age\n  `+ header\n `-\n\n  Alice\n   `+ header\n  10\n `-\n\n  Bob\n   `+ header\n  20\n   `note Approximate\n";
         let document = super::export(source).unwrap();
         let table = &document["blocks"][0];
 
@@ -900,11 +932,11 @@ mod tests {
     #[test]
     fn incremental_event_snapshots_export_byte_for_byte_like_fresh_analysis() {
         use std::sync::Arc;
-        let source = "`= title Plan\n`= event-category work\n`- Activity\n `@ activity\n`# Section\n `= event-category nested\n `- 2026-09-22T10:00:00Z--11:00 `->{#activity}\n  `+ event\n`- 2026-09-22T11:00:00Z--12:00 Last\n `+ event\n";
+        let source = "`= title Plan\n`= event-category work\n`- Activity\n `@ activity\n`- Section\n `+ section\n `= event-category nested\n `- 2026-09-22T10:00:00Z--11:00 `->{#activity}\n  `+ event\n`- 2026-09-22T11:00:00Z--12:00 Last\n `+ event\n";
         let old = Arc::new(plumb_syntax::GreenDocument::parse(source));
-        let previous = plumb_semantics::analyze_green_document(
-            old.valid_syntax().unwrap(), Arc::clone(&old),
-        ).unwrap();
+        let previous =
+            plumb_semantics::analyze_green_document(old.valid_syntax().unwrap(), Arc::clone(&old))
+                .unwrap();
         for (needle, replacement) in [
             ("Plan", "Updated plan"),
             ("work", "personal"),
@@ -1261,7 +1293,7 @@ mod tests {
 
     #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
-        let source = "`= title Rich `*{title}\n`= tags\n `+ plumb\n `+ tools\n\n`= macros\n `+\n  `+ `\"nearSet\"\n  `+ `\"\\mathscr{C}\"\n  `+ 0\n\n`= author\n `= name Alice\n\n`= source\n `\"\n  raw\n  \n  \n`= empty\n\n`# Section\n";
+        let source = "`= title Rich `*{title}\n`= tags\n `+ plumb\n `+ tools\n\n`= macros\n `+\n  `+ `\"nearSet\"\n  `+ `\"\\mathscr{C}\"\n  `+ 0\n\n`= author\n `= name Alice\n\n`= source\n `\"\n  raw\n  \n  \n`= empty\n\n`- Section\n `+ section\n";
         let document = export(source).unwrap();
 
         assert_eq!(document["blocks"].as_array().unwrap().len(), 1);

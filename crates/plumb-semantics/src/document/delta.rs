@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn exported_delta_reconstructs_fresh_and_incremental_records_for_valid_edits() {
-        let source = "`= title Notes\n`= date 2026-09-05\n`= timezone +08:00\n\n`# Heading\n `@ duplicate\n\n`- Parent\n `+ task\n `@ duplicate\n\n `- 14:30 Event\n  `+ event\n  `= tasks #duplicate\n\n  See `->{label #duplicate}\n\n`table\n `- name age\n  `+ header\n `- Alice 10\n\n`- Tail\n `+ task\n";
+        let source = "`= title Notes\n`= date 2026-09-05\n`= timezone +08:00\n\n`# Heading\n `@ duplicate\n\n`- Parent\n `+ task\n `@ duplicate\n\n `- 14:30 Event\n  `+ event\n  `= tasks #duplicate\n\n  See `->{label #duplicate}\n\n`|\n `- name age\n  `+ header\n `- Alice 10\n\n`- Tail\n `+ task\n";
         let previous = output(source);
         let mut count = 0;
         for (offset, character) in source.char_indices() {

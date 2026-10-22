@@ -2,203 +2,203 @@
 
 `# 1. Purpose
 
-strict parser 对任意 UTF-8 source 产生 recovered lossless tree。tree 服务 diagnostics、editor queries、
-source-preserving edits 与 semantic analyses；它不是 interpreted semantic AST。
+ strict parser 对任意 UTF-8 source 产生 recovered lossless tree。tree 服务 diagnostics、editor queries、
+  source-preserving edits 与 semantic analyses；它不是 interpreted semantic AST。
 
 `# 2. Fidelity
 
-所有 source-backed leaf 使用 UTF-8 half-open byte ranges，按 source order 无重叠、无空洞覆盖 input。拼接
-leaf bytes 必须逐 byte 等于 source。tree 保存 indentation、spaces、line endings、introducers、escapes、
-markers、group/verbatim delimiters、raw payload、layout 与 malformed bytes。
+ 所有 source-backed leaf 使用 UTF-8 half-open byte ranges，按 source order 无重叠、无空洞覆盖 input。拼接
+  leaf bytes 必须逐 byte 等于 source。tree 保存 indentation、spaces、line endings、introducers、escapes、
+  markers、group/verbatim delimiters、raw payload、layout 与 malformed bytes。
 
-nonempty source leaf 非空；empty source 产生 range `"[0, 0)" root。missing token 不插 synthetic leaf，由
-diagnostic/fix 表达。node range 从 source-backed descendants 推导。
+ nonempty source leaf 非空；empty source 产生 range `"[0, 0)" root。missing token 不插 synthetic leaf，由
+  diagnostic/fix 表达。node range 从 source-backed descendants 推导。
 
 `# 3. Public representation
 
-ParsedDocument 同时持有 original source、LosslessTree、typed Document 与 diagnostics。LosslessTree 是 root
-range 加 source-ordered SyntaxToken sequence；kind 包含 text、whitespace、indentation、line ending、
-introducer、escape、marker、inline kind、delimiter、raw payload 与 error。
+ ParsedDocument 同时持有 original source、LosslessTree、typed Document 与 diagnostics。LosslessTree 是 root
+  range 加 source-ordered SyntaxToken sequence；kind 包含 text、whitespace、indentation、line ending、
+  introducer、escape、marker、inline kind、delimiter、raw payload 与 error。
 
-typed structure 统一为 optional-marker recursive owners：
+ typed structure 统一为 optional-marker recursive owners：
 
-`rust"
- struct Block {
-     marker: Option<Marker>,
-     content: BlockContent,
-     children: Vec<Block>,
- }
- enum BlockContent {
-     Parsed(InlineContents),
-     Verbatim(RawText),
- }
- enum InlineElement {
-     Text(TextRun),
-     Space(SpaceRun),
-     Group {
-         marker: Option<Marker>,
-         content: InlineContents,
-     },
-     Verbatim {
-         marker: Option<Marker>,
-         payload: RawText,
-     },
- }
+ `rust"
+  struct Block {
+      marker: Option<Marker>,
+      content: BlockContent,
+      children: Vec<Block>,
+  }
+  enum BlockContent {
+      Parsed(InlineContents),
+      Verbatim(RawText),
+  }
+  enum InlineElement {
+      Text(TextRun),
+      Space(SpaceRun),
+      Group {
+          marker: Option<Marker>,
+          content: InlineContents,
+      },
+      Verbatim {
+          marker: Option<Marker>,
+          payload: RawText,
+      },
+  }
 
-current Rust API 用 ParsedBlock/VerbatimBlock enum variants 表达 BlockContent，但 observable ownership 与上面
-model 等价。anonymous/marked parsed blocks 共享 children；VerbatimBlock children 固定为空。
+ current Rust API 用 ParsedBlock/VerbatimBlock enum variants 表达 BlockContent，但 observable ownership 与上面
+  model 等价。anonymous/marked parsed blocks 共享 children；VerbatimBlock children 固定为空。
 
 `# 4. Inline element contract
 
-InlineContents 只保存唯一一份 source-ordered elements，包括 direct SpaceRun 与 SoftBreak；没有 InlineDatum、
-segment、argument descriptor或对应的 stored range/index projection。Text 在 direct whitespace、special entry或
-boundary处结束，Group/Verbatim各自是 parent depth的一个 element。SoftBreak range覆盖 physical line ending与
-下一行 continuation indentation（同列 continuation 时为 empty），typed plain-text projection视为一个 semantic space。
-SpaceRun/SoftBreak不占 semantic positional index；repeated whitespace不产生 empty value，empty Group 是 explicit
-empty positional element。
+ InlineContents 只保存唯一一份 source-ordered elements，包括 direct SpaceRun 与 SoftBreak；没有 InlineDatum、
+  segment、argument descriptor或对应的 stored range/index projection。Text 在 direct whitespace、special entry或
+  boundary处结束，Group/Verbatim各自是 parent depth的一个 element。SoftBreak range覆盖 physical line ending与
+  下一行 continuation indentation（同列 continuation 时为 empty），typed plain-text projection视为一个 semantic space。
+  SpaceRun/SoftBreak不占 semantic positional index；repeated whitespace不产生 empty value，empty Group 是 explicit
+  empty positional element。
 
-Group content 递归使用同一 structure。没有 InlineMember、parsed/verbatim argument variants 或 bracket/pipe
-separator ranges。generic direct declaration view 可以从 direct marked owners 投影 id/facet/pair
-ranges，但 underlying owner sequence 保持不变。
+ Group content 递归使用同一 structure。没有 InlineMember、parsed/verbatim argument variants 或 bracket/pipe
+  separator ranges。generic direct declaration view 可以从 direct marked owners 投影 id/facet/pair
+  ranges，但 underlying owner sequence 保持不变。
 
-plain-text traversal 展开 anonymous/generic group、保留 SpaceRun，并让 semantic profile 对 Link 等 known
-owners选择 visible elements。kind-specific consumer直接在 element sequence上过滤 declarations与 whitespace并
-声明 first/rest、each或 exactly-one binding，不能自行按 source string split。
+ plain-text traversal 展开 anonymous/generic group、保留 SpaceRun，并让 semantic profile 对 Link 等 known
+  owners选择 visible elements。kind-specific consumer直接在 element sequence上过滤 declarations与 whitespace并
+  声明 first/rest、each或 exactly-one binding，不能自行按 source string split。
 
 `# 5. Source ranges
 
-marker 保存 introducer-inclusive owner range 与 exact marker_range。Group/Verbatim 保存完整 envelope、content/
-text range；VerbatimBlock 保存 opener、quote 与 raw source span。raw typed text 已 strip exactly one structural
-margin，但 source token ranges 继续覆盖 margins 与 original line endings。
+ marker 保存 introducer-inclusive owner range 与 exact marker_range。Group/Verbatim 保存完整 envelope、content/
+  text range；VerbatimBlock 保存 opener、quote 与 raw source span。raw typed text 已 strip exactly one structural
+  margin，但 source token ranges 继续覆盖 margins 与 original line endings。
 
-projected declaration item 同时保存 full direct-owner range 与 precise key/value range。remove/move 使用 full
-range；rename/selection/reference 使用 value range。consumer 不得用 `"full_start + constant" 猜测 token
-boundary。
+ projected declaration item 同时保存 full direct-owner range 与 precise key/value range。remove/move 使用 full
+  range；rename/selection/reference 使用 value range。consumer 不得用 `"full_start + constant" 猜测 token
+  boundary。
 
-inline declaration projection 对 anonymous 与 marked Group 使用相同规则；standalone attributes_from_inlines(source, content) 与 plain_scalar(content) 暴露 parser 已使用的 semantics-neutral projection，不重新 parse source。调用者必须传 owning revision 的 bytes 与 typed content。generic attributes 不引入资源或其它 semantic kind。
+ inline declaration projection 对 anonymous 与 marked Group 使用相同规则；standalone attributes_from_inlines(source, content) 与 plain_scalar(content) 暴露 parser 已使用的 semantics-neutral projection，不重新 parse source。调用者必须传 owning revision 的 bytes 与 typed content。generic attributes 不引入资源或其它 semantic kind。
 
 `# 6. Recovered and valid views
 
-lossless tokens 与 typed recovered Document 始终存在。recovered_syntax 返回同一次 parse 的 recovered tree；
-valid_syntax 只在没有 error diagnostic 时返回不可由 consumer 构造的 ValidDocument，同时借用 source/tree。
+ lossless tokens 与 typed recovered Document 始终存在。recovered_syntax 返回同一次 parse 的 recovered tree；
+  valid_syntax 只在没有 error diagnostic 时返回不可由 consumer 构造的 ValidDocument，同时借用 source/tree。
 
-export 与 valid-tree authoring 只接受 ValidDocument。official semantic analysis 也可接受不可伪造的 SemanticDocument
-有效区域 view；该类型不能转换成 ValidDocument，不能授予 export/edit 权限。面向 invalid editing state 的
-completion、folding 等显式接受 recovered Document。访问任一 view 不重新 parse。
+ export 与 valid-tree authoring 只接受 ValidDocument。official semantic analysis 也可接受不可伪造的 SemanticDocument
+  有效区域 view；该类型不能转换成 ValidDocument，不能授予 export/edit 权限。面向 invalid editing state 的
+  completion、folding 等显式接受 recovered Document。访问任一 view 不重新 parse。
 
 `# 7. Recovery representation
 
-malformed bytes 标为 error tokens 并继续参与 complete coverage；existing token boundaries 保留。virtual
-indentation 或 missing closer 只存在于 diagnostics/fixes，不进入 source-backed leaves。recovery boundary 必须
-deterministic，使 same source 的 tree、diagnostic order 与 edit ranges 稳定。
+ malformed bytes 标为 error tokens 并继续参与 complete coverage；existing token boundaries 保留。virtual
+  indentation 或 missing closer 只存在于 diagnostics/fixes，不进入 source-backed leaves。recovery boundary 必须
+  deterministic，使 same source 的 tree、diagnostic order 与 edit ranges 稳定。
 
-block nesting 使用 explicit work stack；typed block/inline destruction 与 traversal 也不能从 Rust call stack
-获得 language depth limit。inline parser 的 arbitrary nesting implementation 必须由 deep-corpus regression
-证明不会 stack overflow。
+ block nesting 使用 explicit work stack；typed block/inline destruction 与 traversal 也不能从 Rust call stack
+  获得 language depth limit。inline parser 的 arbitrary nesting implementation 必须由 deep-corpus regression
+  证明不会 stack overflow。
 
 `# 8. Owned syntax
 
-plumb-edit OwnedBlock/OwnedInline 是 syntax view 的 source-independent constructible counterpart，不是 normalized
-semantic AST。它负责 insertion/replacement/move 与 canonical rendering；adapter 不手写 subtree syntax。
+ plumb-edit OwnedBlock/OwnedInline 是 syntax view 的 source-independent constructible counterpart，不是 normalized
+  semantic AST。它负责 insertion/replacement/move 与 canonical rendering；adapter 不手写 subtree syntax。
 
 `# 9. Incremental strict parsing
 
-`"plumb-syntax" 提供 fresh parse 与 previous-revision incremental parse。incremental entry 接受完整 previous
-ParsedDocument 与 next source bytes，自行计算共同 prefix/suffix；caller 不传不可信的 parser boundary。实现只在
-两个 revision 中都能证明 top-level owner start 是独立 line boundary 时复用其外侧结果。包含 change 的最小
-top-level owner run 重新经过同一 strict block/inline parser；边界无法证明、reused token 跨越 splice，或 range
-rebase 失败时必须退回 fresh parse。
+ `"plumb-syntax" 提供 fresh parse 与 previous-revision incremental parse。incremental entry 接受完整 previous
+  ParsedDocument 与 next source bytes，自行计算共同 prefix/suffix；caller 不传不可信的 parser boundary。实现只在
+  两个 revision 中都能证明 top-level owner start 是独立 line boundary 时复用其外侧结果。包含 change 的最小
+  top-level owner run 重新经过同一 strict block/inline parser；边界无法证明、reused token 跨越 splice，或 range
+  rebase 失败时必须退回 fresh parse。
 
-复用覆盖 recovered typed blocks、syntax diagnostics 与 lossless tokens。前缀 range 不变，后缀所有 source-backed
-range 以 byte delta 统一 rebase；document-level projected declarations 从合并后的 direct blocks 重新建立。最终
-ParsedDocument 的 source、tree、diagnostic order、validity、token kinds/ranges 与对 next bytes 单独 fresh parse 的
-结果必须相等。invalid-to-invalid、valid-to-invalid、CRLF、UTF-8、indentation、continuation、verbatim boundary 与
-文件首尾 edit 都属于 differential tests 的输入范围。
+ 复用覆盖 recovered typed blocks、syntax diagnostics 与 lossless tokens。前缀 range 不变，后缀所有 source-backed
+  range 以 byte delta 统一 rebase；document-level projected declarations 从合并后的 direct blocks 重新建立。最终
+  ParsedDocument 的 source、tree、diagnostic order、validity、token kinds/ranges 与对 next bytes 单独 fresh parse 的
+  结果必须相等。invalid-to-invalid、valid-to-invalid、CRLF、UTF-8、indentation、continuation、verbatim boundary 与
+  文件首尾 edit 都属于 differential tests 的输入范围。
 
-该阶段允许复制 existing owned nodes，不承诺 allocation identity 或 asymptotically constant splice。benchmark
-必须分别报告 reparsed byte range、incremental parse 和 fresh parse；若 edit 使整个 document 落入 reparsed range，
-实现直接使用 fresh path，不把它报告为 reuse。
+ 该阶段允许复制 existing owned nodes，不承诺 allocation identity 或 asymptotically constant splice。benchmark
+  必须分别报告 reparsed byte range、incremental parse 和 fresh parse；若 edit 使整个 document 落入 reparsed range，
+  实现直接使用 fresh path，不把它报告为 reuse。
 
-`## 9.1 Production green/red target
+ `# 9.1 Production green/red target
 
-Status：workspace green/red replacement已实现。`"GreenDocument" 以 top-level source region 为 relative-range immutable shards，known
-`"SourceChange" 直接构造 revision并复用 unchanged `"Arc<GreenShard>"；fresh/incremental property tests 证明
-explicit materialize projection与 strict fresh parse 相等。`"ParsedDocument" 仍是standalone strict parser API与
-differential oracle，但workspace revision只保存green root，不缓存或implicit Deref第二棵absolute-range tree。
+  Status：workspace green/red replacement已实现。`"GreenDocument" 以 top-level source region 为 relative-range immutable shards，known
+   `"SourceChange" 直接构造 revision并复用 unchanged `"Arc<GreenShard>"；fresh/incremental property tests 证明
+   explicit materialize projection与 strict fresh parse 相等。`"ParsedDocument" 仍是standalone strict parser API与
+   differential oracle，但workspace revision只保存green root，不缓存或implicit Deref第二棵absolute-range tree。
 
-每个 syntax revision 以 immutable green root 为 authoritative recovered representation。green node/token 保存
-kind、children/source text 与 subtree byte length，range 相对该 subtree；不保存 parent、revision absolute offset 或
-可变 identity。未变化 subtree 跨 revision 复用同一 allocation。red view 将 green node 与 revision root/path 组合，
-按 preceding sibling lengths 计算 parent、siblings 与 absolute UTF-8 range；typed Block/Inline/Mark/Attributes view
-不得为整个 document eager materialize 第二棵 absolute-range owned tree。
+  每个 syntax revision 以 immutable green root 为 authoritative recovered representation。green node/token 保存
+   kind、children/source text 与 subtree byte length，range 相对该 subtree；不保存 parent、revision absolute offset 或
+   可变 identity。未变化 subtree 跨 revision 复用同一 allocation。red view 将 green node 与 revision root/path 组合，
+   按 preceding sibling lengths 计算 parent、siblings 与 absolute UTF-8 range；typed Block/Inline/Mark/Attributes view
+   不得为整个 document eager materialize 第二棵 absolute-range owned tree。
 
-incremental entry 接受 ordered byte edits，而不只接受 final source。它验证 edits 属于 previous revision、按顺序
-应用并产生 old/new affected ranges、reparsed green roots 与 reused identities。LSP UTF-16 range 只在 adapter/line
-index boundary 转成 byte edits；workspace 与 syntax 不重新比较完整 old/new source 来恢复已经存在的 provenance。
-无法证明 stable owner boundary 时允许扩大 reparse 或 fresh fallback，但 observable tree/diagnostics 必须继续与 fresh
-parse 相等。
+  incremental entry 接受 ordered byte edits，而不只接受 final source。它验证 edits 属于 previous revision、按顺序
+   应用并产生 old/new affected ranges、reparsed green roots 与 reused identities。LSP UTF-16 range 只在 adapter/line
+   index boundary 转成 byte edits；workspace 与 syntax 不重新比较完整 old/new source 来恢复已经存在的 provenance。
+   无法证明 stable owner boundary 时允许扩大 reparse 或 fresh fallback，但 observable tree/diagnostics 必须继续与 fresh
+   parse 相等。
 
-lossless tokens、syntax diagnostics 与 generic declaration projection 是 green tree 的 typed views，不另存一份
-full-document flat mutable range graph。需要 source-ordered flat token stream 的 consumer 可以遍历 red view；该投影
-可以缓存于 revision，但不得在局部 edit 后逐 token rebase unchanged suffix。
+  lossless tokens、syntax diagnostics 与 generic declaration projection 是 green tree 的 typed views，不另存一份
+   full-document flat mutable range graph。需要 source-ordered flat token stream 的 consumer 可以遍历 red view；该投影
+   可以缓存于 revision，但不得在局部 edit 后逐 token rebase unchanged suffix。
 
-`## 9.2 Workspace green authority transition
+ `# 9.2 Workspace green authority transition
 
-Status：workspace green authority阶段已实现。workspace document revision只以 `"Arc<GreenDocument>" 保存 source、validity、syntax diagnostics
-与 shard identity，不保存lazy `"ParsedDocument" cache且不实现到absolute tree的implicit Deref。format/edit、recovered
-queries、fresh/incremental semantics与authoring operations直接消费green/typed shard views。
+  Status：workspace green authority阶段已实现。workspace document revision只以 `"Arc<GreenDocument>" 保存 source、validity、syntax diagnostics
+   与 shard identity，不保存lazy `"ParsedDocument" cache且不实现到absolute tree的implicit Deref。format/edit、recovered
+   queries、fresh/incremental semantics与authoring operations直接消费green/typed shard views。
 
-revision guard比较 workspace revision object identity。相同 source rebind继续共享green root；不同 source必须建立
-新 revision。invalid green revision同样直接发布按
-current shard offsets投影的 syntax diagnostics，完成当前有效区域分析后发布同 revision facts；previous output 仅作增量基线。
+  revision guard比较 workspace revision object identity。相同 source rebind继续共享green root；不同 source必须建立
+   新 revision。invalid green revision同样直接发布按
+   current shard offsets投影的 syntax diagnostics，完成当前有效区域分析后发布同 revision facts；previous output 仅作增量基线。
 
-fresh/incremental semantics接收current green revision 的有效区域、previous DocumentOutput与可选shard-aligned old/new change。
-metadata、heading及其它document reducers直接遍历green shard views；metadata context变化可以重算local nodes，但不得
-materialize current compatibility tree。fresh synchronous didOpen仍同步生成完整semantic snapshot，但不建立absolute
-ParsedDocument。
+  fresh/incremental semantics接收current green revision 的有效区域、previous DocumentOutput与可选shard-aligned old/new change。
+   metadata、heading及其它document reducers直接遍历green shard views；metadata context变化可以重算local nodes，但不得
+   materialize current compatibility tree。fresh synchronous didOpen仍同步生成完整semantic snapshot，但不建立absolute
+   ParsedDocument。
 
-`"GreenDocument" 保存 invalid shard count；validity与 valid revision的 empty diagnostics projection为 O(1)，invalid
-revision才遍历 shards并投影 diagnostics。Workspace lifecycle tests必须证明fresh/valid pending、ordinary incremental
-semantic worker与 invalid diagnostic publication只持有green revision。folding按 shard收集 block ranges并
-以 document reducer计算 heading sections；completion定位 cursor shard、运行同一 recovered query并平移 context
-ranges，bibliography fallback同样按 metadata shard投影。whole-document及 contained/range formatting由 plumb-edit
-调用 green formatter，跨 shard保持 sibling spacing与各 shard 的 existing inline source spelling并生成同一 edits。structural edits、authoring queries与
-selection conversions通过plumb-edit的green owner/path/transaction views完成，不建立revision-wide absolute syntax。
+  `"GreenDocument" 保存 invalid shard count；validity与 valid revision的 empty diagnostics projection为 O(1)，invalid
+   revision才遍历 shards并投影 diagnostics。Workspace lifecycle tests必须证明fresh/valid pending、ordinary incremental
+   semantic worker与 invalid diagnostic publication只持有green revision。folding按 shard收集 block ranges并
+   以 document reducer计算 heading sections；completion定位 cursor shard、运行同一 recovered query并平移 context
+   ranges，bibliography fallback同样按 metadata shard投影。whole-document及 contained/range formatting由 plumb-edit
+   调用 green formatter，跨 shard保持 sibling spacing与各 shard 的 existing inline source spelling并生成同一 edits。structural edits、authoring queries与
+   selection conversions通过plumb-edit的green owner/path/transaction views完成，不建立revision-wide absolute syntax。
 
-只消费 revision bytes 的 symbols、hover、semantic tokens、position conversion、Web与notes projection必须调用
-green-backed `"source()"。需要flat absolute syntax/lossless tokens的standalone consumer显式调用materialize projection；
-workspace/adapters不得持有或缓存该 projection。
+  只消费 revision bytes 的 symbols、hover、semantic tokens、position conversion、Web与notes projection必须调用
+   green-backed `"source()"。需要flat absolute syntax/lossless tokens的standalone consumer显式调用materialize projection；
+   workspace/adapters不得持有或缓存该 projection。
 
 `# 10. Lenient tree and identity
 
-tree-sitter 的 block raw scanner 对缺 margin 的中间 blank line 使用 core syntax 第 8 节的下一行判定：
-下一行具有完整 margin 时，空行的 LF/CRLF 仍产生同一 verbatim_block 内的 raw_text，injection 不在此截断。
-lookahead 不消费下一行 payload；末尾缺 margin 的 blank line 仍在 raw block 外。injection query 捕获这些 raw_text，
-因此空行前后的代码属于同一注入内容；常规行的 structural margin 仍不进入 capture。
+ tree-sitter 的 block raw scanner 对缺 margin 的中间 blank line 使用 core syntax 第 8 节的下一行判定：
+  下一行具有完整 margin 时，空行的 LF/CRLF 仍产生同一 verbatim_block 内的 raw_text，injection 不在此截断。
+  lookahead 不消费下一行 payload；末尾缺 margin 的 blank line 仍在 raw block 外。injection query 捕获这些 raw_text，
+  因此空行前后的代码属于同一注入内容；常规行的 structural margin 仍不进入 capture。
 
-tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
-node kinds/ranges；scanner state round-trip 不引入 ERROR。它不改变 strict parser authority。
+ tree-sitter mirror 只服务 editor ergonomics。fresh/full/incremental parses 必须在同 source 上产生等价 current
+  node kinds/ranges；scanner state round-trip 不引入 ERROR。它不改变 strict parser authority。
 
-跨 revision identity 的增量协议见第 11 节；tree-sitter identity 不作为 strict parser identity。
+ 跨 revision identity 的增量协议见第 11 节；tree-sitter identity 不作为 strict parser identity。
 
 `# 11. Incremental change protocol
 
-已实现：本节定义 incremental-syntax-semantics-graph 的 process-local revision 与 identity 协议。
+ 已实现：本节定义 incremental-syntax-semantics-graph 的 process-local revision 与 identity 协议。
 
-GreenShardId 是 process-local 单调分配的 opaque identity，不从 ordinal、source offset、内容 hash 或 allocation address 派生，不序列化到持久缓存。共享的 immutable shard 保持 identity；fresh parse 产生独立 identities，但 source/tree/diagnostic equality 忽略 identity。插入或删除前方 owner 只改变后方 range projection。无法证明 correspondence 的 replacement（包括跨边界合并、拆分及以 delete/insert 表达的移动）移除旧 identity 并创建新 identity，不按相同标题或重复 explicit id 猜测对应关系。
+ GreenShardId 是 process-local 单调分配的 opaque identity，不从 ordinal、source offset、内容 hash 或 allocation address 派生，不序列化到持久缓存。共享的 immutable shard 保持 identity；fresh parse 产生独立 identities，但 source/tree/diagnostic equality 忽略 identity。插入或删除前方 owner 只改变后方 range projection。无法证明 correspondence 的 replacement（包括跨边界合并、拆分及以 delete/insert 表达的移动）移除旧 identity 并创建新 identity，不按相同标题或重复 explicit id 猜测对应关系。
 
-已重新解析但精确相等的 source-ordered prefix/suffix shards 恢复原 identity；不匹配 replacement 内部的重复 spelling。GreenParse 的 change set 携带 old/new replacement range、signed offset delta、removed/added shard identities 与 reused identities 的 old/new range projection。失效原因区分 owner replacement、扩大结构边界、whole-document fallback 与无变化。无变化不产生新 identity。已知 SourceChange 必须验证 UTF-8 boundaries 和 unchanged prefix/suffix；错误 hint 回退到比较真实 bytes，不信任 adapter 提供的结构边界。
+ 已重新解析但精确相等的 source-ordered prefix/suffix shards 恢复原 identity；不匹配 replacement 内部的重复 spelling。GreenParse 的 change set 携带 old/new replacement range、signed offset delta、removed/added shard identities 与 reused identities 的 old/new range projection。失效原因区分 owner replacement、扩大结构边界、whole-document fallback 与无变化。无变化不产生新 identity。已知 SourceChange 必须验证 UTF-8 boundaries 和 unchanged prefix/suffix；错误 hint 回退到比较真实 bytes，不信任 adapter 提供的结构边界。
 
-Semantic consumer 以 shard identity 加 shard-relative owner location 与 record kind 作为该 immutable owner 的身份；同一 shard 内的 event、list item、anchor 和 link 不因前方其它 shard 插入而改变身份。changed shard 内无法证明 correspondence 的 owners 保守重建。纯 offset change 不重新提取 typed semantic facts。语法不合法的 current revision 发布有效区域 semantic changes，排除错误 owner/subtree 后立即撤回旧贡献，恢复后按同一 shard identity 协议更新。
+ Semantic consumer 以 shard identity 加 shard-relative owner location 与 record kind 作为该 immutable owner 的身份；同一 shard 内的 event、list item、anchor 和 link 不因前方其它 shard 插入而改变身份。changed shard 内无法证明 correspondence 的 owners 保守重建。纯 offset change 不重新提取 typed semantic facts。语法不合法的 current revision 发布有效区域 semantic changes，排除错误 owner/subtree 后立即撤回旧贡献，恢复后按同一 shard identity 协议更新。
 
-Change set 的 changed_fields 是 replacement 内 generic typed-owner 变化的保守并集：text_fields、direct_children、declarations 与 structure。declarations 比较 generic attribute projection 的 decoded key/value，不赋予 marker 官方语义；新增/删除无法配对的 shard 保守标记结构变化。reused projection 自身标识仅 absolute offset 变化，不扫描该 shard 内的 token 或 semantic record。flags 用于解释失效，不作为越过 valid typed view 的授权。
+ Change set 的 changed_fields 是 replacement 内 generic typed-owner 变化的保守并集：text_fields、direct_children、declarations 与 structure。declarations 比较 generic attribute projection 的 decoded key/value，不赋予 marker 官方语义；新增/删除无法配对的 shard 保守标记结构变化。reused projection 自身标识仅 absolute offset 变化，不扫描该 shard 内的 token 或 semantic record。flags 用于解释失效，不作为越过 valid typed view 的授权。
 
-SourceChange 的 followed_by 将顺序 edit 的 old/new byte ranges 合成为覆盖所有修改的最小连续 envelope，不比较完整 source。后续 edit 的 range 属于前一次 edit 后的 revision；重叠、前移、后移与 full replacement 都按此规则映射。LSP 对同一个 didChange 中的多次修改累计该 provenance，交给 workspace 验证；UTF-16 转换失败或 arithmetic overflow 拒绝该通知，不退回猜测修改位置。
+ SourceChange 的 followed_by 将顺序 edit 的 old/new byte ranges 合成为覆盖所有修改的最小连续 envelope，不比较完整 source。后续 edit 的 range 属于前一次 edit 后的 revision；重叠、前移、后移与 full replacement 都按此规则映射。LSP 对同一个 didChange 中的多次修改累计该 provenance，交给 workspace 验证；UTF-16 转换失败或 arithmetic overflow 拒绝该通知，不退回猜测修改位置。
 
 `# 12. Valid-region projection
 
-GreenShard 对健康 syntax 直接借用原 Document；错误 shard 用 OnceLock 保存一次有效 block forest。它从同一次
-parse 的 source-ordered diagnostics 定位 owner，按 postorder 显式栈过滤 owner/subtree，并从保留 children 重建
-generic attribute projection。原 recovered tree、lossless tokens、diagnostics、shard identity 与 whole-document
-validity 不变。SemanticDocument 只暴露原 source 与经过验证的 forest，不能构造或强制转换为 ValidDocument。
-semantic profile 可进一步收窄 owner 集合处理声明依赖，但不能往有效区域中加入 recovered 节点。
+ GreenShard 对健康 syntax 直接借用原 Document；错误 shard 用 OnceLock 保存一次有效 block forest。它从同一次
+  parse 的 source-ordered diagnostics 定位 owner，按 postorder 显式栈过滤 owner/subtree，并从保留 children 重建
+  generic attribute projection。原 recovered tree、lossless tokens、diagnostics、shard identity 与 whole-document
+  validity 不变。SemanticDocument 只暴露原 source 与经过验证的 forest，不能构造或强制转换为 ValidDocument。
+  semantic profile 可进一步收窄 owner 集合处理声明依赖，但不能往有效区域中加入 recovered 节点。

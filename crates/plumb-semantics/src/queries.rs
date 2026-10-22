@@ -270,7 +270,7 @@ fn direct_block_attribute_context(
                         .iter()
                         .any(|item| matches!(item, AttrItem::Pair { key: existing, .. } if existing == key))
                 };
-                if matches!(owner_mark.marker.as_str(), "-" | ".") {
+                if matches!(owner_mark.marker.as_str(), "-" | "." | "#") {
                     let duplicate = owner.children.iter().any(|child| {
                         category_declaration(child) && match child {
                             Block::Parsed(block) => block.range.start != declaration.range.start,
@@ -1942,7 +1942,7 @@ pub fn event_category_completion_context(
             let eligible = block
                 .mark
                 .as_ref()
-                .is_some_and(|m| matches!(m.marker.as_str(), "-" | "."));
+                .is_some_and(|m| matches!(m.marker.as_str(), "-" | "." | "#"));
             if let Some(context) = visit(&block.children, source, offset, eligible) {
                 return Some(context);
             }

@@ -2,427 +2,433 @@
 
 `# 1. Scope
 
-core syntax 对 marker spelling 保持 opaque。本文定义 official semantic profile：heading、anchor、metadata、
-list、definition、Link、image/file、citation、quote/style、task/event、table、math 与 Pandoc projection。
+ core syntax 对 marker spelling 保持 opaque。本文定义 official semantic profile：heading、anchor、metadata、
+  list、definition、Link、image/file、citation、quote/style、task/event、table、math 与 Pandoc projection。
 
-profile 是 statically composed、protocol-neutral pipeline，不是 dynamic plugin registry。authoritative analysis 消费 syntax-valid document 或 core syntax 定义的有效区域；
-未经验证的 recovered nodes 只可用于明确允许的局部 assist。
+ profile 是 statically composed、protocol-neutral pipeline，不是 dynamic plugin registry。authoritative analysis 消费 syntax-valid document 或 core syntax 定义的有效区域；
+  未经验证的 recovered nodes 只可用于明确允许的局部 assist。
 
 `# 2. Direct declarations
 
-block/inline owner 使用同一 relation projection：direct leaf-shaped `"@"、`"+"、`"=" owner 分别产生 id、
-facet 与 property。block declarations 是 indented direct children；inline declarations 是 owner content 中的
-direct marked groups：
+ block/inline owner 使用同一 relation projection：direct leaf-shaped `"@"、`"+"、`"=" owner 分别产生 id、
+  facet 与 property。block declarations 是 indented direct children；inline declarations 是 owner content 中的
+  direct marked groups：
 
-`plumb"
- `node Head
-  `@ stable
-  `+ notice
-  `= level 2
+ `plumb"
+  `node Head
+   `@ stable
+   `+ notice
+   `= level 2
 
-`plumb"
- `node{visible `@{stable} `+{notice} `={level 2}}
+ `plumb"
+  `node{visible `@{stable} `+{notice} `={level 2}}
 
-id/facet value 必须是一个 nonempty plain positional element。property first positional element是 nonempty plain
-key，remaining elements sequence是 value。recognized declarations与 whitespace不占 owner positional indexes，
-并从 rendered body/details 中过滤；
-underlying core sequence 不删除、不重排。unknown marked owner 保持 ordinary content。
+ id/facet value 必须是一个 nonempty plain positional element。property first positional element是 nonempty plain
+  key，remaining elements sequence是 value。recognized declarations与 whitespace不占 owner positional indexes，
+  并从 rendered body/details 中过滤；
+  underlying core sequence 不删除、不重排。unknown marked owner 保持 ordinary content。
 
-declarations 可以 source-order interleave。duplicate/owner-specific constraints由对应 recognizer 诊断。显式 id
-是 anchor/rename authority；heading title 不生成 implicit id。
+ declarations 可以 source-order interleave。duplicate/owner-specific constraints由对应 recognizer 诊断。显式 id
+  是 anchor/rename authority；heading title 不生成 implicit id。
 
 `# 3. Headings and anchors
 
-一至六个 `"#" marker 是 heading level。level 以 marker length 决定；其他含 `"#" spelling 是 generic。
+ marker 为 `"#" 的 parsed owner 是 section 简写，严格等价于 `"-" item 加 direct leaf `"+ section" facet；`"." item 加该 facet 同样是 section。 item 完整 head 是 heading；全部非声明 children 是正文，必须按 core ownership 整体缩进。空 head 合法。 `"##" 等多 hash marker 保持 generic owner，不按 hash 数量决定层级。`"#" 与显式 section 的 task/event/category 和编辑行为相同。section facet 与 task 或 event 正交； task/event 仍互斥。table 的结构 row/cell 不因 section facet 变为 heading；cell body 中的 section 正常识别。
 
-`plumb"
- `# Introduction
-  `@ intro
- `## Details
+ `plumb"
+  `- Introduction
+   `+ section
+   `@ intro
+  
+   Body.
+  
+   `- Details
+    `+ section
+  
+    Nested body.
 
-outline 按 source heading levels 建树。Add explicit id operation 只作用于 syntax-valid、cursor 命中的最深
-marked block 且当前没有 id；anonymous parsed/group 与 verbatim leaf 不直接提供该 operation。slug 从 nonempty
-plain content 生成，fallback marker/block，并在 document 内加 numeric suffix 去重。
+ section range 等于 item syntax range，不包含后继 siblings。outline 只按 section 祖先建立父子关系；普通 container/list 不增加 heading level。根 section level 为 1，每个 section 祖先增加 1，没有六级限制。 section 不进入 bullet/ordered list group，并打断前后普通 list 的合并；正文中的普通 list 保留原语义。 export 输出 Header 加正文（不额外输出 bullet），消费 section facet，保留 id、opaque facets/properties 以及 任务/事件属性。canonical authoring 与 Pandoc import 优先输出单个 `"#"，不额外添加 section facet。Pandoc import 在每个 block sequence 中把 Header 及其后到下个同级/更高标题前的 blocks 组成 section；level 必须从 1 开始且不能跳级，无法用结构祖先表达的 level 返回明确错误。
+
+ outline 按 structural section ancestry 建树。Add explicit id operation 只作用于 syntax-valid、cursor 命中的最深 marked block 且当前没有 id；anonymous parsed/group 与 verbatim leaf 不直接提供该 operation。slug 从 nonempty plain content 生成，fallback marker/block，并在 document 内加 numeric suffix 去重。
 
 `# 4. Lists and definitions
 
-`"-" 与 `"." 是 bullet/ordered item。相邻同 marker siblings 形成 list；marker 切换或 intervening body block
-结束 group。nested item 形成 nested list。ordered list 固定从 1 开始；`"item" generic。
+ `"-" 与 `"." 是 bullet/ordered item。相邻非 section 的同 marker siblings 形成 list；marker 切换或 intervening body block 结束 group。nested item 形成 nested list。ordered list 固定从 1 开始；`"item" generic。
 
-`":" 是 definition entry。没有 non-declaration children 时，first positional element是 term，remaining head
-elements共同形成 inline body；multi-element term使用 anonymous group。存在 body children 时，完整 trimmed head 是 term，children
-形成 block body：
+ `":" 是 definition entry。没有 non-declaration children 时，first positional element是 term，remaining head
+  elements共同形成 inline body；multi-element term使用 anonymous group。存在 body children 时，完整 trimmed head 是 term，children
+  形成 block body：
 
-`plumb"
- `: Term Inline body
- `: {Term with spaces} Another inline body
+ `plumb"
+  `: Term Inline body
+  `: {Term with spaces} Another inline body
 
-`plumb"
- `: Term with spaces
-  Definition body
+ `plumb"
+  `: Term with spaces
+   Definition body
 
-相邻 definition entries 形成 DefinitionList。term 必须 nonempty plain/grouped text；rich invalid key/term 发布
-semantic diagnostic。
-DefinitionList属于可渲染body语义，不是document metadata，也不向Event等分析提供继承上下文；其分析输出独立于metadata。
+ 相邻 definition entries 形成 DefinitionList。term 必须 nonempty plain/grouped text；rich invalid key/term 发布
+  semantic diagnostic。
+  DefinitionList属于可渲染body语义，不是document metadata，也不向Event等分析提供继承上下文；其分析输出独立于metadata。
 
 `# 5. Document metadata
 
-document identity 是 normalized workspace-relative path。direct top-level `"=" blocks 是 metadata entries 并
-可与 body interleave；消费 declarations 不拆分相邻 rendered lists。top-level `"@" unsupported，
-发布 document.unsupported-identity warning，也不进入 body。根层 direct leaf `"+" 声明保留 opaque facet，
-名称形态与普通 owner 相同；空值、rich name 或带 children 发布 document.invalid-facet warning。facet 不进入 body。
+ document identity 是 normalized workspace-relative path。direct top-level `"=" blocks 是 metadata entries 并
+  可与 body interleave；消费 declarations 不拆分相邻 rendered lists。top-level `"@" unsupported，
+  发布 document.unsupported-identity warning，也不进入 body。根层 direct leaf `"+" 声明保留 opaque facet，
+  名称形态与普通 owner 相同；空值、rich name 或带 children 发布 document.invalid-facet warning。facet 不进入 body。
 
-`plumb"
- `= title Document title
- `= created 2026-09-02T09:00:00+08:00
- `= tags
-  `+ plumb
-  `+ notes
- `= author
-  `= name Alice
+ `plumb"
+  `= title Document title
+  `= created 2026-09-02T09:00:00+08:00
+  `= tags
+   `+ plumb
+   `+ notes
+  `= author
+   `= name Alice
 
-leaf property first positional element是 key，remaining elements是 scalar value；key with spaces 用 anonymous group。
-有 children 时完整 head 是 key，children value shape 是：
+ leaf property first positional element是 key，remaining elements是 scalar value；key with spaces 用 anonymous group。
+  有 children 时完整 head 是 key，children value shape 是：
 
-`- zero children/null。
-`- one anonymous parsed block/scalar。
-`- one VerbatimBlock/literal string。
-`- direct `"+" sequence，preserve source order。
-`- direct `"=" nested map。
+ `- zero children/null。
+ `- one anonymous parsed block/scalar。
+ `- one VerbatimBlock/literal string。
+ `- direct `"+" sequence，preserve source order。
+ `- direct `"=" nested map。
 
-不能混合 incompatible shapes。metadata sequence 只接受 `"+"；`"-"/`"." 保持 rendered list semantics。
-duplicate key 使用 first value并诊断。title 必须 scalar；created 是完整 RFC 3339，date 可 YYYY-MM-DD 或
-RFC 3339，timezone 是 numeric UTC offset。
+ 不能混合 incompatible shapes。metadata sequence 只接受 `"+"；`"-"/`"." 保持 rendered list semantics。
+  duplicate key 使用 first value并诊断。title 必须 scalar；created 是完整 RFC 3339，date 可 YYYY-MM-DD 或
+  RFC 3339，timezone 是 numeric UTC offset。
 
-metadata insertion 只在 valid document、document 尚无 metadata 且 cursor byte offset 0 提供。title 取 filename
-stem，created 取 operation local RFC 3339；通过 plumb-edit 生成 current space-separated properties。生成的
-leaf property 保持 first-rest shape：key 是 first element，scalar value 是 ungrouped remaining element
-sequence；filename stem 中的 spaces 不引入 anonymous Group。例如 `"Project Guide.plumb" 生成：
+ metadata insertion 只在 valid document、document 尚无 metadata 且 cursor byte offset 0 提供。title 取 filename
+  stem，created 取 operation local RFC 3339；通过 plumb-edit 生成 current space-separated properties。生成的
+  leaf property 保持 first-rest shape：key 是 first element，scalar value 是 ungrouped remaining element
+  sequence；filename stem 中的 spaces 不引入 anonymous Group。例如 `"Project Guide.plumb" 生成：
 
-`plumb"
- `= title   Project Guide
- `= created 2026-09-02T09:00:00+08:00
+ `plumb"
+  `= title   Project Guide
+  `= created 2026-09-02T09:00:00+08:00
 
-`## 5.1 Document facets and tasks target contract
+ `# 5.1 Document facets and tasks target contract
 
-文档 facet、task、引用、编辑与适配层遵循以下统一契约。
+  文档 facet、task、引用、编辑与适配层遵循以下统一契约。
 
-文档根层 direct leaf `"+" declaration 接受与普通 owner 相同的 facet name 形态；未知 facet 保留为 opaque 声明，不进入 body。空值、rich name 或带 children 的 facet 发布 semantic diagnostic。根层 `"@" 仍不支持，文档身份始终来自 normalized path。
+  文档根层 direct leaf `"+" declaration 接受与普通 owner 相同的 facet name 形态；未知 facet 保留为 opaque 声明，不进入 body。空值、rich name 或带 children 的 facet 发布 semantic diagnostic。根层 `"@" 仍不支持，文档身份始终来自 normalized path。
 
-根层 `"+ task" 使文档成为唯一 Document task；重复声明不能产生重复任务。任务标题取 document title，缺省沿用 workspace 文档显示名称。根层 properties 提供现有 task 字段，body 提供详情。原有顶层 list tasks 成为文档任务的 children，深层关系保持不变。父子关系不隐含 dependency，也不传播 closure 或 focused。首版文档任务不支持 recur；该字段产生 diagnostic，相关编辑不可用。本文不启用文档 event 或任意 block task。
-文档 task 的 authoring 顺序为根层 properties 在前、`"+ task" 在后；后续 `"focused"、`"done" 等 code action 写入的 property 追加在 properties 末尾、facets 之前；插入仅作用于当前 metadata 区域，不重排既有声明或合并区域。
+  根层 `"+ task" 使文档成为唯一 Document task；重复声明不能产生重复任务。任务标题取 document title，缺省沿用 workspace 文档显示名称。根层 properties 提供现有 task 字段，body 提供详情。原有顶层 list tasks 成为文档任务的 children，深层关系保持不变。父子关系不隐含 dependency，也不传播 closure 或 focused。首版文档任务不支持 recur；该字段产生 diagnostic，相关编辑不可用。本文不启用文档 event 或任意 block task。
+   文档 task 的 authoring 顺序为根层 properties 在前、`"+ task" 在后；后续 `"focused"、`"done" 等 code action 写入的 property 追加在 properties 末尾、facets 之前；插入仅作用于当前 metadata 区域，不重排既有声明或合并区域。
 
-文档任务引用使用 source-document-relative path；带 fragment 的引用仍定位指定 anchor task，无 fragment 的引用只定位 document task。目标无 task facet 时报告 not-task，不回退到第一个子任务。depends、prev 与 event tasks 使用同一 target resolver。引用集合必须支持 grouped 单项以及结构化逐项表示，含空格或内部 .plumb 字串不能被启发式拆开；现有无歧义 anchor 引用保持兼容。
+  文档任务引用使用 source-document-relative path；带 fragment 的引用仍定位指定 anchor task，无 fragment 的引用只定位 document task。目标无 task facet 时报告 not-task，不回退到第一个子任务。depends、prev 与 event tasks 使用同一 target resolver。引用集合必须支持 grouped 单项以及结构化逐项表示，含空格或内部 .plumb 字串不能被启发式拆开；现有无歧义 anchor 引用保持兼容。
 
-无 fragment 的 scalar reference value 整体是一个路径，例如 `"Project Plan.plumb" 或 `"archive.plumb notes.plumb"，不得按空格或内部 .plumb 拆为多个 document targets。contains Group 或 Verbatim positional element 的 leaf value 按 positional element 分项，每项 Stringify 成一个 reference；例如 `"{Project Plan.plumb} {other.plumb#review}"。全为普通 text 的 legacy anchor reference list 保持既有分项规则。空 grouped 项为 invalid target，不能静默删除。
+  无 fragment 的 scalar reference value 整体是一个路径，例如 `"Project Plan.plumb" 或 `"archive.plumb notes.plumb"，不得按空格或内部 .plumb 拆为多个 document targets。contains Group 或 Verbatim positional element 的 leaf value 按 positional element 分项，每项 Stringify 成一个 reference；例如 `"{Project Plan.plumb} {other.plumb#review}"。全为普通 text 的 legacy anchor reference list 保持既有分项规则。空 grouped 项为 invalid target，不能静默删除。
 
-旧 authoring 曾把多个 anchor references 包进单个 Group，例如 `"{#a #b}"。仅当该项不能解析成单个 target、且 legacy 分项全部是有效 anchor references 时，保留这一兼容分项；document paths 不适用此例外，避免把含空格文件名误拆开。
+  旧 authoring 曾把多个 anchor references 包进单个 Group，例如 `"{#a #b}"。仅当该项不能解析成单个 target、且 legacy 分项全部是有效 anchor references 时，保留这一兼容分项；document paths 不适用此例外，避免把含空格文件名误拆开。
 
-depends 与 event tasks 也接受 direct leaf `"+" children 的 sequence，每个子项的完整 content 是一个 reference，不再分项。其他 child marker、空项或嵌套 child shape 为 invalid target。结构化声明的完整 head 是 key，`"tasks other" 不等同于 tasks；显式 tasks 即使为空或非法也覆盖正文 link 推导。prev 始终是单项 scalar reference。
+  depends 与 event tasks 也接受 direct leaf `"+" children 的 sequence，每个子项的完整 content 是一个 reference，不再分项。其他 child marker、空项或嵌套 child shape 为 invalid target。结构化声明的完整 head 是 key，`"tasks other" 不等同于 tasks；显式 tasks 即使为空或非法也覆盖正文 link 推导。prev 始终是单项 scalar reference。
 
-引用路径内部的重复 ASCII spaces 原样保留；SoftBreak 按标准 Stringify 投影为空格。分项只消费项之间的分隔，不规范化文件名本身。
+  引用路径内部的重复 ASCII spaces 原样保留；SoftBreak 按标准 Stringify 投影为空格。分项只消费项之间的分隔，不规范化文件名本身。
 
-focus history、状态推导、priority 和 dependency 规则复用 list task 行为。移除 task facet 只取消任务身份，保留 properties、body 和 children；已有引用随后成为 not-task。导出仍是普通文档 title/body，不额外生成包裹全文的 list task。
+  focus history、状态推导、priority 和 dependency 规则复用 list task 行为。移除 task facet 只取消任务身份，保留 properties、body 和 children；已有引用随后成为 not-task。导出仍是普通文档 title/body，不额外生成包裹全文的 list task。
 
-带 children 的 focused 声明以完整 head 为 key；focused other 是独立 opaque key，不产生 focus interval 或 task focus diagnostic。
+  带 children 的 focused 声明以完整 head 为 key；focused other 是独立 opaque key，不产生 focus interval 或 task focus diagnostic。
 
-文档 task 的根层 focused property 由 task profile 校验；其历史列表使用与 list task 相同的 direct leaf `"-" 子项，并在 metadata 中投影为 List，不产生 metadata.unsupported-value。非法历史形态由 task focus diagnostic 报告。此例外只适用于有有效 task facet 的文档根层 focused，不扩展普通 metadata 或嵌套 map 的 sequence 语法；facet 可出现在历史字段之后。
+  文档 task 的根层 focused property 由 task profile 校验；其历史列表使用与 list task 相同的 direct leaf `"-" 子项，并在 metadata 中投影为 List，不产生 metadata.unsupported-value。非法历史形态由 task focus diagnostic 报告。此例外只适用于有有效 task facet 的文档根层 focused，不扩展普通 metadata 或嵌套 map 的 sequence 语法；facet 可出现在历史字段之后。
 
-文档 task 的 created、due、wait、done、canceled、recur、priority 与 prev 必须使用带非空 scalar value 的 leaf property。空声明或带 children 的声明发布 task.invalid-field-shape，不能因 leaf attribute projection 跳过该字段而静默忽略；multiword property key 与这些 key 不同，不作为任务字段消费。
+  文档 task 的 created、due、wait、done、canceled、recur、priority 与 prev 必须使用带非空 scalar value 的 leaf property。空声明或带 children 的声明发布 task.invalid-field-shape，不能因 leaf attribute projection 跳过该字段而静默忽略；multiword property key 与这些 key 不同，不作为任务字段消费。
 
 `# 6. Links
 
-未带 resource facets 的 `"->" group 与 compact marked Verbatim 使用本节 navigation Link projection；resource-faceted Group 由第 7 节消费，但共享 positional binding。唯一 standard Link kind 是 `"->"。direct declaration与 whitespace不占 positional index。一个 non-declaration
-element产生 derived-label Link：原 element是 rich label，其递归 Stringify value 是 target。两个或更多 elements
-产生 explicit-label Link：first 是 rich label，所有 remaining source-ordered elements共同形成 target，保留其间
-internal whitespace后递归 Stringify。两种 arity 都是同一种 Link semantic record；zero positional elements invalid：
+ 未带 resource facets 的 `"->" group 与 compact marked Verbatim 使用本节 navigation Link projection；resource-faceted Group 由第 7 节消费，但共享 positional binding。唯一 standard Link kind 是 `"->"。direct declaration与 whitespace不占 positional index。一个 non-declaration
+  element产生 derived-label Link：原 element是 rich label，其递归 Stringify value 是 target。两个或更多 elements
+  产生 explicit-label Link：first 是 rich label，所有 remaining source-ordered elements共同形成 target，保留其间
+  internal whitespace后递归 Stringify。两种 arity 都是同一种 Link semantic record；zero positional elements invalid：
 
-`plumb"
- `->{guide.plumb}
- `->{`"guide.plumb"}
- `->{`!{guide.plumb}}
- `->{guide guide.plumb}
- `->{guide Project Guide.plumb}
- `->{{guide page} {Project Guide.plumb}}
- `->{{cross-file target} guide.plumb#intro `@{cross-file}}
- `->{{external target} https://example.test}
+ `plumb"
+  `->{guide.plumb}
+  `->{`"guide.plumb"}
+  `->{`!{guide.plumb}}
+  `->{guide guide.plumb}
+  `->{guide Project Guide.plumb}
+  `->{{guide page} {Project Guide.plumb}}
+  `->{{cross-file target} guide.plumb#intro `@{cross-file}}
+  `->{{external target} https://example.test}
 
-Stringify 递归遍历 Text、SpaceRun、SoftBreak、Group 与 Verbatim；envelope/marker不贡献字符，每层 direct
-declaration被过滤，argument内部 whitespace run各产生一个 semantic space。empty Stringify invalid。Link 对 enclosing
-plain-text projection只贡献原 rich label；target 不进入 title/details/scalar。
+ Stringify 递归遍历 Text、SpaceRun、SoftBreak、Group 与 Verbatim；envelope/marker不贡献字符，每层 direct
+  declaration被过滤，argument内部 whitespace run各产生一个 semantic space。empty Stringify invalid。Link 对 enclosing
+  plain-text projection只贡献原 rich label；target 不进入 title/details/scalar。
 
-derived-label Link 的 multi-element target必须使用一个 anonymous Group或 compact verbatim payload，否则 first
-element会成为 explicit label，remaining elements会成为 target。direct adjacency本身不建立隐式组合。
+ derived-label Link 的 multi-element target必须使用一个 anonymous Group或 compact verbatim payload，否则 first
+  element会成为 explicit label，remaining elements会成为 target。direct adjacency本身不建立隐式组合。
 
-URI scheme 或 `"//" prefix 是 absolute/network target；其他是 source-document-relative raw filesystem path。
-不 percent encode/decode/normalize；UTF-8、spaces、`"%"、`"?" literal。`"#" 唯一分隔 explicit anchor，path
-不能含 `"#"。control、backslash、absolute filesystem path invalid。
+ URI scheme 或 `"//" prefix 是 absolute/network target；其他是 source-document-relative raw filesystem path。
+  不 percent encode/decode/normalize；UTF-8、spaces、`"%"、`"?" literal。`"#" 唯一分隔 explicit anchor，path
+  不能含 `"#"。control、backslash、absolute filesystem path invalid。
 
-marked inline verbatim 是 derived-label Link 的 compact spelling：
+ marked inline verbatim 是 derived-label Link 的 compact spelling：
 
-`plumb"
- `->"https://example.test/a%20b"
- `->"guide.plumb#intro"
- `->"../assets/manual draft.pdf"
+ `plumb"
+  `->"https://example.test/a%20b"
+  `->"guide.plumb#intro"
+  `->"../assets/manual draft.pdf"
 
-payload nonempty，同时作为 label/target；上面的 one-verbatim-argument group 与 compact marked inline verbatim
-spelling semantic-equivalent。Link record与 graph edge不按 derived/explicit label 或 parsed/verbatim spelling分类。
-completion 在 explicit-label Link target、derived-label Link element 与 compact payload 的 explicit anchor component
-提供 workspace documents/anchors；delimiter collision 使用 full quote strength，不改 raw path。
+ payload nonempty，同时作为 label/target；上面的 one-verbatim-argument group 与 compact marked inline verbatim
+  spelling semantic-equivalent。Link record与 graph edge不按 derived/explicit label 或 parsed/verbatim spelling分类。
+  completion 在 explicit-label Link target、derived-label Link element 与 compact payload 的 explicit anchor component
+  提供 workspace documents/anchors；delimiter collision 使用 full quote strength，不改 raw path。
 
 `# 7. Embedded links
 
-只有 parsed inline Link（marker 为 `"->"）可通过 direct `"+ embed" facet 表达内嵌展示目标的意图。anonymous、transparent、generic、style、citation 或 declaration Group 上的 embed 发布 resource.invalid-owner，不获得资源 projection 或 completion。block 与 Verbatim 不获得 embed semantics。img/file facets 与 markers 不再选择资源语义；普通下载附件使用普通 Link。embed owner 上的 src 发布 resource.unexpected-source，目标只来自 positional arguments。
+ 只有 parsed inline Link（marker 为 `"->"）可通过 direct `"+ embed" facet 表达内嵌展示目标的意图。anonymous、transparent、generic、style、citation 或 declaration Group 上的 embed 发布 resource.invalid-owner，不获得资源 projection 或 completion。block 与 Verbatim 不获得 embed semantics。img/file facets 与 markers 不再选择资源语义；普通下载附件使用普通 Link。embed owner 上的 src 发布 resource.unexpected-source，目标只来自 positional arguments。
 
-目标绑定沿用 Link first/rest：单 element 同时提供 derived label 与 target；多个 elements 的 first 是 label，其余 Stringify 为唯一 target。empty explicit label 合法，target 必须 nonempty。目标继续使用 URI/raw relative file path constraints；zero/empty target 发布 embed.missing-source，非法目标发布 embed.invalid-source。plain-text 只贡献 label。所有 embed 引用（包括未知类型 fallback）都不产生 navigation LinkRecord 或 document graph edge。
+ 目标绑定沿用 Link first/rest：单 element 同时提供 derived label 与 target；多个 elements 的 first 是 label，其余 Stringify 为唯一 target。empty explicit label 合法，target 必须 nonempty。目标继续使用 URI/raw relative file path constraints；zero/empty target 发布 embed.missing-source，非法目标发布 embed.invalid-source。plain-text 只贡献 label。所有 embed 引用（包括未知类型 fallback）都不产生 navigation LinkRecord 或 document graph edge。
 
-`plumb"
- `->{头像 static/avatar.jpg `+{embed}}
- `->{static/avatar.jpg `+{embed}}
- `->{{} static/decorative.png `+{embed}}
- `->{{Demo video} static/demo.mp4 `+{embed}}
- `->{Podcast https://example.test/stream `+{embed} `={type audio/ogg}}
- `->{Download reports/final.pdf}
+ `plumb"
+  `->{头像 static/avatar.jpg `+{embed}}
+  `->{static/avatar.jpg `+{embed}}
+  `->{{} static/decorative.png `+{embed}}
+  `->{{Demo video} static/demo.mp4 `+{embed}}
+  `->{Podcast https://example.test/stream `+{embed} `={type audio/ogg}}
+  `->{Download reports/final.pdf}
 
-共享层通过纯函数确定媒体类型，不读取文件或请求网络。优先使用 first explicit type property：MIME essence trim 并忽略大小写，允许 semicolon parameters；未知或无效 explicit type 直接返回 unknown，不能再从扩展名推断。缺少 type 时取目标 path 最后扩展名（忽略大小写）；URI/network target 仅使用 URL path，忽略 query/fragment 与 authority，local raw path 不剥离字面问号或井号。
+ 共享层通过纯函数确定媒体类型，不读取文件或请求网络。优先使用 first explicit type property：MIME essence trim 并忽略大小写，允许 semicolon parameters；未知或无效 explicit type 直接返回 unknown，不能再从扩展名推断。缺少 type 时取目标 path 最后扩展名（忽略大小写）；URI/network target 仅使用 URL path，忽略 query/fragment 与 authority，local raw path 不剥离字面问号或井号。
 
-识别的 MIME 与 extensions：image/png（png）、image/jpeg（jpg/jpeg/jpe）、image/gif（gif）、image/webp（webp）、image/svg+xml（svg）、image/avif（avif）、image/bmp（bmp）、image/tiff（tif/tiff）、image/x-icon（ico，兼容 image/vnd.microsoft.icon）；video/mp4（mp4/m4v）、video/webm（webm）、video/ogg（ogv）、video/quicktime（mov）、video/x-matroska（mkv）、video/mpeg（mpeg/mpg）；audio/mpeg（mp3）、audio/mp4（m4a）、audio/ogg（ogg/oga/opus）、audio/wav（wav，兼容 audio/x-wav）、audio/flac（flac）、audio/aac（aac）、audio/webm（仅显式 type）。其他类型回退普通 Link。识别某种媒体类型不保证浏览器支持具体 codec。
+ 识别的 MIME 与 extensions：image/png（png）、image/jpeg（jpg/jpeg/jpe）、image/gif（gif）、image/webp（webp）、image/svg+xml（svg）、image/avif（avif）、image/bmp（bmp）、image/tiff（tif/tiff）、image/x-icon（ico，兼容 image/vnd.microsoft.icon）；video/mp4（mp4/m4v）、video/webm（webm）、video/ogg（ogv）、video/quicktime（mov）、video/x-matroska（mkv）、video/mpeg（mpeg/mpg）；audio/mpeg（mp3）、audio/mp4（m4a）、audio/ogg（ogg/oga/opus）、audio/wav（wav，兼容 audio/x-wav）、audio/flac（flac）、audio/aac（aac）、audio/webm（仅显式 type）。其他类型回退普通 Link。识别某种媒体类型不保证浏览器支持具体 codec。
 
-exporter 将 image 分类导出为 Pandoc Image，其他 embed 导出为 Pandoc Link fallback。两者都通过 data-plumb-facet=embed 保存内嵌意图，保留原始显式 type 与其它 attributes，不把推断结果伪装成显式 type。Importer 将 Pandoc Image 与带 embed intent 的 Link 导入为 canonical parsed Link + embed；普通 Link 不添加 facet。显式 incompatible data-plumb-marker 必须拒绝，不能重新生成 src。output writer 不支持媒体时保留 portable label/link fallback；Pandoc Image 由 writer 承担对应格式的图片 lowering。
+ exporter 将 image 分类导出为 Pandoc Image，其他 embed 导出为 Pandoc Link fallback。两者都通过 data-plumb-facet=embed 保存内嵌意图，保留原始显式 type 与其它 attributes，不把推断结果伪装成显式 type。Importer 将 Pandoc Image 与带 embed intent 的 Link 导入为 canonical parsed Link + embed；普通 Link 不添加 facet。显式 incompatible data-plumb-marker 必须拒绝，不能重新生成 src。output writer 不支持媒体时保留 portable label/link fallback；Pandoc Image 由 writer 承担对应格式的图片 lowering。
 
-Web 使用同一共享类型识别结果：image 渲染图片（TIFF 因浏览器支持不足保留 Link），video/audio 渲染 controls 播放器，并提供独立可点击的 Link fallback；未知类型保留普通链接。Web 不用本地资源索引、HTTP Content-Type 或 MIME sniffing 覆盖语义分类。CSP 允许同源与 HTTPS 媒体；其它外部来源仍有可点击 fallback。embed completion 使用 positional target boundary，补全任意本地文件，不提供 document anchor completion。
+ Web 使用同一共享类型识别结果：image 渲染图片（TIFF 因浏览器支持不足保留 Link），video/audio 渲染 controls 播放器，并提供独立可点击的 Link fallback；未知类型保留普通链接。Web 不用本地资源索引、HTTP Content-Type 或 MIME sniffing 覆盖语义分类。CSP 允许同源与 HTTPS 媒体；其它外部来源仍有可点击 fallback。embed completion 使用 positional target boundary，补全任意本地文件，不提供 document anchor completion。
 
 `# 8. Citations
 
-首个 profile 只接受 exactly one nonempty plain positional element作为 id：
+ 首个 profile 只接受 exactly one nonempty plain positional element作为 id：
 
-`plumb"
- See `cite{smith2004}.
+ `plumb"
+  See `cite{smith2004}.
 
-bibliography metadata 是 workspace-contained CSL JSON paths：
+ bibliography metadata 是 workspace-contained CSL JSON paths：
 
-`plumb"
- `= bibliography
-  `+ static/library.json
+ `plumb"
+  `= bibliography
+   `+ static/library.json
 
-LSP completion/hover/definition 使用 declared files。无 bibliography 的 valid citation 保持 portable export 并
-发布 unresolved warning。cluster、locator、prefix/suffix 与 alternate modes deferred。
+ LSP completion/hover/definition 使用 declared files。无 bibliography 的 valid citation 保持 portable export 并
+  发布 unresolved warning。cluster、locator、prefix/suffix 与 alternate modes deferred。
 
 `# 9. Quotes, containers and inline styles
 
-`">" block head 是 quoted first paragraph，body children 是 remaining quote blocks；nested quote 合法。unconsumed
-declarations 通过 Pandoc inner Div 保留。
+ `">" block head 是 quoted first paragraph，body children 是 remaining quote blocks；nested quote 合法。unconsumed
+  declarations 通过 Pandoc inner Div 保留。
 
-`"()" 是 transparent block/inline marker：消费自身 marker，不产生 redundant data-plumb-marker；它仍保留 ordinary owner content/children/declarations。anonymous block/group 与 explicit `"()" owner 是不同 syntax event-category，但 official export 的 visible wrapper transparent。
+ `"()" 是 transparent block/inline marker：消费自身 marker，不产生 redundant data-plumb-marker；它仍保留 ordinary owner content/children/declarations。anonymous block/group 与 explicit `"()" owner 是不同 syntax event-category，但 official export 的 visible wrapper transparent。
 
-六种 inline style marker 都是 content containers：消费 zero or more source-ordered visible elements作为完整 style
-body，不建立 positional arity。direct declarations从 visible body过滤并保留为 attributes；whitespace 与 adjacency
-按普通 InlineContents projection处理：
+ 六种 inline style marker 都是 content containers：消费 zero or more source-ordered visible elements作为完整 style
+  body，不建立 positional arity。direct declarations从 visible body过滤并保留为 attributes；whitespace 与 adjacency
+  按普通 InlineContents projection处理：
 
-`plumb"
- `*{emphasis with spaces}
- `!{prefix`*{nested}suffix}
- `=={mark}
- `~{strikeout}
- `^{superscript}
- `_{subscript}
- `!{}
+ `plumb"
+  `*{emphasis with spaces}
+  `!{prefix`*{nested}suffix}
+  `=={mark}
+  `~{strikeout}
+  `^{superscript}
+  `_{subscript}
+  `!{}
 
-因此 style 内的 multi-element content不需要 anonymous Group；style owner自身在 parent depth已经是一个 element。
-export 分别为 Emph、Strong、mark Span、Strikeout、Superscript、Subscript；presentation italic/bold 不是独立
-semantics。
+ 因此 style 内的 multi-element content不需要 anonymous Group；style owner自身在 parent depth已经是一个 element。
+  export 分别为 Emph、Strong、mark Span、Strikeout、Superscript、Subscript；presentation italic/bold 不是独立
+  semantics。
 
 `# 10. Tasks
 
-`"-"/`"." list item 通过 direct leaf `"+ task" facet 成为 task；`"task" marker 仍 generic：
+ `"-"/`"." list item 通过 direct leaf `"+ task" facet 成为 task；`"task" marker 仍 generic：
 
-`plumb"
- `- Implement parser
-  `+ task
-  `@ write-parser
-  `= created 2026-09-02T09:00:00+08:00
-  `= due 2026-09-03T09:00:00+08:00
-  `= depends #design Project Plan.plumb#review
+ `plumb"
+  `- Implement parser
+   `+ task
+   `@ write-parser
+   `= created 2026-09-02T09:00:00+08:00
+   `= due 2026-09-03T09:00:00+08:00
+   `= depends #design Project Plan.plumb#review
 
-完整 item head 是 title，body children 是 details。nested task blocks 形成 display tree；只有 depends 建立
-dependency edge。需要 reference 时显式 id。
+ 完整 item head 是 title，body children 是 details。nested task blocks 形成 display tree；只有 depends 建立
+  dependency edge。需要 reference 时显式 id。
 
-defined fields：created/due/wait/done/canceled 是 RFC 3339；recur 是 positive PnD/PnW/PnM/PnY 且需 due；prev
-是 one task reference；priority 是 i32；depends 是 whitespace-separated same/cross-file explicit-id references；
-focused 是 focus interval 或 focus interval list（见下）。
-raw cross-file spelling 是 `"path.plumb#id"，path 可以含 ASCII/UTF-8 spaces，由 `".plumb#" boundary disambiguate。
+ defined fields：created/due/wait/done/canceled 是 RFC 3339；recur 是 positive PnD/PnW/PnM/PnY 且需 due；prev
+  是 one task reference；priority 是 i32；depends 是 whitespace-separated same/cross-file explicit-id references；
+  focused 是 focus interval 或 focus interval list（见下）。
+  raw cross-file spelling 是 `"path.plumb#id"，path 可以含 ASCII/UTF-8 spaces，由 `".plumb#" boundary disambiguate。
 
-closure state：done only=done，canceled only=canceled，both=conflicted，neither=open。workflow state precedence 是
-conflicted、done/canceled、future wait/waiting、open dependency/blocked、ready。time/dependency reasons 可同时存在。
+ closure state：done only=done，canceled only=canceled，both=conflicted，neither=open。workflow state precedence 是
+  conflicted、done/canceled、future wait/waiting、open dependency/blocked、ready。time/dependency reasons 可同时存在。
 
-focus interval 是 `"start--end" 或 open 的 `"start--"；endpoint 是带 explicit offset 的 RFC 3339 timestamp，比较按
-instant 而不是字符串。`"focused" property 支持 single value 与 interval list：
+ focus interval 是 `"start--end" 或 open 的 `"start--"；endpoint 是带 explicit offset 的 RFC 3339 timestamp，比较按
+  instant 而不是字符串。`"focused" property 支持 single value 与 interval list：
 
-`plumb"
- `- 单个开放区间
-  `+ task
-  `@ focus-open
-  `= focused 2026-09-20T09:00:00+08:00--
- `- 单个已结束区间
-  `+ task
-  `@ focus-closed
-  `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00
- `- 区间列表
-  `+ task
-  `@ focus-history
-  `= focused
-   `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00
-   `- 2026-09-20T14:00:00+08:00--
+ `plumb"
+  `- 单个开放区间
+   `+ task
+   `@ focus-open
+   `= focused 2026-09-20T09:00:00+08:00--
+  `- 单个已结束区间
+   `+ task
+   `@ focus-closed
+   `= focused 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00
+  `- 区间列表
+   `+ task
+   `@ focus-history
+   `= focused
+    `- 2026-09-20T09:00:00+08:00--2026-09-20T11:00:00+08:00
+    `- 2026-09-20T14:00:00+08:00--
 
-single value 与 one-element list 语义等价。list 使用 direct `"-" children，每项恰好一个 interval，不携带其它结构或
-内容。property 不能为空、不能空列表、不能混用 inline interval 与 interval children、不能重复 `"focused"。interval
-按 start 升序且同一 task 内不得重叠，可以首尾相接；end 早于 start 非法，end 等于 start 允许；最多一个 open
-interval 且必须位于最后。不同 task 的 interval 可以重叠。interval child 不产生 task 或 event record。
+ single value 与 one-element list 语义等价。list 使用 direct `"-" children，每项恰好一个 interval，不携带其它结构或
+  内容。property 不能为空、不能空列表、不能混用 inline interval 与 interval children、不能重复 `"focused"。interval
+  按 start 升序且同一 task 内不得重叠，可以首尾相接；end 早于 start 非法，end 等于 start 允许；最多一个 open
+  interval 且必须位于最后。不同 task 的 interval 可以重叠。interval child 不产生 task 或 event record。
 
-focus 派生事实：`"focused" 表示存在 valid open interval 且 task closure 未关闭；`"focused_since" 是当前 open interval
-的 start，未 focused 时为空；另有完整 typed interval history 供 detail 展示。存在 `"focused" property 不等于当前
-focused：已结束的历史既不让 task 退出候选，也不触发任何排序提升。ready、waiting、blocked 都可以 focused，task 变成
-waiting/blocked 不自动结束 interval；done、canceled、conflicted 都不算当前 focused。focus 是 task-local 事实，不传播到
-parent、child 或 dependency task；display tree 上按 subtree 聚合 focused 只影响展示排序，不改变任何 task 的语义标记。
-手工编辑造成 closed task 仍有 open interval、或其它 invalid focus data 时发布 semantic diagnostic，不自动改写源文档；
-focus data 无效的 task 不能作为 `"focused == false" 的 next 候选，`"next" 必须报告被跳过的 task 以便定位修复。
+ focus 派生事实：`"focused" 表示存在 valid open interval 且 task closure 未关闭；`"focused_since" 是当前 open interval
+  的 start，未 focused 时为空；另有完整 typed interval history 供 detail 展示。存在 `"focused" property 不等于当前
+  focused：已结束的历史既不让 task 退出候选，也不触发任何排序提升。ready、waiting、blocked 都可以 focused，task 变成
+  waiting/blocked 不自动结束 interval；done、canceled、conflicted 都不算当前 focused。focus 是 task-local 事实，不传播到
+  parent、child 或 dependency task；display tree 上按 subtree 聚合 focused 只影响展示排序，不改变任何 task 的语义标记。
+  手工编辑造成 closed task 仍有 open interval、或其它 invalid focus data 时发布 semantic diagnostic，不自动改写源文档；
+  focus data 无效的 task 不能作为 `"focused == false" 的 next 候选，`"next" 必须报告被跳过的 task 以便定位修复。
 
-focus 首次写入单个 open interval；已有全部结束的历史时追加 open interval，single value 在需要时转成 list；已 focused
-时 focus 幂等，不重置 start 也不写文档。unfocus 为 open interval 补当前 end time；没有 open interval 时幂等且不写
-文档。focus 拒绝 closed task，waiting/blocked 的未关闭 task 允许 focus。
+ focus 首次写入单个 open interval；已有全部结束的历史时追加 open interval，single value 在需要时转成 list；已 focused
+  时 focus 幂等，不重置 start 也不写文档。unfocus 为 open interval 补当前 end time；没有 open interval 时幂等且不写
+  文档。focus 拒绝 closed task，waiting/blocked 的未关闭 task 允许 focus。
 
-complete 添加 done，cancel 添加 canceled；blocked completion rejected，cancel allowed。complete 与 cancel 必须在同一次
-atomic edit 中结束 open interval，关闭被拒绝时 focus history 保持不变。recurring close 保留旧 instance的 focus
-history并 append next，新 instance 不继承 `"focused"，advance due/wait、unique id、prev。operations 使用 revision
-guard、plumb-edit owned syntax 和 current formatter，不手写 separator/indentation；一次 operation 只取一次当前时间，
-时钟回拨或 focus history 本身无效时明确失败，不写入也不猜测修复。
+ complete 添加 done，cancel 添加 canceled；blocked completion rejected，cancel allowed。complete 与 cancel 必须在同一次
+  atomic edit 中结束 open interval，关闭被拒绝时 focus history 保持不变。recurring close 保留旧 instance的 focus
+  history并 append next，新 instance 不继承 `"focused"，advance due/wait、unique id、prev。operations 使用 revision
+  guard、plumb-edit owned syntax 和 current formatter，不手写 separator/indentation；一次 operation 只取一次当前时间，
+  时钟回拨或 focus history 本身无效时明确失败，不写入也不猜测修复。
 
-Task/Event construct completion 只从 list-marker prefix 提供；legacy `"t"/`"task"、`"e"/`"event" prefixes 不
-提供 candidates。Task skeleton 首 child 是 `"+ task"，created 使用 current local RFC 3339。
+ Task/Event construct completion 只从 list-marker prefix 提供；legacy `"t"/`"task"、`"e"/`"event" prefixes 不
+  提供 candidates。Task skeleton 首 child 是 `"+ task"，created 使用 current local RFC 3339。
 
 `# 11. Events
 
-list item 通过 direct `"+ event" facet 成为 event，与 task facet mutually exclusive：
+ list item 通过 direct `"+ event" facet 成为 event，与 task facet mutually exclusive：
 
-`plumb"
- `- 14:00--15:00 Parser review
-  `+ event
-  `@ review
-  `= date 2026-09-02
-  `= timezone +08:00
-  `= tasks #write-parser
-
-first head positional element是 nonempty plain schedule，所有 remaining head elements共同形成 nonempty title；event 不再使用
-kind-specific pipe parser。body children details。schedule 是 point START、half-open START--END 或开放区间 START--。开放区间只投影 start，没有 at/end，表示记录尚未结束的进行中事件；不读取当前时间，不使用 now、下一事件或正无穷补 end。合法 START-- 固定发布 event.ongoing warning，range 为 event title 的 selection range；过去与未来 start 使用同一规则。补齐合法 end 后不再发布该 warning。例：08:00-- 工作，继承 date/timezone，与 08:00 时间点不同。空 start、重复 -- 仍非法。START 接受
-HH/HH:MM/HH:MM:SS、YYYY-MM-DDTTIME 或 full RFC 3339；END 接受 TIME/date-time 并继承 start offset，time-only
-end 早于 start 时 rollover next day。resolved end 必须 later。
-
-nearest ancestor/document date/timezone context 继承；event property override subtree，dedent 恢复 parent。
-invalid explicit override 不 fallback ancestor。tasks 创建 association，不是 dependency。UID 从 path/schedule/title
-deterministically derivation；source uid/when opaque。vdir export 是 managed readonly VEVENT files。
-
-`## 11.1 Agenda accounting
-分类声明字段为 event-category；旧 category 仍是普通属性，不再参与事件核算。普通文档也可在根层声明 event-category，作为直接引用整个文档的 event 的默认分类，不要求 task 或 activity facet；普通文档不会进入 task 用时统计。引用具体条目只读取条目本身的分类，不回退到文档。summary 的 --group-by category 及 JSON category/values 字段保持不变。
-
-`"event-category" 的 scalar spelling 按 first : rest 分隔：首个元素是 key，全部剩余内容是一个分类（例如 phd misc）。 允许 anonymous grouping 与 unmarked inline verbatim；多个分类必须使用head 仅含 event-category 的 property 下直接 leaf `"-" list items，每项完整内容是一个分类。 分类按首次出现顺序去重。不允许 marked rich inline、重复 property、空值、非 list children 或嵌套 children。 文档根层与任意 parsed block（包括 list item、heading、anonymous owner）可以声明事件默认分类。不从标题前缀、tags 或任意链接递归推导。 普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
-
-event 显式 tasks 声明优先定义核算事项集合，保持现有 task target 校验；即使为空或非法也不回退。
-否则只从 event title 中的直接 Link members 收集事项引用，details 中的链接、embedded resources 与嵌套 inline 的链接不参与核算。
-目标必须是 list item anchor 或 plumb 文档；普通文档读取根层 event-category，引用普通条目或文档不会创建 task。list item 的 effective event-category 按 owner 作用域继承：自身显式声明优先，否则继承最近结构祖先（包括父 list item），再回退到文档根层；因此引用具体条目读取其 effective category。分类列表整体覆盖而不合并，显式空值、重复或非法声明阻止继续回退。
-同一 normalized target 去重后均分 event duration；重复引用不能增加份额。
-无法解析、歧义或非法目标保留诊断并排除整个事件，不使其它有效事件的累计 incomplete，不能删除失败目标再重新均分。
-
-事件分类按以下优先级选择第一个存在的声明：事件自身、最近的结构祖先（包括 anonymous/marked parsed owner）、文档根层；均未声明时才使用引用事项自身的 event-category。祖先作用域由缩进 ownership 决定，不由 heading level 或相邻顺序决定；dedent 恢复外层分类。分类列表整体覆盖而不合并，空值、重复或非法声明阻止向外层或引用事项回退。有效类别是自由文本，不要求出现在预设集合中。引用具体事项仍只取事项自身分类，不递归继承其祖先。缺少分类的份额进入未分类。event 自身或祖先／文档的 event-category 覆盖整段事件的类别， 但不改变事项分摊。每个事项所得时长再按其去重分类数量均分；分类总时长不会膨胀。非法显式分类不回退。没有事项的事件仍计入 event event-category 或未分类。 查询保留 source event、target、分类来源与均分依据，内部不按显示精度舍入。 事项分类修改后历史事件动态重算；固定某次历史类别应在 event 上写显式 event-category。 分类冲突不报错：例如 60 分钟关联 work、work、learn 三项，分别分得 20 分钟，类别合计为 40 与 20 分钟。
-
-事件分类继承示例：以下第一项继承 section，第二项覆盖为 personal，末项 dedent 后继承 work。
-
-`plumb"
- `= event-category work
- `# Section
-  `= event-category section
-  `- 2026-09-22T10:00:00Z First
+ `plumb"
+  `- 14:00--15:00 Parser review
    `+ event
-  `- 2026-09-22T11:00:00Z Second
-   `+ event
-   `= event-category personal
- `- 2026-09-22T12:00:00Z Third
-  `+ event
+   `@ review
+   `= date 2026-09-02
+   `= timezone +08:00
+   `= tasks #write-parser
 
-用时只来自有效有限 event interval，不使用 task focused history。开放区间可显示于 agenda，Web 时间标签使用 START--now（例如 08:00--now），但结束时间为空时不参与用时核算、覆盖时长或时间轴空档／重叠检查，也不贡献时间轴边界。开放事件不产生 agenda.invalid-time、不使报告 incomplete；其余完整事件继续正常检查。独立 event.ongoing warning 只提醒补充 end，不导致 check 失败。例如 08:00-- 与未来 10:00--11:00 共存时，前者不参与 overlap 判断；补齐 08:00--10:30 后才报告 10:00--10:30 重叠；vdir export 明确拒绝仍在进行中的事件。point event 不推测时长。 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、 索引不完整均显式呈现。笔记多值 tags 与 event-category 无隐式转换。
+ first head positional element是 nonempty plain schedule，所有 remaining head elements共同形成 nonempty title；event 不再使用
+  kind-specific pipe parser。body children details。schedule 是 point START、half-open START--END 或开放区间 START--。开放区间只投影 start，没有 at/end，表示记录尚未结束的进行中事件；不读取当前时间，不使用 now、下一事件或正无穷补 end。合法 START-- 固定发布 event.ongoing warning，range 为 event title 的 selection range；过去与未来 start 使用同一规则。补齐合法 end 后不再发布该 warning。例：08:00-- 工作，继承 date/timezone，与 08:00 时间点不同。空 start、重复 -- 仍非法。START 接受
+  HH/HH:MM/HH:MM:SS、YYYY-MM-DDTTIME 或 full RFC 3339；END 接受 TIME/date-time 并继承 start offset，time-only
+  end 早于 start 时 rollover next day。resolved end 必须 later。
 
-vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保持原始 event-category spelling；未知份额不伪造分类。 该集合不编码权重，不能据此复原均分；精确核算消费者必须使用 summary JSON 中的 shares/categories。 无法完成分类解析时 export 明确失败，不静默丢弃分类或重新推断标题前缀。
+ nearest ancestor/document date/timezone context 继承；event property override subtree，dedent 恢复 parent。
+  invalid explicit override 不 fallback ancestor。tasks 创建 association，不是 dependency。UID 从 path/schedule/title
+  deterministically derivation；source uid/when opaque。vdir export 是 managed readonly VEVENT files。
 
-`## 11.2 分类完整性检查
+ `# 11.1 Agenda accounting
+  分类声明字段为 event-category；旧 category 仍是普通属性，不再参与事件核算。普通文档也可在根层声明 event-category，作为直接引用整个文档的 event 的默认分类，不要求 task 或 activity facet；普通文档不会进入 task 用时统计。引用具体条目只读取条目本身的分类，不回退到文档。summary 的 --group-by category 及 JSON category/values 字段保持不变。
 
-可选 diagnostics.event-category 规则检查全部 events，不要求时间窗口，检查有效继承分类的每个份额。无分类给出 event 位置；非法 event-category 报告诊断并排除该事件；只有无法完整查询返回不完整。point events 同样检查。不提供仅检查显式分类的模式。配置契约见 semantic-analysis 的 Workspace diagnostic configuration。
+  `"event-category" 的 scalar spelling 按 first : rest 分隔：首个元素是 key，全部剩余内容是一个分类（例如 phd misc）。 允许 anonymous grouping 与 unmarked inline verbatim；多个分类必须使用head 仅含 event-category 的 property 下直接 leaf `"-" list items，每项完整内容是一个分类。 分类按首次出现顺序去重。不允许 marked rich inline、重复 property、空值、非 list children 或嵌套 children。 文档根层与任意 parsed block（包括 list item、heading、anonymous owner）可以声明事件默认分类。不从标题前缀、tags 或任意链接递归推导。 普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
+
+  event 显式 tasks 声明优先定义核算事项集合，保持现有 task target 校验；即使为空或非法也不回退。
+   否则只从 event title 中的直接 Link members 收集事项引用，details 中的链接、embedded resources 与嵌套 inline 的链接不参与核算。
+   目标必须是 list item anchor 或 plumb 文档；普通文档读取根层 event-category，引用普通条目或文档不会创建 task。list item 的 effective event-category 按 owner 作用域继承：自身显式声明优先，否则继承最近结构祖先（包括父 list item），再回退到文档根层；因此引用具体条目读取其 effective category。分类列表整体覆盖而不合并，显式空值、重复或非法声明阻止继续回退。
+   同一 normalized target 去重后均分 event duration；重复引用不能增加份额。
+   无法解析、歧义或非法目标保留诊断并排除整个事件，不使其它有效事件的累计 incomplete，不能删除失败目标再重新均分。
+
+  事件分类按以下优先级选择第一个存在的声明：事件自身、最近的结构祖先（包括 anonymous/marked parsed owner）、文档根层；均未声明时才使用引用事项自身的 event-category。祖先作用域由缩进 ownership 决定，不由 heading level 或相邻顺序决定；dedent 恢复外层分类。分类列表整体覆盖而不合并，空值、重复或非法声明阻止向外层或引用事项回退。有效类别是自由文本，不要求出现在预设集合中。引用具体事项仍只取事项自身分类，不递归继承其祖先。缺少分类的份额进入未分类。event 自身或祖先／文档的 event-category 覆盖整段事件的类别， 但不改变事项分摊。每个事项所得时长再按其去重分类数量均分；分类总时长不会膨胀。非法显式分类不回退。没有事项的事件仍计入 event event-category 或未分类。 查询保留 source event、target、分类来源与均分依据，内部不按显示精度舍入。 事项分类修改后历史事件动态重算；固定某次历史类别应在 event 上写显式 event-category。 分类冲突不报错：例如 60 分钟关联 work、work、learn 三项，分别分得 20 分钟，类别合计为 40 与 20 分钟。
+
+  事件分类继承示例：以下第一项继承 section，第二项覆盖为 personal，末项 dedent 后继承 work。
+
+  `plumb"
+   `= event-category work
+   `# Section
+    `= event-category section
+    `- 2026-09-22T10:00:00Z First
+     `+ event
+    `- 2026-09-22T11:00:00Z Second
+     `+ event
+     `= event-category personal
+   `- 2026-09-22T12:00:00Z Third
+    `+ event
+
+  用时只来自有效有限 event interval，不使用 task focused history。开放区间可显示于 agenda，Web 时间标签使用 START--now（例如 08:00--now），但结束时间为空时不参与用时核算、覆盖时长或时间轴空档／重叠检查，也不贡献时间轴边界。开放事件不产生 agenda.invalid-time、不使报告 incomplete；其余完整事件继续正常检查。独立 event.ongoing warning 只提醒补充 end，不导致 check 失败。例如 08:00-- 与未来 10:00--11:00 共存时，前者不参与 overlap 判断；补齐 08:00--10:30 后才报告 10:00--10:30 重叠；vdir export 明确拒绝仍在进行中的事件。point event 不推测时长。 按 task 汇总只包含 task 份额，普通事项份额不重新分配；跨日记录按请求的 half-open window 裁剪。 重叠记录不自动扣减；累计时长与时间轴覆盖时长分别报告。未分类、无效时间、无法解析引用、 索引不完整均显式呈现。笔记多值 tags 与 event-category 无隐式转换。
+
+  vdir export 的 CATEGORIES 保存 event 有效核算分类的去重集合，保持原始 event-category spelling；未知份额不伪造分类。 该集合不编码权重，不能据此复原均分；精确核算消费者必须使用 summary JSON 中的 shares/categories。 无法完成分类解析时 export 明确失败，不静默丢弃分类或重新推断标题前缀。
+
+ `# 11.2 分类完整性检查
+
+  可选 diagnostics.event-category 规则检查全部 events，不要求时间窗口，检查有效继承分类的每个份额。无分类给出 event 位置；非法 event-category 报告诊断并排除该事件；只有无法完整查询返回不完整。point events 同样检查。不提供仅检查显式分类的模式。配置契约见 semantic-analysis 的 Workspace diagnostic configuration。
 
 `# 12. Tables
 
-`"table" direct `"-" children 是 rows。nonempty row head 的每个 direct positional element是 compact inline cell；SpaceRun
-width 是 formatting padding，不改变 columns，empty group 是 empty cell：
+ `"|" parsed owner 是 table，head 是 caption，不进入 section outline；旧 `"table" marker 保持 generic owner，不作兼容解析。其 direct `"-" children 是 rows。nonempty row head 的每个 direct positional element是 compact inline cell；SpaceRun
+  width 是 formatting padding，不改变 columns，empty group 是 empty cell：
 
-`plumb"
- `table
-  `- name             age
-   `+ header
-  `- {Alice Smith}    10
-  `- Bob              {}
+ `plumb"
+  `|
+   `- name             age
+    `+ header
+   `- {Alice Smith}    10
+   `- Bob              {}
 
-empty-head row 的 direct non-declaration block children 是 expanded cells；无需额外 cell marker。cell 是
-sibling block，因此与其它 block 一样用 blank line 分开：
+ empty-head row 的 direct non-declaration block children 是 expanded cells；无需额外 cell marker。cell 是
+  sibling block，因此与其它 block 一样用 blank line 分开：
 
-`plumb"
- `table
-  `-
-   `+ header
+ `plumb"
+  `|
+   `-
+    `+ header
+  
+    name
+  
+    age
+   `-
+  
+    {Alice Smith}
+  
+    10
 
-   name
-
-   age
-  `-
-
-   {Alice Smith}
-
-   10
-
-direct `"+ header" 标 leading header rows；expanded body row 的 leading header-faceted cells 是 row-header prefix。
-所有 rows effective column count 一致。rowspan、colspan、alignment、widths、table foot/complex grouping unsupported。
-table-consumed rows/cells 不产生 ordinary list/task/event records。export/import round-trip supported subset。
+ direct `"+ header" 标 leading header rows；expanded body row 的 leading header-faceted cells 是 row-header prefix。
+  所有 rows effective column count 一致。rowspan、colspan、alignment、widths、table foot/complex grouping unsupported。
+  table-consumed rows/cells 不产生 ordinary list/task/event records。export/import round-trip supported subset。
 
 `# 13. Math and export
 
-`"$" marked inline/block Verbatim 产生 TeX InlineMath/DisplayMath：
+ `"$" marked inline/block Verbatim 产生 TeX InlineMath/DisplayMath：
 
-`plumb"
- Inline `$"x^2" math.
+ `plumb"
+  Inline `$"x^2" math.
 
-`plumb"
- `$"
-  E = mc^2
+ `plumb"
+  `$"
+   E = mc^2
 
-generic marked block/group 分别 lower Div/Span，VerbatimBlock/inline Verbatim 分别 CodeBlock/Code，anonymous parsed
-block lower Para。plumb export 直接产生 Pandoc JSON，只把 Pandoc 当 writer；plumb import 对 supported official
- profile 生成 current strict syntax。无属性 figure 可展开为其内容块，并将单段 caption 追加为普通段落；带属性
- figure、raw HTML/footnote/complex citation 等无法表示的结构必须 reject，不 silent drop。
+ generic marked block/group 分别 lower Div/Span，VerbatimBlock/inline Verbatim 分别 CodeBlock/Code，anonymous parsed
+  block lower Para。plumb export 直接产生 Pandoc JSON，只把 Pandoc 当 writer；plumb import 对 supported official
+  profile 生成 current strict syntax。无属性 figure 可展开为其内容块，并将单段 caption 追加为普通段落；带属性
+  figure、raw HTML/footnote/complex citation 等无法表示的结构必须 reject，不 silent drop。
 
 `# 14. Version boundary
 
-official profile 只解释 current syntax。semantic analysis 不检测历史 epoch，也不在分析前执行 source migration。
+ official profile 只解释 current syntax。semantic analysis 不检测历史 epoch，也不在分析前执行 source migration。
 
 `# 15. Incremental policy equivalence
 
-Event-category 与 event-timeline 的增量缓存不改变第 11 节的语义。相同 normalized category、tasks override 与去重 normalized reference targets 可以复用成功结论；invalid declarations 的 barrier、缺失目标、目标歧义与来源范围必须保留。时间 interval 与 category/reference 输入分开失效，source offset 变化不改变 accounting 或时间覆盖。完整分析是结果、diagnostics 与 export 的独立 correctness oracle。缓存身份、fallback 和版本协议见 `->{语义架构 ../architecture/semantic-analysis.plumb}。
+ Event-category 与 event-timeline 的增量缓存不改变第 11 节的语义。相同 normalized category、tasks override 与去重 normalized reference targets 可以复用成功结论；invalid declarations 的 barrier、缺失目标、目标歧义与来源范围必须保留。时间 interval 与 category/reference 输入分开失效，source offset 变化不改变 accounting 或时间覆盖。完整分析是结果、diagnostics 与 export 的独立 correctness oracle。缓存身份、fallback 和版本协议见 `->{语义架构 ../architecture/semantic-analysis.plumb}。
 
 `# 16. Valid-event accounting
 
-累计值定义为当前 revision 中有效事件的累计。语法无效节点及其 descendants 由 core 有效区域契约隔离；
-语义无效事件单独排除，不贡献 duration、事项份额或分类份额；timeline 独立排除语法、时间或标题无效事件，不读取分类/引用核算有效性。独立有效事件正常统计。
-无效 schedule、空/非法 title、冲突 task/event facet 或无法可靠解析的核算引用均不能生成有效贡献。
-引用失败时排除整个事件，不删除失败目标后把其份额重新分给成功目标。非法分类不使用外层缺省值。
-正常缺分类仍可归入未分类；point 和 ongoing 继续不贡献有限用时。
+ 累计值定义为当前 revision 中有效事件的累计。语法无效节点及其 descendants 由 core 有效区域契约隔离；
+  语义无效事件单独排除，不贡献 duration、事项份额或分类份额；timeline 独立排除语法、时间或标题无效事件，不读取分类/引用核算有效性。独立有效事件正常统计。
+  无效 schedule、空/非法 title、冲突 task/event facet 或无法可靠解析的核算引用均不能生成有效贡献。
+  引用失败时排除整个事件，不删除失败目标后把其份额重新分给成功目标。非法分类不使用外层缺省值。
+  正常缺分类仍可归入未分类；point 和 ongoing 继续不贡献有限用时。
 
-排除原因由 source diagnostics 呈现，不把累计标为 incomplete，不隐藏其余有效累计，也不复用旧有效事件。
-有效事件集合为空时累计为零。示例：同一文件中有效的一小时事件、无效标题事件、语法错误普通段落共存，
-其一小时事件仍对事项贡献一小时；修复或删除错误节点时按当前有效事件集合重算。
-summary、Code Lens 与 Web task 用时消费同一规则。索引尚未完成、semantic worker 尚未完成或 source/store
-读取失败仍属于数据尚未齐备或查询失败，不得伪装为完整零值。导出仍要求 whole-document syntax validity。
+ 排除原因由 source diagnostics 呈现，不把累计标为 incomplete，不隐藏其余有效累计，也不复用旧有效事件。
+  有效事件集合为空时累计为零。示例：同一文件中有效的一小时事件、无效标题事件、语法错误普通段落共存，
+  其一小时事件仍对事项贡献一小时；修复或删除错误节点时按当前有效事件集合重算。
+  summary、Code Lens 与 Web task 用时消费同一规则。索引尚未完成、semantic worker 尚未完成或 source/store
+  读取失败仍属于数据尚未齐备或查询失败，不得伪装为完整零值。导出仍要求 whole-document syntax validity。

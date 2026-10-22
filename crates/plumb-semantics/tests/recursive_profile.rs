@@ -148,7 +148,7 @@ fn event_declarations_do_not_satisfy_the_required_rest_argument() {
 #[test]
 fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
     let compact = analyze(concat!(
-        "`table\n",
+        "`|\n",
         " `- name    age\n  `+ header\n",
         " `- {Alice Smith}    10\n",
     ));
@@ -158,7 +158,7 @@ fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
     assert!(table.rows[0].header);
 
     let expanded = analyze(concat!(
-        "`table\n",
+        "`|\n",
         " `-\n  `+ header\n\n  name\n\n  age\n",
         " `-\n\n  {Alice Smith}\n\n  10\n",
     ));
@@ -166,7 +166,7 @@ fn table_spaces_form_cells_and_expanded_rows_use_anonymous_children() {
     assert_eq!(table.column_count, 2);
     assert!(table.rows.iter().all(|row| !row.compact));
 
-    let adjacent = analyze("`table\n `- A`!{B}C\n");
+    let adjacent = analyze("`|\n `- A`!{B}C\n");
     let row = &adjacent.tables().tables.get(0).unwrap().rows[0];
     assert_eq!(row.cells.len(), 3);
 }

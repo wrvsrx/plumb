@@ -1877,7 +1877,7 @@ mod tests {
 
     #[test]
     fn conflicting_facets_create_neither_record_and_table_items_are_consumed() {
-        let source = "`- Conflict\n `+ task\n `+ event\n\n`table\n `- Cell\n  `+ task\n";
+        let source = "`- Conflict\n `+ task\n `+ event\n\n`|\n `- Cell\n  `+ task\n";
         let parsed = parse(source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_tasks(parsed.valid_syntax().unwrap());

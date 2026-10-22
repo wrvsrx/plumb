@@ -36,7 +36,7 @@ fn separates_visible_heads_but_compacts_empty_head_containers() {
         format("`- Task\n `+ task\n").unwrap(),
         "`- Task\n\n `+ task\n"
     );
-    assert_eq!(format("`table\n `- row\n").unwrap(), "`table\n `- row\n");
+    assert_eq!(format("`|\n `- row\n").unwrap(), "`|\n `- row\n");
     assert_eq!(
         format("`container\n\n child\n").unwrap(),
         "`container\n\n child\n"

@@ -2,233 +2,233 @@
 
 `# 1. Scope
 
-本文定义 current core syntax validity。core 识别 source structure，不解释 marker、direct child、inline
-owner 或 raw payload 的语义。任意 syntax error 都使 document 不能进入 strict export 或 valid-tree mutation；
-parser 仍 reject-but-recover，并产生 lossless tree 与全部可报告 diagnostics。
+ 本文定义 current core syntax validity。core 识别 source structure，不解释 marker、direct child、inline
+  owner 或 raw payload 的语义。任意 syntax error 都使 document 不能进入 strict export 或 valid-tree mutation；
+  parser 仍 reject-but-recover，并产生 lossless tree 与全部可报告 diagnostics。
 
-输入是 UTF-8 bytes。offset/range 使用 UTF-8 half-open byte range，不做 Unicode normalization 或
-backslash processing。document 是 implicit root owner，保存 source-ordered top-level blocks。
+ 输入是 UTF-8 bytes。offset/range 使用 UTF-8 half-open byte range，不做 Unicode normalization 或
+  backslash processing。document 是 implicit root owner，保存 source-ordered top-level blocks。
 
 `# 2. Introducer 与 lexical set
 
-反引号是唯一 introducer。连续 run 从左向右每两个反引号产生一个 literal backtick；奇数 run 的最后一个
-继续 dispatch special entry。parsed text 还允许 opening/closing brace escape：
+ 反引号是唯一 introducer。连续 run 从左向右每两个反引号产生一个 literal backtick；奇数 run 的最后一个
+  继续 dispatch special entry。parsed text 还允许 opening/closing brace escape：
 
-`plumb"
- `` literal backtick
- `{ literal opening brace
- `} literal closing brace
+ `plumb"
+  `` literal backtick
+  `{ literal opening brace
+  `} literal closing brace
 
-brackets、pipe 和 ordinary double quote 是 ordinary parsed text。introducer 开始但不能完成 escape、marker、
-group 或 verbatim entry 时发布 syntax error，不 fallback 为 literal text。
+ brackets、pipe 和 ordinary double quote 是 ordinary parsed text。introducer 开始但不能完成 escape、marker、
+  group 或 verbatim entry 时发布 syntax error，不 fallback 为 literal text。
 
-marker 是 nonempty、case-sensitive Unicode scalar run，不能包含 whitespace、backtick、double quote 或 braces。
-ASCII space 是唯一 parsed separator；Unicode control 可作为普通文本。tab 与其他 whitespace 不能作为结构分隔符。
+ marker 是 nonempty、case-sensitive Unicode scalar run，不能包含 whitespace、backtick、double quote 或 braces。
+  ASCII space 是唯一 parsed separator；Unicode control 可作为普通文本。tab 与其他 whitespace 不能作为结构分隔符。
 
 `# 3. Block dispatch
 
-每条 nonblank physical line 开始一个 block，或在第 5 节条件下继续当前 open parsed block 的 InlineContents。普通
-line 产生 anonymous parsed block。introducer-marker 后为 line ending 或 ASCII SpaceRun 时产生 marked parsed
-block；marker 后的 SpaceRun 进入 lossless InlineContents，但不占 positional element index。
+ 每条 nonblank physical line 开始一个 block，或在第 5 节条件下继续当前 open parsed block 的 InlineContents。普通
+  line 产生 anonymous parsed block。introducer-marker 后为 line ending 或 ASCII SpaceRun 时产生 marked parsed
+  block；marker 后的 SpaceRun 进入 lossless InlineContents，但不占 positional element index。
 
-marker 紧邻 opening brace 或同一行 quote envelope 时不构成 block marker entry：整行是 anonymous parsed
-block，inline parser 从 marked group/verbatim 开始。因此：
+ marker 紧邻 opening brace 或同一行 quote envelope 时不构成 block marker entry：整行是 anonymous parsed
+  block，inline parser 从 marked group/verbatim 开始。因此：
 
-`plumb"
- `note content
- `note{content}
+ `plumb"
+  `note content
+  `note{content}
 
-第一行是 marked block，第二行是包含 marked inline group 的 anonymous block。
+ 第一行是 marked block，第二行是包含 marked inline group 的 anonymous block。
 
-introducer-single-quote 后立即 line ending 产生 anonymous verbatim block；introducer-marker-single-quote 后
-立即 line ending 产生 marked verbatim block。同一 physical line 上 quote 后仍有 payload/closer 时是 inline
-verbatim。
+ introducer-single-quote 后立即 line ending 产生 anonymous verbatim block；introducer-marker-single-quote 后
+  立即 line ending 产生 marked verbatim block。同一 physical line 上 quote 后仍有 payload/closer 时是 inline
+  verbatim。
 
 `# 4. Indentation 与 ownership
 
-newline 分隔 sibling blocks。较深 indentation 使下一 block 成为 preceding parsed block 的 direct child；
-anonymous/marked parsed blocks 都可以拥有 children。第一个 child 建立 column，siblings 必须精确匹配，
-dedent 必须返回 indentation stack 中已有 column。canonical child column 是 owner column 加一 ASCII space。
+ newline 分隔 sibling blocks。较深 indentation 使下一 block 成为 preceding parsed block 的 direct child；
+  anonymous/marked parsed blocks 都可以拥有 children。第一个 child 建立 column，siblings 必须精确匹配，
+  dedent 必须返回 indentation stack 中已有 column。canonical child column 是 owner column 加一 ASCII space。
 
-`plumb"
- parent
+ `plumb"
+  parent
+  
+  child
 
- child
+ `plumb"
+  `parent head
+   `child one
+   `child two
 
-`plumb"
- `parent head
-  `child one
-  `child two
+ blank line 不建立 block，但会结束当前 open block：其后同列的 plain line 开始新的 sibling block，更深缩进的 plain
+  line 成为 anonymous child。top-level block 从 column
+  zero 开始。structural tab
+  是 error。需要 explicit empty anonymous block 时使用 empty group，并像其它 block 一样用 blank line 或
+  introducer 与 preceding block 分开：
 
-blank line 不建立 block，但会结束当前 open block：其后同列的 plain line 开始新的 sibling block，更深缩进的 plain
-line 成为 anonymous child。top-level block 从 column
-zero 开始。structural tab
-是 error。需要 explicit empty anonymous block 时使用 empty group，并像其它 block 一样用 blank line 或
-introducer 与 preceding block 分开：
+ `plumb"
+  {}
 
-`plumb"
- {}
-
-verbatim block 的 content 是 terminal raw payload，因此不能拥有 structural children。
+ verbatim block 的 content 是 terminal raw payload，因此不能拥有 structural children。
 
 `# 5. InlineContents、continuation 与 positional elements
 
-InlineContents losslessly 保存 source-ordered Text、SpaceRun、SoftBreak、Group 与 Verbatim。一个或多个 direct ASCII
-spaces 产生一个 SpaceRun。Text 在 direct space、special entry 或 content boundary处结束；Group/Verbatim 各自在
-parent depth始终是一个 element。SpaceRun width 完整保留，SpaceRun 与 SoftBreak 不占 positional index，
-repeated spaces 不产生 empty positional element。
+ InlineContents losslessly 保存 source-ordered Text、SpaceRun、SoftBreak、Group 与 Verbatim。一个或多个 direct ASCII
+  spaces 产生一个 SpaceRun。Text 在 direct space、special entry 或 content boundary处结束；Group/Verbatim 各自在
+  parent depth始终是一个 element。SpaceRun width 完整保留，SpaceRun 与 SoftBreak 不占 positional index，
+  repeated spaces 不产生 empty positional element。
 
-一个 parsed block 打开后保持 open，直到 blank line、以 introducer 开头的行、或更浅的缩进结束它。open block 之后
-没有前置 blank line 的 plain line 并入它的 InlineContents，条件是 indentation 不浅于 open block 的 column：同列与
-更深缩进都算 continuation。continuation line 只贡献 content，不建立或改变 indentation column，因此 continuation
-的缩进宽度是 layout：
+ 一个 parsed block 打开后保持 open，直到 blank line、以 introducer 开头的行、或更浅的缩进结束它。open block 之后
+  没有前置 blank line 的 plain line 并入它的 InlineContents，条件是 indentation 不浅于 open block 的 column：同列与
+  更深缩进都算 continuation。continuation line 只贡献 content，不建立或改变 indentation column，因此 continuation
+  的缩进宽度是 layout：
 
-`plumb"
- ordinary paragraph
- continues at the same column
+ `plumb"
+  ordinary paragraph
+  continues at the same column
 
-physical boundary 与 structural indentation losslessly 形成 SoftBreak，typed
-plain-text/argument projection把它视为一个 semantic space。formatter 保留 physical wrapping 与 continuation 的
-structural indentation，移除 line-end padding 与每层 parsed group 的 leading/trailing ASCII SpaceRun；其余 inline source bytes 不变。
+ physical boundary 与 structural indentation losslessly 形成 SoftBreak，typed
+  plain-text/argument projection把它视为一个 semantic space。formatter 保留 physical wrapping 与 continuation 的
+  structural indentation，移除 line-end padding 与每层 parsed group 的 leading/trailing ASCII SpaceRun；其余 inline source bytes 不变。
 
-以 introducer 开头的行结束 preceding open block 并开始自己的 block：更深的缩进使它成为 preceding parsed owner
-的 child，同列的则是 sibling。marked/verbatim child 不要求前置 blank line。blank line 同样结束 open block，其后
-同列的 plain line 开始新的 sibling block，更深缩进的 plain line 成为 anonymous child：
+ 以 introducer 开头的行结束 preceding open block 并开始自己的 block：更深的缩进使它成为 preceding parsed owner
+  的 child，同列的则是 sibling。marked/verbatim child 不要求前置 blank line。blank line 同样结束 open block，其后
+  同列的 plain line 开始新的 sibling block，更深缩进的 plain line 成为 anonymous child：
 
-`plumb"
- `= title
-  inline value
+ `plumb"
+  `= title
+   inline value
 
-相对地，`"`= title" 后先出现 blank line，再出现缩进的 `"block value" 时，后者是 anonymous child。
+ 相对地，`"`= title" 后先出现 blank line，再出现缩进的 `"block value" 时，后者是 anonymous child。
 
-direct adjacency不合并 elements：
+ direct adjacency不合并 elements：
 
-`plumb"
- prefix`!{strong}suffix
+ `plumb"
+  prefix`!{strong}suffix
 
-上例是 `"Text(prefix)"、`"Group(!, strong)"、`"Text(suffix)" 三个 positional elements。需要多个 adjacent
-elements共同占一个 semantic argument时使用 anonymous Group。empty positional element只能写作 empty anonymous
-Group，不从 repeated whitespace推测。InlineContents 不保存 datum/segment projection；kind-specific consumer
-在 semantic layer声明 element binding，不能自行 split source string。
+ 上例是 `"Text(prefix)"、`"Group(!, strong)"、`"Text(suffix)" 三个 positional elements。需要多个 adjacent
+  elements共同占一个 semantic argument时使用 anonymous Group。empty positional element只能写作 empty anonymous
+  Group，不从 repeated whitespace推测。InlineContents 不保存 datum/segment projection；kind-specific consumer
+  在 semantic layer声明 element binding，不能自行 split source string。
 
 `# 6. Anonymous 与 marked groups
 
-braces 是唯一 parsed inline grouping envelope。anonymous group 写作 braces；marked group 写作 introducer、
-marker 与紧邻 braces：
+ braces 是唯一 parsed inline grouping envelope。anonymous group 写作 braces；marked group 写作 introducer、
+  marker 与紧邻 braces：
 
-`plumb"
- {guide with spaces}
- `!{strong}
- `->{{guide with spaces} {Project Guide.plumb}}
- `node{visible `@{stable} `={key value}}
+ `plumb"
+  {guide with spaces}
+  `!{strong}
+  `->{{guide with spaces} {Project Guide.plumb}}
+  `node{visible `@{stable} `={key value}}
 
-group 可以 arbitrary nesting，但不能跨 physical line。整个 group 在 parent depth 是一个 element；group 内
-elements不改变 parent count。marker 是 owner field，不是 content 的 first positional element。empty group 合法。
+ group 可以 arbitrary nesting，但不能跨 physical line。整个 group 在 parent depth 是一个 element；group 内
+  elements不改变 parent count。marker 是 owner field，不是 content 的 first positional element。empty group 合法。
 
-core 保存 group 的 source-ordered InlineContents，不区分 argument/child variants，也不解释 `"@"、`"+"、
-`"=" spelling。generic direct-declaration projection可以从 direct marked owners 提取 ranges/value，但不得
-改变或重排 underlying sequence；official meaning 属于 semantic profile。
+ core 保存 group 的 source-ordered InlineContents，不区分 argument/child variants，也不解释 `"@"、`"+"、
+  `"=" spelling。generic direct-declaration projection可以从 direct marked owners 提取 ranges/value，但不得
+  改变或重排 underlying sequence；official meaning 属于 semantic profile。
 
 `# 7. Inline verbatim
 
-compact inline verbatim 是 introducer、optional marker、single opening quote、允许为空的 payload 与 closing
-quote：
+ compact inline verbatim 是 introducer、optional marker、single opening quote、允许为空的 payload 与 closing
+  quote：
 
-`plumb"
- `"cargo test"
- `$"x^2"
- `$""
+ `plumb"
+  `"cargo test"
+  `$"x^2"
+  `$""
 
-quote run 后立即 opening brace 时必须 dispatch full envelope：one-or-more opening quotes、opening brace、
-opaque payload、closing brace 与相同 quote run。选择 payload 中没有 matching closing-like sequence 的最小
-strength：
+ quote run 后立即 opening brace 时必须 dispatch full envelope：one-or-more opening quotes、opening brace、
+  opaque payload、closing brace 与相同 quote run。选择 payload 中没有 matching closing-like sequence 的最小
+  strength：
 
-`plumb"
- `"{raw containing "quotes"}"
- `""{raw containing }" safely}""
- `""{{literal braces}}""
+ `plumb"
+  `"{raw containing "quotes"}"
+  `""{raw containing }" safely}""
+  `""{{literal braces}}""
 
-compact payload 不能包含 quote 或以 opening brace 开始；full payload 不解析 braces、backticks、spaces
-或 quotes。两种 spelling 产生同一个 optional-marker Verbatim node。payload 只能占一条 physical line；
-unclosed envelope 在当前 line ending/EOF 恢复。
+ compact payload 不能包含 quote 或以 opening brace 开始；full payload 不解析 braces、backticks、spaces
+  或 quotes。两种 spelling 产生同一个 optional-marker Verbatim node。payload 只能占一条 physical line；
+  unclosed envelope 在当前 line ending/EOF 恢复。
 
 `# 8. Block verbatim
 
-block raw opener 必须独占 physical line。anonymous/marked forms：
+ block raw opener 必须独占 physical line。anonymous/marked forms：
 
-`plumb"
- `"
-  anonymous raw
+ `plumb"
+  `"
+   anonymous raw
 
-`plumb"
- `rust"
-  fn main() {}
-
-每条 payload line 先匹配 opener indentation，再匹配一个 structural ASCII space；parser 只 strip 该额外
-space，保留其后所有 bytes，包括更多 leading spaces、tabs 与 original line ending。
-缺少完整 margin 的 blank line 在紧接的下一行具有完整 margin 时仍属于 payload；此时完整保留该 blank line 的
-bytes，包括已有空格与 LF/CRLF，不剥除不存在的 margin，也不吞掉换行。此规则与 opener indentation 深度无关。
-例如 nested raw 的两条内容行之间只有一个 LF 时，decoded payload 仍包含这个 LF。
-末尾 blank line 必须带 margin，否则结束 payload 并重新进入 ordinary block dispatch。
-
-empty payload、EOF 和 payload 中任意 syntax-like bytes 合法。没有 closing fence、quote-count block margin
-或 marked raw tail。需要 declarations 时使用 ordinary wrapper 与 marked raw child：
-
-`plumb"
- `()
-  `@ example
-  `= language rust
+ `plumb"
   `rust"
    fn main() {}
 
+ 每条 payload line 先匹配 opener indentation，再匹配一个 structural ASCII space；parser 只 strip 该额外
+  space，保留其后所有 bytes，包括更多 leading spaces、tabs 与 original line ending。
+  缺少完整 margin 的 blank line 在紧接的下一行具有完整 margin 时仍属于 payload；此时完整保留该 blank line 的
+  bytes，包括已有空格与 LF/CRLF，不剥除不存在的 margin，也不吞掉换行。此规则与 opener indentation 深度无关。
+  例如 nested raw 的两条内容行之间只有一个 LF 时，decoded payload 仍包含这个 LF。
+  末尾 blank line 必须带 margin，否则结束 payload 并重新进入 ordinary block dispatch。
+
+ empty payload、EOF 和 payload 中任意 syntax-like bytes 合法。没有 closing fence、quote-count block margin
+  或 marked raw tail。需要 declarations 时使用 ordinary wrapper 与 marked raw child：
+
+ `plumb"
+  `()
+   `@ example
+   `= language rust
+   `rust"
+    fn main() {}
+
 `# 9. Direct declaration projection
 
-document 与 parsed owner 都保存一个 source-ordered direct sequence。generic projection 可以识别 direct
-leaf-shaped `"@"、`"+" 与 `"=" owners：id/facet 的 visible value 必须是一个 plain positional element；property
-使用 first positional element作为 key、remaining element sequence作为 value。whitespace 与 recognized direct
-declarations不占 positional index。完整 declaration range 与 key/value range 都
-source-backed。inline group 使用同一 projection。
+ document 与 parsed owner 都保存一个 source-ordered direct sequence。generic projection 可以识别 direct
+  leaf-shaped `"@"、`"+" 与 `"=" owners：id/facet 的 visible value 必须是一个 plain positional element；property
+  使用 first positional element作为 key、remaining element sequence作为 value。whitespace 与 recognized direct
+  declarations不占 positional index。完整 declaration range 与 key/value range 都
+  source-backed。inline group 使用同一 projection。
 
-该 projection 不把 declaration 从 tree 移除。semantic profile 决定是否消费、filter、validate 或保留；
-unknown marker 永远保持 generic。
+ 该 projection 不把 declaration 从 tree 移除。semantic profile 决定是否消费、filter、validate 或保留；
+  unknown marker 永远保持 generic。
 
 `# 10. Lossless and valid views
 
-任意 UTF-8 source 都产生 ParsedDocument：original source、complete source-ordered SyntaxToken sequence、typed
-recovered Document 与 diagnostics。token ranges 无重叠、无空洞，拼接 bytes 必须逐 byte 等于 input。
+ 任意 UTF-8 source 都产生 ParsedDocument：original source、complete source-ordered SyntaxToken sequence、typed
+  recovered Document 与 diagnostics。token ranges 无重叠、无空洞，拼接 bytes 必须逐 byte 等于 input。
 
-recovered_syntax 始终可用；valid_syntax 只在没有 error diagnostics 时返回不可由 consumer 构造的
-ValidDocument。export 与 valid-tree mutation 只接受 whole-document valid view；semantic analysis 可消费第 13 节的有效区域；completion、folding
-等 editor queries 可以显式使用 recovered tree。访问 view 不重新 parse。
+ recovered_syntax 始终可用；valid_syntax 只在没有 error diagnostics 时返回不可由 consumer 构造的
+  ValidDocument。export 与 valid-tree mutation 只接受 whole-document valid view；semantic analysis 可消费第 13 节的有效区域；completion、folding
+  等 editor queries 可以显式使用 recovered tree。访问 view 不重新 parse。
 
 `# 11. Recovery
 
-`- malformed block entry：current physical line。
-`- unmatched group opener/closer：current physical line；不消费下一 block。
-`- unclosed inline verbatim：current physical line ending/EOF。
-`- structural tab/partial dedent：发布最具体 structural diagnostic，并在最近合法 column 继续。
-`- block raw：除第 8 节的中间 blank line 外，缺 margin 的 line 正常结束 payload；该 line 重新按 block grammar 处理。
+ `- malformed block entry：current physical line。
+ `- unmatched group opener/closer：current physical line；不消费下一 block。
+ `- unclosed inline verbatim：current physical line ending/EOF。
+ `- structural tab/partial dedent：发布最具体 structural diagnostic，并在最近合法 column 继续。
+ `- block raw：除第 8 节的中间 blank line 外，缺 margin 的 line 正常结束 payload；该 line 重新按 block grammar 处理。
 
-同一根因只发布最具体 diagnostic。missing token 不成为 synthetic source leaf。block nesting 使用 explicit
-stack；语言不从 Rust call stack 获得 nesting depth limit。
+ 同一根因只发布最具体 diagnostic。missing token 不成为 synthetic source leaf。block nesting 使用 explicit
+  stack；语言不从 Rust call stack 获得 nesting depth limit。
 
 `# 12. Current syntax only
 
-core 只定义并解析本页描述的 current syntax。parser、typed tree、formatter、editor tooling 与 CLI 都不识别、
-检测或转换历史 syntax epoch；仓库不提供 legacy parser 或 migration command。历史 source 必须在进入 plumb
-toolchain 前由外部、版本匹配的工具转换。
+ core 只定义并解析本页描述的 current syntax。parser、typed tree、formatter、editor tooling 与 CLI 都不识别、
+  检测或转换历史 syntax epoch；仓库不提供 legacy parser 或 migration command。历史 source 必须在进入 plumb
+  toolchain 前由外部、版本匹配的工具转换。
 
 `# 13. Valid regions for semantic analysis
 
-语法错误不改变 strict validity，但不再使其它独立有效节点退出语义分析。syntax layer 从同一 recovered revision
-提供不可由 consumer 构造的有效区域 view；不重新解析、不改写 source、不删除 lossless tokens 或 diagnostics，
-不把该 view 伪装成 whole-document ValidDocument。source ranges 始终对应原 revision。
+ 语法错误不改变 strict validity，但不再使其它独立有效节点退出语义分析。syntax layer 从同一 recovered revision
+  提供不可由 consumer 构造的有效区域 view；不重新解析、不改写 source、不删除 lossless tokens 或 diagnostics，
+  不把该 view 伪装成 whole-document ValidDocument。source ranges 始终对应原 revision。
 
-隔离的最小单元是 block owner：head、inline content 或 structural indentation 有 error 的 block 与全部 children
-被排除；健康 sibling 保留，普通 child 的错误不向健康 parent/sibling 传播。不能只删除损坏的 inline argument
-后让剩余 elements 重新绑定 schedule/title 或 declaration key/value。EOF 的零宽错误仍属于其未闭合 owner。
-结构恢复无法证明 ownership 的区域排除到下一个可证明的恢复边界，不能提升被排除 owner 的 descendants。
+ 隔离的最小单元是 block owner：head、inline content 或 structural indentation 有 error 的 block 与全部 children
+  被排除；健康 sibling 保留，普通 child 的错误不向健康 parent/sibling 传播。不能只删除损坏的 inline argument
+  后让剩余 elements 重新绑定 schedule/title 或 declaration key/value。EOF 的零宽错误仍属于其未闭合 owner。
+  结构恢复无法证明 ownership 的区域排除到下一个可证明的恢复边界，不能提升被排除 owner 的 descendants。
 
-声明是 owner 的语义输入。损坏的 direct declaration 不能被删除后悄悄获得缺省 facet、identity、date、timezone
-或 category；official profile 必须保留该输入无效的 barrier，排除不能独立解释的 owner/依赖事件。
-普通无关正文错误不影响文档根层 metadata 或其它有效事件。严格导出、格式化与结构编辑仍要求整篇 syntax-valid。
+ 声明是 owner 的语义输入。损坏的 direct declaration 不能被删除后悄悄获得缺省 facet、identity、date、timezone
+  或 category；official profile 必须保留该输入无效的 barrier，排除不能独立解释的 owner/依赖事件。
+  普通无关正文错误不影响文档根层 metadata 或其它有效事件。严格导出、格式化与结构编辑仍要求整篇 syntax-valid。

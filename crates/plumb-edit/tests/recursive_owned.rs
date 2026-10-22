@@ -68,13 +68,13 @@ fn owned_children_follow_head_sensitive_spacing() {
         raw: None,
     };
     let empty_head = OwnedBlock::Parsed {
-        marker: Some("table".to_string()),
+        marker: Some("|".to_string()),
         head: Vec::new(),
         children: vec![child],
         raw: None,
     };
     assert_eq!(with_head.format().unwrap(), "`- Task\n\n `+ task\n");
-    assert_eq!(empty_head.format().unwrap(), "`table\n `+ task\n");
+    assert_eq!(empty_head.format().unwrap(), "`|\n `+ task\n");
 }
 
 #[test]
