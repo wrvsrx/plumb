@@ -1,3 +1,8 @@
+mod tags;
+pub use tags::{
+    green_tag_completion_context, tag_completion_context, TagCompletionContext, TagOwner, TagSet,
+    TaggedOwner,
+};
 mod category;
 pub use category::Category;
 mod citations;
@@ -259,7 +264,7 @@ pub fn is_block_declaration(
     let plumb_syntax::Block::Parsed(child) = child else {
         return false;
     };
-    child.children.is_empty()
+    (child.children.is_empty() || tags::is_tags_property(child))
         && child
             .mark
             .as_ref()

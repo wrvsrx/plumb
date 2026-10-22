@@ -126,8 +126,18 @@ pub fn attribute_completion_context(
     if offset > document.source.len() || !document.source.is_char_boundary(offset) {
         return None;
     }
-    root_category_context(&document.syntax.blocks, &document.source, offset)
-        .or_else(|| attribute_context_in_blocks(&document.syntax.blocks, &document.source, offset))
+    let mut context = root_category_context(&document.syntax.blocks, &document.source, offset)
+        .or_else(|| attribute_context_in_blocks(&document.syntax.blocks, &document.source, offset));
+    if let Some(tags) = crate::tags::attribute_context(document, offset) {
+        if let Some(context) = &mut context {
+            if context.replace == tags.replace {
+                context.completions.extend(tags.completions);
+            }
+        } else {
+            context = Some(tags);
+        }
+    }
+    context
 }
 
 pub fn green_attribute_completion_context(
@@ -153,7 +163,16 @@ pub fn green_attribute_completion_context(
                 }
             })
         });
-        if duplicate { context.completions.retain(|item| item.label != "event-category"); }
+        if duplicate {
+            context
+                .completions
+                .retain(|item| item.label != "event-category");
+        }
+    }
+    if shard.shard().parsed().syntax.blocks.iter().any(|block| block.range().start + shard.offset() == context.replace.start)
+        && document.shards().any(|view| view.shard().parsed().syntax.blocks.iter().any(|block|
+            matches!(block, Block::Parsed(b) if b.range.start + view.offset() != context.replace.start && crate::tags::is_tags_property(b)))) {
+        context.completions.retain(|item| item.label != "tags");
     }
     Some(context)
 }

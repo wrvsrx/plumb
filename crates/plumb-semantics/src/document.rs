@@ -464,6 +464,7 @@ impl DocumentOutput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticNodeOutput {
+    tags: crate::tags::TagOutput,
     headings: HeadingOutput,
     definitions: crate::DefinitionOutput,
     citations: CitationOutput,
@@ -565,6 +566,7 @@ impl PartialEq for DocumentOutput {
             && self.tables() == other.tables()
             && self.anchors() == other.anchors()
             && self.links() == other.links()
+            && self.tagged_owners() == other.tagged_owners()
             && self.embeds() == other.embeds()
             && self.diagnostics() == other.diagnostics()
     }
@@ -657,6 +659,28 @@ impl DocumentOutput {
 
     pub fn headings(&self) -> &HeadingOutput {
         &self.root.headings
+    }
+
+    /// Explicit owners only. Aggregation never changes their tag sets.
+    pub fn tagged_owners(&self) -> Vec<crate::TaggedOwner> {
+        let mut owners = Vec::new();
+        if !self.metadata().tags.values.is_empty() {
+            owners.push(crate::TaggedOwner {
+                owner: crate::TagOwner::Document,
+                range: 0..self.syntax().source().len(),
+                selection_range: self.metadata().tags.declarations[0].clone(),
+                title: self.metadata().document_title().unwrap_or_default(),
+                id: None,
+                tags: self.metadata().tags.clone(),
+            });
+        }
+        for node in &self.root.tree.nodes {
+            owners.extend(node.output.tags.owners.iter().cloned().map(|mut owner| {
+                owner.shift(node.offset as isize);
+                owner
+            }));
+        }
+        owners
     }
 
     pub fn metadata(&self) -> &MetadataOutput {
@@ -1025,15 +1049,18 @@ fn analyze_semantic_tree_observed(
                             analyze_events(local, &metadata),
                         )
                     });
+                    let tags = local.without_owners(&barriers, crate::tags::analyze_blocks);
                     let record_diagnostics = std::mem::take(&mut records.diagnostics);
                     let mut association_diagnostics = association_arity_diagnostics(local.syntax());
                     association_diagnostics.extend(crate::category::owner_diagnostics(local));
+                    association_diagnostics.extend(tags.diagnostics.clone());
                     let root_diagnostics = local_root_diagnostics(
                         &record_diagnostics,
                         &association_diagnostics,
                         &tables.diagnostics,
                     );
                     Arc::new(SemanticNodeOutput {
+                        tags,
                         headings: local_headings.clone(),
                         definitions: reusable_nodes[node_index]
                             .map(|index| {

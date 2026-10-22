@@ -118,3 +118,9 @@
   发布 event.invalid-category Warning，不依赖可选分类检查开关。无法解析的核算引用保留 workspace reference
   诊断。被排除的事件不贡献统计，也不让其它事项的正常累计显示 incomplete。数据读取失败与 pending 仍走独立的
   failure/completeness 通道。syntax error 与有效 sibling 的 semantic diagnostics 可以同时出现在同 revision 的发布中。
+
+`# Tags diagnostics
+
+ tags.invalid-value 与 tags.duplicate-property 是 document-local Warning。非法值定位对应 property，重复声明定位后续
+ property 并关联首个声明；该 owner 的整个集合退出标签索引。syntax-invalid declaration 由 syntax diagnostic 负责，
+ 不能删除坏 child 后把其余值误发布成完整标签集合。tags 不改变 core syntax validity。

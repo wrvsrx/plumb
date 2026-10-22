@@ -77,6 +77,7 @@ pub struct BibliographySource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MetadataOutput {
+    pub tags: crate::TagSet,
     pub(crate) invalid_properties: Vec<(String, Range<usize>)>,
     pub facets: Vec<DocumentFacet>,
     pub metadata: Option<MetadataBlock>,
@@ -278,6 +279,14 @@ pub(crate) fn analyze_green_metadata_regions(
         }
     }
     lint_standard_entries(&entries, &mut output.diagnostics);
+    output.tags = crate::TagSet::from_green(syntax);
+    if !output
+        .invalid_properties
+        .iter()
+        .any(|(key, _)| key.is_empty() || key == "tags")
+    {
+        output.diagnostics.extend(output.tags.diagnostics());
+    }
     let category = crate::Category::from_green_document(syntax);
     if !output
         .invalid_properties
@@ -377,6 +386,8 @@ pub fn green_recovered_bibliography_sources(
 
 fn analyze_metadata_document(document: &Document) -> MetadataOutput {
     let mut output = MetadataOutput::default();
+    output.tags = crate::TagSet::from_blocks(&document.blocks);
+    output.diagnostics.extend(output.tags.diagnostics());
     collect_document_facets(document, 0, &mut output);
     let document_task = output.facets.iter().any(|facet| facet.name == "task");
     let properties = document

@@ -109,7 +109,41 @@
   `= title   Project Guide
   `= created 2026-09-02T09:00:00+08:00
 
- `# 5.1 Document facets and tasks target contract
+ `# 5.1 Tags
+
+  实现状态：本节为 tags-system 的待实现契约，验证完成后移除此状态。
+
+  文档根层与任意 parsed block（包括 anonymous block、heading、普通/task/event list item）可声明 tags。
+  只消费 owner 的 direct block property；inline owner、declaration value 内部与 verbatim payload 不产生标签 owner。
+  标签为大小写敏感的 plain string，不做 Unicode normalization；允许内部空格，去除首尾 whitespace。
+  leaf scalar 的全部 rest 是一个标签；多个标签使用 direct leaf + sequence，每项完整 plain content 是一个标签。
+  anonymous group 与 unmarked inline verbatim 可用于 plain value；marked rich inline、空值、非 + children、nested children
+  或重复 tags property 使该 owner 的整个标签集合无效，不保留部分有效标签。同 owner 重复标签按首次出现顺序去重。
+  带 children 的 property 使用完整 head 作为 key，tags other 不是 tags。声明不进入 rendered body 或 task/event details。
+
+  `plumb"
+   `= tags
+    `+ journal
+   `- 修复折叠
+    `= tags
+     `+ neovim
+     `+ debugging
+    `- 阅读帮助
+   `- 跑步
+    `= tags exercise
+
+  标签仅属于显式声明的 owner；journal 不传给条目，neovim 不传给 child，不合并到文档自身标签。
+  subtree 汇总只是查询：返回范围内的带标签 owner 及其来源，不修改任何节点的标签。结构范围由缩进 ownership
+  决定，不按 heading level 扩展 section。整个文档汇总包含 document owner 与全部 block owners。
+  无 explicit id 的节点仍可定位，返回当前 revision 的 owner range、selection range、title 与 optional id；
+  byte offset 只在该 revision 有效，长期链接仍使用显式 anchor。tags 不创建 facet、task、event-category、主题文档或引用边。
+
+  Pandoc export 保留 document tags metadata；block tags 投影为 owner attribute data-plumb-tags，其值是 JSON string array。
+  不把 tags 当 CSS classes，也不把 + sequence 当正文。无 attribute slot 的 owner 使用局部 Div wrapper；task 使用
+  既有 title Span，list/definition 使用既有 attribute wrapper。import 将该 attribute 恢复为 tags sequence，非法 JSON
+  或空/非 string label 拒绝。此 portable projection 不保证 writer 会显示标签，也不赋予 inline tags 新语义。
+
+ `# 5.2 Document facets and tasks target contract
 
   文档 facet、task、引用、编辑与适配层遵循以下统一契约。
 
