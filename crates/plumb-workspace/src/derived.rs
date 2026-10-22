@@ -8,17 +8,20 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DerivedState {
     pub duration: crate::agenda::DurationCache,
+    pub tags: crate::tags::TagIndex,
     pub completion: crate::completion_index::LinkCompletionIndex,
 }
 impl DerivedState {
     pub fn document_changed(&mut self, path: std::path::PathBuf) {
         self.duration.changed(path.clone());
+        self.tags.changed(path.clone());
         self.completion.changed(path);
     }
     pub fn fork(&self) -> Self {
         Self {
             duration: self.duration.fork(),
             completion: self.completion.fork(),
+            tags: self.tags.fork(),
         }
     }
 }

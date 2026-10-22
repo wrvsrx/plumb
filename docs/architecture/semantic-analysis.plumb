@@ -638,3 +638,43 @@
  section recognition 只读有效 owner marker、direct facet declarations 与结构 children。section depth 不读 siblings 或 preceding headings；local semantic shard 保存完整 section 子树及 owner range。root reducer 只按 source order 拼接并平移含 heading 的 shard outputs，不推断跨 shard section ends。普通容器只转发 section children。table structural rows/cells 不获得 section role。失效/恢复只替换 changed shard facts， 删除会撤回对应 section。相同 value inputs 停止 semantic 传播；geometry-only 更新重新绑定 ranges。 cold bootstrap 可枚举全部 shards；warm reads 复用发布的 outline，local update 的 section 工作只与 changed shard 与实际输出的 heading 数量有关，不额外扫描不含 heading 的 unrelated shards。 folding、document symbols、anchor kind、export 共享该 ownership；recovered folding 仅投影健康有效区域。 completion 在 list prefix 提供 Section 模板，插入单个 # 的 section head，正文另起缩进行。 验证覆盖 nested/ordinary container、同级边界、facet 增删、geometry、invalid/recovery、旧 snapshot、 fresh/incremental parity 与 unrelated data growth 的 deterministic work counts。
 
  `"#" 与 list item 的 direct section facet 使用同一 structural section predicate；`"|" table 消费 row/cell。marker 与 direct facet 的变化是 document-local value dependency；沿用相同 section topology、table record、anchor/category/task/event 的增量 invalidation 与 work bounds。
+
+`# Tags: local facts and indexed queries
+
+ 实现状态：待实现并验证。
+
+ 输入是当前有效区域中的 direct tags properties、owner title/id 与 source geometry。block tags 在 immutable green shard
+ 内提取并复用，document tags 作为 metadata reducer 跨 root shards 判重；标签不进入 Event context key。
+ 语法错误声明阻止该 owner 的旧标签复用，健康 siblings 继续参与；pending document 撤回贡献，查询显式 Partial。
+ 无效标签集合不产生 membership，同时发布 tags.invalid-value 或 tags.duplicate-property Warning。
+
+ Workspace 维护 path 到当前 revision/tag owners、tag 到 owner identities 的反向索引及 pending paths。
+ owner identity 是 normalized path、document/block kind 与当前 range start；不把它当作跨 revision 的持久 anchor。
+ 更新以 source document 为单位替换贡献：先撤回旧值、再插入新值；相等 membership 不传播，geometry/revision 单独更新。
+ 新增、修改、删除、overlay open/change/close 由统一 lifecycle dirty paths 驱动。没有目标解析或标签层级依赖；
+ 不存在的标签是完整空集合，第一次加入它的贡献即使此前查询为空也立即可见。
+
+ cold bootstrap / explicit store identity change 可枚举全部 tag facts。warm read 只同步 dirty paths 与数据库按 sequence
+ 索引返回的 changed identities；按 path 索引读取这些文档的 tag records。每次 read 不枚举 workspace documents。
+ 共享查询提供 exact-tag bounded owner page、bounded lexicographic vocabulary prefix page 和 document-local scope query。
+ 分页按 normalized path、document/block kind、start 排序；cursor 绑定索引 generation，更新后拒绝旧 cursor。
+ 文档汇总只检查该 document 的 facts，返回 source owners；不存在自动继承或把汇总赋给祖先的写入。
+
+ 索引使用 immutable persistent collections，snapshot fork 不共享 mutable publication。同步在临时状态完成后原子发布，
+ store transaction 保证 change cursor 与 records 同 generation；store failure 返回错误，不发布一半贡献。
+ QueryResult 保留 provenance/completeness，page 保留 generation；source revision 随每条结果返回。
+ Warm 成本为 changed-document facts 加 requested output（以及 logarithmic index lookup），不随无关文档数线性增长。
+ 测试固定 repeat read、equal values、unrelated edit/data growth、local change、geometry、deletion、negative lookup recovery、
+ invalid/pending overlay、close restoration、snapshot isolation、cold parity 与 SQLite indexed plans 的 deterministic work counts。
+
+ CLI plumb tag 提供 vocabulary、exact membership 与 document/subtree inspection；CLI 仅格式化共享结果，不重建语义。
+ LSP tag value completion 消费相同 vocabulary index，recovered context 与 byte edit 由共享层提供。
+ 每次最多返回 100 个 prefix candidates；更多候选、pending semantics 或未完成 workspace index 使用标准
+ CompletionList.isIncomplete，不能把截断结果当完整集合。plain scalar 与直接 + item 的完整当前值被替换，
+ 只支持不含 envelope 的 plain prefix；已有 grouped/raw value 不猜测 source mapping。属性名补全覆盖 document
+ 与任意 parsed block，跨 root shards 判重且不进入 declaration payload。grouped/raw 标签仍可正常手工编辑。
+
+ CLI vocabulary/exact membership 默认最多 100 条，可 --limit 1..1000，JSON/text 都显式报告截断。
+ --document 返回该文档全部 tagged owners，--scope START:END 返回其中完整包含于 UTF-8 byte range 的 block owners。
+ 输出 JSON 包含 source revision、owner/selection range、optional id 与完整 direct tags；不把 CLI 字符位置当长期身份。
+ --query 不适用于 tag 子命令；tag query 与现有 note/task/event CEL schema 分离。

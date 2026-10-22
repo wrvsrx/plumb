@@ -10,6 +10,38 @@ use crate::{
 const EVENT_TITLE_COMPLETION_LIMIT: usize = 50;
 
 impl Workspace {
+    pub fn complete_tag(
+        &self,
+        context: &plumb_semantics::TagCompletionContext,
+    ) -> Result<QueryResult<Vec<CompletionCandidate>>, WorkspaceQueryError> {
+        let page = self
+            .query_tag_values(&context.query, 100)
+            .map_err(|e| match e {
+                crate::TagQueryError::Workspace(e) => e,
+                _ => unreachable!("fixed valid completion limit"),
+            })?;
+        Ok(QueryResult {
+            completeness: if page.value.has_more {
+                crate::QueryCompleteness::Partial
+            } else {
+                page.completeness
+            },
+            provenance: page.provenance,
+            value: page
+                .value
+                .values
+                .into_iter()
+                .filter(|v| v != &context.query)
+                .map(|value| CompletionCandidate {
+                    new_text: plumb_edit::render_authored_text_arguments(&[value.as_str()]),
+                    label: value,
+                    detail: "tag".into(),
+                    replace: context.replace.clone(),
+                })
+                .collect(),
+        })
+    }
+
     pub fn complete_event_category(
         &self,
         context: &plumb_semantics::EventCategoryCompletionContext,

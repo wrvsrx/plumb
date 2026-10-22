@@ -1,4 +1,4 @@
-use schema::category_values;
+use schema::{category_values, tag_owners};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::ops::Range;
@@ -131,7 +131,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 27;
+const SCHEMA_VERSION: i64 = 28;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -474,6 +474,65 @@ impl SqliteSemanticStore {
                 }
             }
             Ok((current_identity, sequence, rebuild, rows))
+        })
+    }
+
+    /// Atomically read the change clock and only changed/requested document contributions.
+    pub(crate) fn tag_contributions_since(
+        &self,
+        identity: Option<&[u8]>,
+        after: i64,
+        requested: &[PathBuf],
+    ) -> StoreResult<crate::tags::StoredTagChanges> {
+        use schema::{generation_changes as changes, generation_clock as clock};
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        connection.transaction::<_, StoreError, _>(|connection| {
+            let (current_identity, sequence) = clock::table
+                .select((clock::identity, clock::sequence))
+                .first::<(Vec<u8>, i64)>(connection)?;
+            let rebuild = identity != Some(current_identity.as_slice()) || after > sequence;
+            let mut paths = if rebuild {
+                // Bootstrap may enumerate; warm reads below must use the sequence index.
+                documents::table
+                    .select(documents::path)
+                    .load::<Vec<u8>>(connection)?
+            } else {
+                changes::table
+                    .filter(changes::sequence.gt(after))
+                    .order(changes::sequence)
+                    .select(changes::path)
+                    .load::<Vec<u8>>(connection)?
+            }
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+            paths.extend(requested.iter().map(|p| path_bytes(p)));
+            let mut contributions = Vec::new();
+            for path in paths {
+                let revision = documents::table
+                    .filter(documents::path.eq(&path))
+                    .select(documents::revision)
+                    .first::<i64>(connection)
+                    .optional()?;
+                let records = tag_owners::table
+                    .filter(tag_owners::path.eq(&path))
+                    .order((tag_owners::owner_kind, tag_owners::start))
+                    .select(tag_owners::record)
+                    .load::<Vec<u8>>(connection)?;
+                let owners = records
+                    .into_iter()
+                    .map(|b| Ok(bincode::deserialize(&b)?))
+                    .collect::<StoreResult<Vec<_>>>()?;
+                contributions.push((path_from_bytes(path)?, revision, owners));
+            }
+            Ok(crate::tags::StoredTagChanges {
+                identity: current_identity,
+                sequence,
+                rebuild,
+                contributions,
+            })
         })
     }
 
@@ -1906,6 +1965,20 @@ fn insert_output(
     output: &DocumentOutput,
 ) -> StoreResult<()> {
     let encoded_path = path_bytes(path);
+    for owner in output.tagged_owners() {
+        diesel::insert_into(tag_owners::table)
+            .values((
+                tag_owners::path.eq(&encoded_path),
+                tag_owners::owner_kind.eq(if owner.owner == plumb_semantics::TagOwner::Document {
+                    0
+                } else {
+                    1
+                }),
+                tag_owners::start.eq(to_i64(owner.range.start)?),
+                tag_owners::record.eq(encode(&owner)?),
+            ))
+            .execute(connection)?;
+    }
     for value in output.event_category_values() {
         diesel::insert_into(category_values::table)
             .values((category_values::path.eq(&encoded_path), category_values::value.eq(value)))
@@ -2149,7 +2222,9 @@ fn task_reference(source_path: &Path, reference: &TaskDependency) -> Option<Stor
 
 fn delete_document_rows(connection: &mut SqliteConnection, path: &Path) -> StoreResult<()> {
     let path = path_bytes(path);
-    diesel::delete(category_values::table.filter(category_values::path.eq(&path))).execute(connection)?;
+    diesel::delete(tag_owners::table.filter(tag_owners::path.eq(&path))).execute(connection)?;
+    diesel::delete(category_values::table.filter(category_values::path.eq(&path)))
+        .execute(connection)?;
     diesel::delete(anchors::table.filter(anchors::path.eq(&path))).execute(connection)?;
     diesel::delete(links::table.filter(links::path.eq(&path))).execute(connection)?;
     diesel::delete(semantic_references::table.filter(semantic_references::source_path.eq(&path)))
@@ -2169,6 +2244,7 @@ fn delete_document_rows(connection: &mut SqliteConnection, path: &Path) -> Store
 }
 
 fn clear_records(connection: &mut SqliteConnection) -> StoreResult<()> {
+    diesel::delete(tag_owners::table).execute(connection)?;
     diesel::delete(category_values::table).execute(connection)?;
     diesel::delete(anchors::table).execute(connection)?;
     diesel::delete(links::table).execute(connection)?;
@@ -3381,5 +3457,67 @@ mod generation_change_tests {
         assert!(plan.iter().any(|p| p
             .detail
             .contains("SEARCH generation_changes USING INDEX generation_changes_sequence")));
+    }
+}
+
+#[cfg(test)]
+mod tag_store_tests {
+    use super::*;
+    #[derive(QueryableByName)]
+    struct Plan {
+        #[diesel(sql_type = Text)]
+        detail: String,
+    }
+    #[test]
+    fn tag_refresh_uses_change_and_document_identity_indexes() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut connection = store.connection.lock().unwrap();
+        for (query, expected) in [
+            ("EXPLAIN QUERY PLAN SELECT path FROM generation_changes WHERE sequence > 5 ORDER BY sequence", "generation_changes_sequence"),
+            ("EXPLAIN QUERY PLAN SELECT record FROM tag_owners WHERE path = x'61' ORDER BY owner_kind, start", "sqlite_autoindex_tag_owners_1"),
+        ] {
+            let plan = diesel::sql_query(query).load::<Plan>(&mut *connection).unwrap();
+            assert!(plan.iter().any(|p| p.detail.contains("SEARCH") && p.detail.contains(expected)));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tag_failure_tests {
+    use super::*;
+    #[test]
+    fn tag_refresh_failure_does_not_publish_partial_contributions_or_advance_cursor() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut workspace = crate::Workspace::with_sqlite_store(store.clone());
+        workspace
+            .insert_disk("a.plumb", 1, "`= tags old\n")
+            .unwrap();
+        assert_eq!(
+            workspace.query_tag_values("", 10).unwrap().value.values,
+            ["old"]
+        );
+        let snapshot = workspace.with_updated_store(store.readonly_snapshot().unwrap());
+        workspace
+            .insert_disk("a.plumb", 2, "`= tags new\n")
+            .unwrap();
+        workspace
+            .insert_disk("b.plumb", 2, "`= tags other\n")
+            .unwrap();
+        let path = path_bytes(Path::new("b.plumb"));
+        diesel::update(tag_owners::table.filter(tag_owners::path.eq(&path)))
+            .set(tag_owners::record.eq(vec![255u8]))
+            .execute(&mut *store.connection.lock().unwrap())
+            .unwrap();
+        assert!(workspace.query_tag_values("", 10).is_err());
+        assert_eq!(
+            snapshot.query_tag_values("", 10).unwrap().value.values,
+            ["old"]
+        );
+        workspace.remove_disk("b.plumb").unwrap();
+        assert_eq!(
+            workspace.query_tag_values("", 10).unwrap().value.values,
+            ["new"]
+        );
+        assert_eq!(workspace.tag_query_work().documents_read, 2);
     }
 }

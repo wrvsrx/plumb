@@ -163,3 +163,12 @@ diesel::table! {
         sequence -> BigInt,
     }
 }
+
+diesel::table! {
+    tag_owners (path, owner_kind, start) {
+        path -> Binary,
+        owner_kind -> Integer,
+        start -> BigInt,
+        record -> Binary,
+    }
+}
