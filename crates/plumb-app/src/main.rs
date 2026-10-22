@@ -31,7 +31,7 @@ fn main() -> ExitCode {
         }
         Some("check") => plumb_notes::run_check_cli(delegated_args("plumb check", rest)),
         Some("site") => plumb_web::run_site_cli(delegated_args("plumb site", rest)),
-        Some("note" | "task" | "event") => {
+        Some("note" | "task" | "event" | "tag") => {
             let mut delegated = vec![OsString::from("plumb"), command];
             delegated.extend(rest);
             plumb_notes::run_cli(delegated)
@@ -67,6 +67,6 @@ fn wants_help(args: &[OsString]) -> bool {
 
 fn print_help() {
     println!(
-        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  cache               Inspect or prune semantic caches\n  check               Check a workspace\n  event               Export calendar events\n  fmt                 Format documents\n  export              Emit Pandoc JSON\n  import              Read Pandoc JSON\n  note                Query notes\n  site                Serve a workspace Web app\n  task                Query or update tasks\n  lsp                 Run the language server\n  help                Print this help"
+        "Strict plumb markup language and tooling\n\nUsage: plumb <COMMAND>\n\nCommands:\n  cache               Inspect or prune semantic caches\n  check               Check a workspace\n  event               Export calendar events\n  fmt                 Format documents\n  export              Emit Pandoc JSON\n  import              Read Pandoc JSON\n  note                Query notes\n  site                Serve a workspace Web app\n  tag                 Query explicit owner tags\n  task                Query or update tasks\n  lsp                 Run the language server\n  help                Print this help"
     );
 }

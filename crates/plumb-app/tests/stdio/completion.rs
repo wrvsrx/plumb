@@ -1288,3 +1288,40 @@ fn link_snippet_selection_replacement_returns_chinese_paths_on_first_request() {
     assert_eq!(completed, "`->{三角洲.plumb}");
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn tags_complete_node_values_with_utf16_locations_and_property_names() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("vocabulary.plumb"),
+        "`= tags\n `+ 中文 标签\n `+ neovim\n",
+    )
+    .unwrap();
+    let source = "`- 😀\n `= tags 中\n`- Other\n `= ta\n";
+    let path = root.join("current.plumb");
+    std::fs::write(&path, source).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
+    let uri = lsp_types::Url::from_file_path(&path).unwrap();
+    let output = run_server_after_initial_index(&[
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":root_uri,"capabilities":{}}}),
+        json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"plumb","version":1,"text":source}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":uri},"position":{"line":1,"character":10}}}),
+        json!({"jsonrpc":"2.0","id":3,"method":"textDocument/completion","params":{"textDocument":{"uri":uri},"position":{"line":3,"character":6}}}),
+        json!({"jsonrpc":"2.0","id":99,"method":"shutdown","params":null}),
+        json!({"jsonrpc":"2.0","method":"exit","params":null}),
+    ]);
+    let result = &response(&output, 2)["result"];
+    assert_eq!(result["isIncomplete"], false);
+    let items = result["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["label"], "中文 标签");
+    assert_eq!(
+        items[0]["textEdit"]["range"],
+        json!({"start":{"line":1,"character":9},"end":{"line":1,"character":10}})
+    );
+    let property = response(&output, 3)["result"].as_array().unwrap();
+    assert!(property.iter().any(|i| i["label"] == "tags"));
+    std::fs::remove_dir_all(root).unwrap();
+}

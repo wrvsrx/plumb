@@ -353,6 +353,12 @@ pub struct OwnedDeclaration {
     pub value: OwnedDeclarationValue,
 }
 
+/// Render a validated declaration fragment for authoring/import consumers.
+/// The edit layer owns sequence indentation, escaping, and strict validation.
+pub fn render_authored_declaration(declaration: OwnedDeclaration) -> Result<String, EditError> {
+    declaration.into_block()?.format()
+}
+
 impl OwnedDeclaration {
     pub fn scalar(key: impl Into<String>, value: impl Into<String>) -> Self {
         Self {
@@ -4934,6 +4940,36 @@ mod apply_tests {
                 }],
             ),
             Err(EditError::InvalidRange)
+        );
+    }
+}
+
+#[cfg(test)]
+mod tag_authoring_tests {
+    #[test]
+    fn sequence_fragment_owns_escaping_indentation_and_strict_validation() {
+        let source = super::render_authored_declaration(super::OwnedDeclaration::sequence(
+            "tags",
+            ["中文 标签", "a{b}", "tick`"],
+        ))
+        .unwrap();
+        let parsed = plumb_syntax::parse(&source);
+        assert!(parsed.is_valid());
+        let super::OwnedDeclarationValue::Sequence(values) = super::OwnedBlock::marked("-", "Item")
+            .with_children(vec![super::OwnedBlock::from_syntax(
+                &source,
+                &parsed.syntax.blocks[0],
+            )])
+            .declaration("tags")
+            .unwrap()
+            .value
+        else {
+            panic!("sequence")
+        };
+        assert_eq!(values, ["中文 标签", "a{b}", "tick`"]);
+        assert!(
+            super::render_authored_declaration(super::OwnedDeclaration::sequence("tags", [""]))
+                .is_err()
         );
     }
 }

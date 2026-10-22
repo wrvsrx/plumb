@@ -69,7 +69,7 @@ fn exposes_the_unified_command_surface() {
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
     for command in [
-        "cache", "check", "event", "fmt", "export", "import", "note", "site", "task", "lsp",
+        "cache", "check", "event", "fmt", "export", "import", "note", "site", "tag", "task", "lsp",
     ] {
         assert!(help.contains(command));
     }
@@ -1508,4 +1508,95 @@ fn ongoing_events_warn_without_failing_check_or_entering_summary() {
     }
     assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn tags_cli_queries_explicit_owners_and_document_summary_with_cache_parity() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("day.plumb"),
+        "`= tags journal\n`- Parent\n `= tags neovim\n `- Untagged\n`- Other\n `= tags exercise\n",
+    )
+    .unwrap();
+    for cache in [false, true] {
+        let run = |args: &[&str]| {
+            let mut cmd = plumb_command();
+            cmd.arg("tag")
+                .arg("--root")
+                .arg(&root)
+                .arg("--json")
+                .args(args)
+                .env("PLUMB_CACHE_DIR", root.join("cache"));
+            if !cache {
+                cmd.arg("--no-cache");
+            }
+            let result = cmd.output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            serde_json::from_slice::<serde_json::Value>(&result.stdout).unwrap()
+        };
+        let first = run(&["neovim"]);
+        assert_eq!(first["items"].as_array().unwrap().len(), 1);
+        assert_eq!(first["items"][0]["record"]["title"], "Parent");
+        assert_eq!(first["items"][0]["path"], "day.plumb");
+        assert_eq!(first["complete"], true);
+        assert_eq!(
+            run(&["--document", "day.plumb"])["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(
+            run(&["--prefix", "n"])["values"],
+            serde_json::json!(["neovim"])
+        );
+        assert_eq!(run(&["Neovim"])["items"], serde_json::json!([]));
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn tags_export_keeps_classification_out_of_body_and_preserves_roundtrip() {
+    for source in [
+        "`= tags\n `+ journal\n`- Parent\n `= tags\n  `+ neovim\n  `+ multi word\n `- Untagged\n",
+        "`# Heading\n `= tags\n  `+ heading\n",
+        "`- Task\n `+ task\n `= tags\n  `+ task-label\n  `+ second\n",
+        "Paragraph\n `= tags\n  `+ anonymous\n",
+        "`> Quote\n `= tags quotation\n",
+        "`- 2026-10-23T10:00:00Z Meeting\n `+ event\n `= tags calendar\n",
+        "`: Term Meaning\n `= tags dictionary\n",
+        "`|\n `= tags table\n `- One Two\n  `= tags row\n",
+        "`|\n `-\n\n  Cell\n   `= tags cell\n",
+    ] {
+        let exported = run_with_stdin(&["export"], source);
+        assert!(
+            exported.status.success(),
+            "{}",
+            String::from_utf8_lossy(&exported.stderr)
+        );
+        let value: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
+        assert!(value["blocks"].to_string().contains("data-plumb-tags"));
+        let imported = run_with_stdin(&["import"], std::str::from_utf8(&exported.stdout).unwrap());
+        assert!(
+            imported.status.success(),
+            "{}",
+            String::from_utf8_lossy(&imported.stderr)
+        );
+        let source2 = std::str::from_utf8(&imported.stdout).unwrap();
+        let parsed = plumb_syntax::parse(source);
+        let parsed2 = plumb_syntax::parse(source2);
+        let tags = |p: &plumb_syntax::ParsedDocument| {
+            plumb_semantics::analyze_document(p.valid_syntax().unwrap())
+                .tagged_owners()
+                .into_iter()
+                .map(|o| o.tags.values)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(tags(&parsed), tags(&parsed2), "{source2}");
+    }
 }

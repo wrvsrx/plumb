@@ -2256,6 +2256,27 @@ impl LanguageServer for ServerState {
         if let Ok(path) = position.text_document.uri.to_file_path() {
             if let Some(entry) = self.workspace.get(&path) {
                 let offset = position_to_offset(entry.parsed.source(), position.position);
+                if let Some(context) =
+                    plumb_semantics::green_tag_completion_context(entry.parsed.green(), offset)
+                {
+                    let result = self
+                        .workspace
+                        .complete_tag(&context)
+                        .map(|result| {
+                            let is_incomplete =
+                                !result.is_complete() || self.require_index_complete().is_err();
+                            Some(CompletionResponse::List(lsp_types::CompletionList {
+                                is_incomplete,
+                                items: completion_items(
+                                    entry.parsed.source(),
+                                    result.value,
+                                    CompletionItemKind::VALUE,
+                                ),
+                            }))
+                        })
+                        .map_err(workspace_query_response_error);
+                    return Box::pin(async move { result });
+                }
                 if construct_completion_context(entry.parsed.green(), offset).is_none() {
                     if let Some(context) = link_completion_context(entry.parsed.green(), offset) {
                         return self.request_link_completion(path, context);

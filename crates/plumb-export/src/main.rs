@@ -207,6 +207,31 @@ fn lower_block_refs(blocks: &[&Block], analysis: &DocumentOutput) -> Vec<Value> 
     output
 }
 
+fn owner_attrs(block: &ParsedBlock, attrs: Value) -> Value {
+    let tags = plumb_semantics::TagSet::from_blocks(&block.children);
+    if tags.values.is_empty() {
+        return attrs;
+    }
+    let mut attrs = attrs;
+    let pairs = attrs[2].as_array_mut().expect("Pandoc attributes");
+    pairs.retain(|pair| pair[0] != "tags" && pair[0] != "data-plumb-tags");
+    pairs.push(json!([
+        "data-plumb-tags",
+        serde_json::to_string(&tags.values).expect("tags JSON")
+    ]));
+    attrs
+}
+
+fn has_owner_attrs(block: &ParsedBlock) -> bool {
+    block
+        .mark
+        .as_ref()
+        .is_some_and(|m| !m.attrs.items.is_empty())
+        || !plumb_semantics::TagSet::from_blocks(&block.children)
+            .values
+            .is_empty()
+}
+
 fn lower_definition_list(
     blocks: &[&Block],
     definitions: &plumb_semantics::DefinitionList,
@@ -227,10 +252,10 @@ fn lower_definition_list(
                     json!({ "t": "Para", "c": lower_inlines(inline_body, analysis) }),
                 );
             }
-            if !mark.attrs.items.is_empty() {
+            if has_owner_attrs(block) {
                 body = vec![json!({
                     "t": "Div",
-                    "c": [lower_attrs(&mark.attrs, None), body],
+                    "c": [owner_attrs(block, lower_attrs(&mark.attrs, None)), body],
                 })];
             }
             json!([lower_inlines(&definition.term, analysis), [body],])
@@ -264,7 +289,7 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
                 }
                 title.push(json!({
                     "t": "Span",
-                    "c": [lower_task_attrs(&mark.attrs), inlines],
+                    "c": [owner_attrs(block, lower_task_attrs(&mark.attrs)), inlines],
                 }));
                 contents.push(json!({ "t": "Para", "c": title }));
             } else if !block.content.is_empty() {
@@ -272,14 +297,14 @@ fn lower_list_group(blocks: &[&Block], group: &ListGroup, analysis: &DocumentOut
             }
             contents.extend(lower_body(block, analysis));
             if task.is_some()
-                || (event.is_some() && !has_unconsumed_facet_attrs(&mark.attrs, "event"))
-                || mark.attrs.items.is_empty()
+                || (event.is_some() && !has_unconsumed_facet_attrs(&mark.attrs, "event") && plumb_semantics::TagSet::from_blocks(&block.children).values.is_empty())
+                || !has_owner_attrs(block)
             {
                 contents
             } else {
                 vec![json!({
                     "t": "Div",
-                    "c": [if event.is_some() { lower_event_attrs(&mark.attrs) } else { lower_attrs(&mark.attrs, None) }, contents],
+                    "c": [owner_attrs(block, if event.is_some() { lower_event_attrs(&mark.attrs) } else { lower_attrs(&mark.attrs, None) }), contents],
                 })]
             }
         })
@@ -319,7 +344,7 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         let attrs = &block.mark.as_ref().expect("heading has mark").attrs;
         output.push(json!({
             "t": "Header",
-            "c": [heading.level, lower_facet_attrs(attrs, "section"), lower_inlines(&block.content, analysis)],
+            "c": [heading.level, owner_attrs(block, lower_facet_attrs(attrs, "section")), lower_inlines(&block.content, analysis)],
         }));
         output.extend(lower_body(block, analysis));
         return;
@@ -336,10 +361,10 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
             contents.push(json!({ "t": "Para", "c": lower_inlines(&block.content, analysis) }));
         }
         contents.extend(lower_body(block, analysis));
-        if !mark.attrs.items.is_empty() {
+        if has_owner_attrs(block) {
             contents = vec![json!({
                 "t": "Div",
-                "c": [lower_attrs(&mark.attrs, None), contents],
+                "c": [owner_attrs(block, lower_attrs(&mark.attrs, None)), contents],
             })];
         }
         output.push(json!({ "t": "BlockQuote", "c": contents }));
@@ -354,11 +379,19 @@ fn lower_parsed_block(block: &ParsedBlock, analysis: &DocumentOutput, output: &m
         contents.extend(lower_body(block, analysis));
         output.push(json!({
             "t": "Div",
-            "c": [lower_attrs(&mark.attrs, (mark.marker != "()").then_some(mark.marker.as_str())), contents],
+            "c": [owner_attrs(block, lower_attrs(&mark.attrs, (mark.marker != "()").then_some(mark.marker.as_str()))), contents],
         }));
     } else {
-        output.push(json!({ "t": "Para", "c": lower_inlines(&block.content, analysis) }));
-        output.extend(lower_body(block, analysis));
+        let mut contents =
+            vec![json!({ "t": "Para", "c": lower_inlines(&block.content, analysis) })];
+        contents.extend(lower_body(block, analysis));
+        if has_owner_attrs(block) {
+            output.push(
+                json!({"t": "Div", "c": [owner_attrs(block, json!(["", [], []])), contents]}),
+            );
+        } else {
+            output.extend(contents);
+        }
     }
 }
 
@@ -394,7 +427,7 @@ fn lower_table(block: &ParsedBlock, table: &TableRecord, analysis: &DocumentOutp
     json!({
         "t": "Table",
         "c": [
-            lower_attrs(&mark.attrs, None),
+            owner_attrs(block, lower_attrs(&mark.attrs, None)),
             caption,
             colspecs,
             [["", [], []], rows[..header_count]],
@@ -413,6 +446,7 @@ fn lower_table_row(
         || json!(["", [], []]),
         |mark| lower_table_attrs(&mark.attrs),
     );
+    let attrs = owner_attrs(row, attrs);
     let cells = if record.compact {
         owner_semantic_view(&row.content)
             .positional
@@ -438,8 +472,15 @@ fn lower_table_row(
                     Block::Verbatim(_) => Attributes::default(),
                 };
                 let blocks = lower_block_refs(&[cell], analysis);
+                // The rendered content already carries the original owner's tags.
+                // The Pandoc cell is a structural wrapper, not another tagged owner.
+                let mut attrs = lower_table_attrs(&attrs);
+                attrs[2]
+                    .as_array_mut()
+                    .expect("Pandoc attributes")
+                    .retain(|pair| pair[0] != "tags" && pair[0] != "data-plumb-tags");
                 json!([
-                    lower_table_attrs(&attrs),
+                    attrs,
                     { "t": "AlignDefault" },
                     1,
                     1,

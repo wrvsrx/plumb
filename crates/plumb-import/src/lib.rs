@@ -874,6 +874,19 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
         if consumed_pair == Some(key.as_str()) {
             continue;
         }
+        if key == "data-plumb-tags" {
+            let tags: Vec<String> = serde_json::from_str(value)
+                .map_err(|_| "data-plumb-tags must be a JSON string array")?;
+            if tags.is_empty() || tags.iter().any(|v| v.trim().is_empty()) {
+                return Err("data-plumb-tags labels must be nonempty".into());
+            }
+            let declaration = plumb_edit::render_authored_declaration(
+                plumb_edit::OwnedDeclaration::sequence("tags", tags),
+            )
+            .map_err(|_| "cannot render tags declaration")?;
+            items.push(declaration.trim_end().to_owned());
+            continue;
+        }
         require_attr_name(key, "attribute key")?;
         let value = if value.is_empty() {
             "`\"\"".to_string()
@@ -1368,5 +1381,28 @@ mod tests {
         assert!(source.contains("`\"\n raw"), "{source}");
         let parsed = plumb_syntax::parse(&source);
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
+    }
+}
+
+#[cfg(test)]
+mod tag_tests {
+    use super::*;
+    #[test]
+    fn imported_tag_attribute_rejects_malformed_or_empty_labels() {
+        for value in [
+            "not JSON",
+            "[]",
+            "[1]",
+            "[null]",
+            "[\" \"]",
+            "[\"good\", \"\"]",
+        ] {
+            let attrs = Attr {
+                identifier: String::new(),
+                classes: Vec::new(),
+                attributes: vec![("data-plumb-tags".into(), value.into())],
+            };
+            assert!(render_attrs(&attrs, None).is_err(), "{value}");
+        }
     }
 }

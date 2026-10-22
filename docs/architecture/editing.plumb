@@ -199,3 +199,9 @@
  历史 hash heading 转 section 是显式一次性 migration，不是 parser 自动兼容。plumb-edit 接受当前 ParsedDocument，在 edit layer 内拥有 source-backed syntax structure 并转换每个 sibling sequence：按旧 hash level 收纳后继 siblings， 把 heading marker 改成单个 `"#"。原 children、id、声明、inline source spelling 与 verbatim payload 保留；raw 中的示例不作为可执行 heading 转换。level 跳级按实际 section 祖先 规范化，迁移后的 level 由实际祖先数决定。调用端只读取文件、请求 migration、应用返回 edits；不自行生成缩进。 操作拒绝无效 syntax，重新验证结果；没有变化时不改文件。migration 同时将旧 table marker 改为 `"|"。独立 canonical marker conversion 只把显式 section item 转成 `"#"（移除对应 direct leaf section declaration），并转换旧 table；不会按 hash 吸收后继 siblings，可安全用于当前结构文档。canonical conversion 保留 table 的结构 row/cell marker 及其 section facet，只转换 cell body；document declarations 与 property data 不参与结构 marker 转换。旧 heading migration 仅运行一次，不用于格式化新文档。外部 notebook 迁移只处理公开 `".plumb" 文件，遵守 notebook 的排除目录，并在迁移前保存可恢复备份。
 
  迁移将 interleaved document declarations 按原相对顺序集中到文档开头，避免 root metadata/facets 被收纳为 section declarations。Pandoc importer 使用在输入中不存在的专用 marker prefix，向 plumb-edit 请求无六级限制的 heading intermediate 转换；只有专用 marker 参与 heading 收纳；generic 多 hash owner 不参与转换。该中间文本不是用户格式，也不由普通 parser 自动兼容。metadata 中的 block sequence 同样验证可表达的 section ancestry。
+
+`# Tags portability fragments
+
+ Pandoc import 的标签 attribute 交给 plumb-edit::render_authored_declaration，输入 OwnedDeclaration::sequence。
+ 该纯 authored-fragment renderer 负责生成并验证完整 declaration block；import adapter 复用现有 block attributes
+ 插入边界，不自行拼 tags sequence、转义 label 或计算其内部缩进。此入口不授权修改 recovered invalid source。

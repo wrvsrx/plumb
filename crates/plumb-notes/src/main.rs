@@ -13,6 +13,7 @@ mod agenda;
 mod checks;
 mod events;
 mod interactive;
+mod tags;
 mod tasks;
 
 use interactive::{handle_interactive_action, run_interactive};
@@ -75,6 +76,14 @@ fn run(config: Config) -> Result<u8, String> {
     let root = resolve_workspace_root(config.root.as_deref())?;
     let mut loaded = load_command_workspace(&root, config.no_cache, config.cache_stats)?;
     match config.command {
+        Command::Tag(options) => {
+            if config.query.is_some() {
+                return Err(
+                    "tag uses LABEL, --prefix, or --document; --query is not supported".into(),
+                );
+            }
+            tags::run(&root, &loaded, &options)?;
+        }
         Command::Note(note) => {
             let selected_paths = loaded
                 .workspace
@@ -219,12 +228,36 @@ enum CheckLevel {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// List tag vocabulary or locate explicitly tagged owners.
+    Tag(TagConfig),
     /// Filter plumb note files under the scanned directory.
     Note(NoteConfig),
     /// Print tasks found in scanned plumb files.
     Task(TaskConfig),
     /// Query, account, and export events.
     Event(EventConfig),
+}
+
+#[derive(Debug, Args)]
+struct TagConfig {
+    /// Exact case-sensitive label. Without a label, list vocabulary.
+    #[arg(conflicts_with_all = ["prefix", "document"])]
+    label: Option<String>,
+    /// Literal prefix for vocabulary lookup.
+    #[arg(long, conflicts_with = "document")]
+    prefix: Option<String>,
+    /// Show explicit tags on the document and its contained nodes.
+    #[arg(long)]
+    document: Option<PathBuf>,
+    /// Restrict --document to fully contained block owners (UTF-8 byte START:END).
+    #[arg(long, requires = "document")]
+    scope: Option<String>,
+    /// Maximum vocabulary/membership results (1-1000).
+    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u16).range(1..=1000))]
+    limit: u16,
+    /// Print machine-readable owners, source ranges, revisions, and completeness.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
