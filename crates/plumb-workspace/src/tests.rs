@@ -8,26 +8,53 @@ fn document_task_patch_preserves_body_and_checks_document_dependency_cycles() {
     let mut workspace = Workspace::new();
     workspace.insert("doc.plumb", 1, source);
     let task = workspace.document_task("doc.plumb").unwrap();
-    let edit = workspace.update_task_patch("doc.plumb", task.range.clone(), &TaskAuthoringPatch {
-        title: Some("Updated".into()),
-        due: Some(Some("2026-09-22T10:00:00+08:00".into())),
-        ..Default::default()
-    }, "2026-09-21T10:00:00+08:00").unwrap();
+    let edit = workspace
+        .update_task_patch(
+            "doc.plumb",
+            task.range.clone(),
+            &TaskAuthoringPatch {
+                title: Some("Updated".into()),
+                due: Some(Some("2026-09-22T10:00:00+08:00".into())),
+                ..Default::default()
+            },
+            "2026-09-21T10:00:00+08:00",
+        )
+        .unwrap();
     let updated = apply_text_edits(source.into(), edit.document_changes[0].edits.clone()).unwrap();
     assert!(updated.contains("`= title Updated"));
     assert!(updated.contains("`= due 2026-09-22T10:00:00+08:00"));
     assert!(updated.contains("`= focused 2026-09-21T09:00:00+08:00--"));
     assert!(updated.ends_with("Body unchanged.\n\n`- Child\n `+ task\n `@ child\n"));
-    let cyclic = workspace.update_task_patch("doc.plumb", task.range.clone(), &TaskAuthoringPatch {
-        depends: Some(vec!["doc.plumb".into()]),
-        ..Default::default()
-    }, "2026-09-21T10:00:00+08:00");
-    assert!(matches!(cyclic, Err(WorkspaceOperationError::Operation(TaskAuthoringError::DependencyCycle))));
-    let recurring = workspace.update_task_patch("doc.plumb", task.range, &TaskAuthoringPatch {
-        recur: Some(Some("1d".into())),
-        ..Default::default()
-    }, "2026-09-21T10:00:00+08:00");
-    assert!(matches!(recurring, Err(WorkspaceOperationError::Operation(TaskAuthoringError::InvalidRecurrence))));
+    let cyclic = workspace.update_task_patch(
+        "doc.plumb",
+        task.range.clone(),
+        &TaskAuthoringPatch {
+            depends: Some(vec!["doc.plumb".into()]),
+            ..Default::default()
+        },
+        "2026-09-21T10:00:00+08:00",
+    );
+    assert!(matches!(
+        cyclic,
+        Err(WorkspaceOperationError::Operation(
+            TaskAuthoringError::DependencyCycle
+        ))
+    ));
+    let recurring = workspace.update_task_patch(
+        "doc.plumb",
+        task.range,
+        &TaskAuthoringPatch {
+            recur: Some(Some("1d".into())),
+            ..Default::default()
+        },
+        "2026-09-21T10:00:00+08:00",
+    );
+    assert!(matches!(
+        recurring,
+        Err(WorkspaceOperationError::Operation(
+            TaskAuthoringError::InvalidRecurrence
+        ))
+    ));
 }
 
 #[test]
@@ -383,8 +410,16 @@ fn document_task_path_rename_updates_dependencies_previous_and_explicit_events()
 fn sqlite_document_dependency_join_does_not_match_anonymous_list_tasks() {
     let store = SqliteSemanticStore::open_in_memory().unwrap();
     let mut workspace = Workspace::with_sqlite_store(store.clone());
-    workspace.insert_disk("target.plumb", 0, "`+ task\n`= done 2026-09-21T12:00:00Z\n\n`- Still open\n `+ task\n").unwrap();
-    workspace.insert_disk("source.plumb", 0, "`+ task\n`= depends target.plumb\n").unwrap();
+    workspace
+        .insert_disk(
+            "target.plumb",
+            0,
+            "`+ task\n`= done 2026-09-21T12:00:00Z\n\n`- Still open\n `+ task\n",
+        )
+        .unwrap();
+    workspace
+        .insert_disk("source.plumb", 0, "`+ task\n`= depends target.plumb\n")
+        .unwrap();
     assert!(store.blocked_task_sources(&[]).unwrap().is_empty());
     let references = store.task_dependents(Path::new("target.plumb"), None, &[]).unwrap();
     assert_eq!(references.len(), 1);
@@ -3980,6 +4015,22 @@ fn task_status_formats_the_complete_owner_subtree() {
 }
 
 #[test]
+fn task_authoring_accepts_hash_and_explicit_sections() {
+    for source in ["`# Section\n\n Body\n", "`- Section\n `+ section\n\n Body\n"] {
+        let mut workspace = Workspace::new();
+        workspace.insert("tasks.plumb", 1, source);
+        let conversion = workspace.convert_list_item_to_task("tasks.plumb", source.find("Section").unwrap(), "2026-10-23T09:00:00+08:00").unwrap();
+        let edited = apply_single_edit(source, &conversion);
+        workspace.insert("tasks.plumb", 2, &edited);
+        let output = workspace.documents.get(&normalize(Path::new("tasks.plumb"))).unwrap().current.as_ref().unwrap();
+        assert_eq!(output.output.tasks().tasks.len(), 1);
+        assert_eq!(output.output.headings().headings.len(), 1);
+        assert!(output.output.lists().groups.is_empty());
+        assert!(edited.contains(" Body"));
+    }
+}
+
+#[test]
 fn task_authoring_operations_convert_items_and_add_created() {
     let source = "`- Outer\n\n `@ outer\n\n `+ keep\n\n `- Nested\n\n`- Closed\n\n `+ task\n\n `@ closed\n\n `= done 2026-07-20T09:00:00Z\n\n`- Existing\n\n `+ task\n\n `@ existing\n\n `= created 2026-07-19T09:00:00Z\n";
     let mut workspace = Workspace::new();
@@ -4824,7 +4875,10 @@ fn focus_and_unfocus_reject_clock_regression_without_writing() {
 fn complete_and_cancel_close_focus_in_the_same_revision_edit() {
     let scalar = "`- Ship\n\n `+ task\n\n `@ ship\n\n `= focused 2026-09-20T09:00:00+08:00--\n";
     assert_eq!(plumb_format::format(scalar).unwrap(), scalar);
-    for (status, attribute) in [(TaskStatus::Done, "done"), (TaskStatus::Canceled, "canceled")] {
+    for (status, attribute) in [
+        (TaskStatus::Done, "done"),
+        (TaskStatus::Canceled, "canceled"),
+    ] {
         let mut workspace = Workspace::new();
         workspace.insert("tasks.plumb", 8, scalar);
         let edit = workspace
@@ -4863,7 +4917,12 @@ fn complete_and_cancel_close_focus_in_the_same_revision_edit() {
     let mut workspace = Workspace::new();
     workspace.insert("tasks.plumb", 8, listed);
     let edit = workspace
-        .set_task_status_by_id("tasks.plumb", "ship", TaskStatus::Done, "2026-09-20T11:00:00+08:00")
+        .set_task_status_by_id(
+            "tasks.plumb",
+            "ship",
+            TaskStatus::Done,
+            "2026-09-20T11:00:00+08:00",
+        )
         .unwrap();
     assert_eq!(edit.document_changes[0].edits.len(), 1);
     let edited = apply_single_edit(listed, &edit);
@@ -6425,7 +6484,10 @@ fn document_dependency_completion_includes_paths_and_excludes_self_and_existing(
         let source = "`+ task\n`= title Source\n";
         workspace.open_document("source.plumb", 1, source);
         for (path, source) in [
-            ("Project Plan.plumb", "`+ task\n`= title Plan\n\n`- Review\n `+ task\n `@ review\n"),
+            (
+                "Project Plan.plumb",
+                "`+ task\n`= title Plan\n\n`- Review\n `+ task\n `@ review\n",
+            ),
             ("ordinary.plumb", "No task.\n"),
         ] {
             if disk { workspace.insert_disk(path, 1, source).unwrap(); }
@@ -6435,11 +6497,31 @@ fn document_dependency_completion_includes_paths_and_excludes_self_and_existing(
             id_replace: None,
             replace: 0..0, query: String::new(), task_range: 0..source.len(), existing: Vec::new(),
         };
-        let result = workspace.complete_task_dependency("source.plumb", &context).unwrap().value;
-        assert_eq!(result.iter().map(|candidate| candidate.label.as_str()).collect::<Vec<_>>(), ["Project Plan.plumb", "Project Plan.plumb#"]);
-        context.existing.push(TaskReferenceTarget::Document { path: "Project Plan.plumb".into() });
-        let result = workspace.complete_task_dependency("source.plumb", &context).unwrap().value;
-        assert_eq!(result.iter().map(|candidate| candidate.label.as_str()).collect::<Vec<_>>(), ["Project Plan.plumb#"]);
+        let result = workspace
+            .complete_task_dependency("source.plumb", &context)
+            .unwrap()
+            .value;
+        assert_eq!(
+            result
+                .iter()
+                .map(|candidate| candidate.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Project Plan.plumb", "Project Plan.plumb#"]
+        );
+        context.existing.push(TaskReferenceTarget::Document {
+            path: "Project Plan.plumb".into(),
+        });
+        let result = workspace
+            .complete_task_dependency("source.plumb", &context)
+            .unwrap()
+            .value;
+        assert_eq!(
+            result
+                .iter()
+                .map(|candidate| candidate.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Project Plan.plumb#"]
+        );
     }
 }
 
@@ -6470,7 +6552,11 @@ fn task_tree_query_preserves_nonmatching_ancestors_without_counting_them_as_matc
 fn task_tree_pages_keep_whole_documents_and_reject_cross_mode_and_stale_cursors() {
     let mut workspace = Workspace::new();
     for path in ["a.plumb", "b.plumb"] {
-        workspace.insert(path, 1, "`+ task\n\n`- Parent\n `+ task\n\n `- Needle\n  `+ task\n");
+        workspace.insert(
+            path,
+            1,
+            "`+ task\n\n`- Parent\n `+ task\n\n `- Needle\n  `+ task\n",
+        );
     }
     let mut query = TaskPageQuery {
         root: PathBuf::from("."), text: "Needle".into(), filter_groups: Vec::new(),
@@ -6495,7 +6581,10 @@ fn task_tree_pages_keep_whole_documents_and_reject_cross_mode_and_stale_cursors(
 
 #[test]
 fn escaped_task_reference_renames_preserve_decoded_paths_and_anchor_components() {
-    for spelling in ["{项目 `{计划`}.plumb#build}", "`\"项目 {计划}.plumb#build\""] {
+    for spelling in [
+        "{项目 `{计划`}.plumb#build}",
+        "`\"项目 {计划}.plumb#build\"",
+    ] {
         let path = "项目 {计划}.plumb";
         let source = format!("`+ task\n`= prev {spelling}\n`= depends {spelling}\n");
         let mut workspace = Workspace::new();
@@ -6550,10 +6639,21 @@ fn document_parent_placement_creates_root_list_task_without_wrapping_document() 
     let source = "`+ task\n`= title Project\n\nBody.\n";
     let mut workspace = Workspace::new();
     workspace.insert("project.plumb", 1, source);
-    let placement = TaskPlacement { parent: Some(0..source.len()), after: None };
-    let edit = workspace.create_task("project.plumb", &TaskAuthoringInput {
-        title: "Child".into(), ..Default::default()
-    }, &placement, "2026-09-21T10:00:00+08:00").unwrap();
+    let placement = TaskPlacement {
+        parent: Some(0..source.len()),
+        after: None,
+    };
+    let edit = workspace
+        .create_task(
+            "project.plumb",
+            &TaskAuthoringInput {
+                title: "Child".into(),
+                ..Default::default()
+            },
+            &placement,
+            "2026-09-21T10:00:00+08:00",
+        )
+        .unwrap();
     let updated = apply_text_edits(source.into(), edit.document_changes[0].edits.clone()).unwrap();
     assert!(updated.starts_with(source));
     assert!(updated.contains("\n`- Child\n"));
@@ -6569,13 +6669,25 @@ fn document_task_cursor_region_controls_new_fields_and_preserves_other_regions()
     let mut workspace = Workspace::new();
     workspace.insert("regions.plumb", 1, source);
     let timestamp = "2026-09-21T09:00:00+08:00";
-    let edit = workspace.mark_document_task_at("regions.plumb", timestamp, Some(source.find("priority").unwrap())).unwrap();
+    let edit = workspace
+        .mark_document_task_at(
+            "regions.plumb",
+            timestamp,
+            Some(source.find("priority").unwrap()),
+        )
+        .unwrap();
     let marked = apply_document_edit(source.into(), "regions.plumb", 1, edit).unwrap();
     let prefix = "`= title Project\n\n`+ custom\n\n";
     assert!(marked.starts_with(prefix));
     assert!(marked.contains("`= priority 1\n`= created 2026-09-21T09:00:00+08:00\n\n`+ task"));
     workspace.insert("regions.plumb", 2, marked.clone());
-    let edit = workspace.focus_document_task_at("regions.plumb", timestamp, Some(marked.find("priority").unwrap())).unwrap();
+    let edit = workspace
+        .focus_document_task_at(
+            "regions.plumb",
+            timestamp,
+            Some(marked.find("priority").unwrap()),
+        )
+        .unwrap();
     let focused = apply_document_edit(marked.clone(), "regions.plumb", 2, edit).unwrap();
     assert!(focused.starts_with(prefix));
     assert!(focused.find("`= focused").unwrap() < focused.find("`+ task").unwrap());
@@ -6588,7 +6700,14 @@ fn document_task_cursor_region_controls_new_fields_and_preserves_other_regions()
     assert!(unfocused.contains("09:00:00+08:00--2026-09-21T10:00:00+08:00"));
     workspace.insert("regions.plumb", 2, marked.clone());
     for status in [TaskStatus::Done, TaskStatus::Canceled] {
-        let edit = workspace.set_document_task_status_at("regions.plumb", status, timestamp, Some(marked.find("priority").unwrap())).unwrap();
+        let edit = workspace
+            .set_document_task_status_at(
+                "regions.plumb",
+                status,
+                timestamp,
+                Some(marked.find("priority").unwrap()),
+            )
+            .unwrap();
         let result = apply_document_edit(marked.clone(), "regions.plumb", 2, edit).unwrap();
         assert!(result.starts_with(prefix));
         let field = if status == TaskStatus::Done { "`= done" } else { "`= canceled" };
@@ -6735,7 +6854,10 @@ fn explicit_id_on_property_targets_its_owner() {
     let source = "`- Work\n `= event-category\n  `- research\n";
     let mut workspace = Workspace::new();
     workspace.insert("work.plumb", 1, source);
-    for offset in [source.find("event-category").unwrap(), source.find("research").unwrap()] {
+    for offset in [
+        source.find("event-category").unwrap(),
+        source.find("research").unwrap(),
+    ] {
         let edit = workspace.add_explicit_id("work.plumb", offset).unwrap();
         let result = apply_single_edit(source, &edit);
         assert!(result.contains(" `@ work\n"), "{result}");

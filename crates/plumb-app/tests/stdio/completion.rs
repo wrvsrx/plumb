@@ -736,18 +736,19 @@ fn completes_task_and_event_only_from_the_list_marker() {
     assert!(response(&output, 4)["result"].is_null());
 
     let list_item_items = response(&output, 5)["result"].as_array().unwrap();
-    assert_eq!(list_item_items.len(), 3);
-    assert_eq!(list_item_items[0]["label"], "Task");
-    assert_eq!(list_item_items[1]["label"], "Event");
-    assert_eq!(list_item_items[2]["label"], "Link");
-    assert_eq!(list_item_items[0]["insertTextMode"], 1);
+    assert_eq!(list_item_items.len(), 4);
+    assert_eq!(list_item_items[1]["label"], "Task");
+    assert_eq!(list_item_items[2]["label"], "Event");
+    assert_eq!(list_item_items[3]["label"], "Link");
     assert_eq!(list_item_items[1]["insertTextMode"], 1);
-    let task_text = list_item_items[0]["textEdit"]["newText"].as_str().unwrap();
+    assert_eq!(list_item_items[2]["insertTextMode"], 1);
+    assert_eq!(list_item_items[0]["label"], "Section");
+    let task_text = list_item_items[1]["textEdit"]["newText"].as_str().unwrap();
     assert!(task_text.starts_with("`- ${1:Task}"));
     assert!(task_text.contains(" `+ task"));
     assert!(task_text.contains(" `= created "));
     assert_eq!(
-        list_item_items[1]["textEdit"]["newText"],
+        list_item_items[2]["textEdit"]["newText"],
         "`- ${1:09:00} ${2:Event}\n\n  `+ event"
     );
     assert!(response(&output, 6)["result"].is_null());
@@ -780,12 +781,12 @@ fn completes_task_and_event_only_from_the_list_marker() {
     ];
     let fallback_output = run_server(&fallback_messages);
     let fallback_items = response(&fallback_output, 2)["result"].as_array().unwrap();
-    assert_eq!(fallback_items.len(), 3);
-    assert_eq!(fallback_items[0]["label"], "Task");
-    let fallback_task = fallback_items[0]["textEdit"]["newText"].as_str().unwrap();
+    assert_eq!(fallback_items.len(), 4);
+    assert_eq!(fallback_items[1]["label"], "Task");
+    let fallback_task = fallback_items[1]["textEdit"]["newText"].as_str().unwrap();
     assert!(fallback_task.starts_with("`-\n `+ task\n\n `= created "));
-    assert_eq!(fallback_items[0]["insertTextFormat"], 1);
-    assert!(fallback_items[0].get("insertTextMode").is_none());
+    assert_eq!(fallback_items[1]["insertTextFormat"], 1);
+    assert!(fallback_items[1].get("insertTextMode").is_none());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -833,14 +834,14 @@ fn projects_nested_task_completion_for_adjusted_indentation() {
 
     let output = run_server(&messages);
     let items = response(&output, 2)["result"].as_array().unwrap();
-    assert_eq!(items.len(), 3);
-    assert_eq!(items[0]["label"], "Task");
-    assert_eq!(items[0]["insertTextMode"], 2);
+    assert_eq!(items.len(), 4);
+    assert_eq!(items[1]["label"], "Task");
+    assert_eq!(items[1]["insertTextMode"], 2);
     assert_eq!(
-        items[0]["textEdit"]["range"],
+        items[1]["textEdit"]["range"],
         json!({ "start": { "line": 2, "character": 1 }, "end": { "line": 2, "character": 3 } })
     );
-    let replacement = items[0]["textEdit"]["newText"].as_str().unwrap();
+    let replacement = items[1]["textEdit"]["newText"].as_str().unwrap();
     assert!(replacement.starts_with("`- ${1:Task}"));
     assert!(replacement.contains(" `+ task"));
     assert!(replacement.contains(" `= created "));
@@ -904,7 +905,7 @@ fn completes_task_construct_immediately_after_direct_declarations() {
     ];
 
     let output = run_server(&messages);
-    let item = &response(&output, 2)["result"][0];
+    let item = &response(&output, 2)["result"][1];
     assert_eq!(item["label"], "Task");
     assert_eq!(
         item["textEdit"]["range"],

@@ -558,7 +558,7 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.parsed.is_valid())
             .ok_or(TaskEditError::StaleOrInvalidDocument)?;
-        let item = own_deepest_green_marked_block(entry.parsed.green(), offset, &["-", "."])
+        let item = own_deepest_green_marked_block(entry.parsed.green(), offset, &["-", ".", "#"])
             .ok_or(TaskEditError::ListItemNotFound)?;
         if item
             .block

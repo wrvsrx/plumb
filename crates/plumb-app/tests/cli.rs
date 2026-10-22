@@ -5,6 +5,55 @@ use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
+fn canonical_markers_do_not_absorb_following_siblings() {
+    let source = "`- Title\n `+ section\n\n Body.\n\nFollowing.\n\n`table Caption\n `- a b\n";
+    let output = run_with_stdin(&["fmt", "--canonical-markers"], source);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let source = String::from_utf8(output.stdout).unwrap();
+    assert!(source.starts_with("`# Title\n"));
+    assert!(source.contains("\nFollowing.\n"));
+    assert!(source.contains("`| Caption"));
+    assert!(!source.contains("`+ section"));
+    assert!(run_with_stdin(&["fmt", "--canonical-markers", "--check"], &source).status.success());
+    assert!(!run_with_stdin(&["fmt", "--canonical-markers", "--migrate-sections"], &source).status.success());
+}
+
+#[test]
+fn explicitly_migrates_hash_sections_with_owned_bodies() {
+    let source = "`# Intro\n `@ intro\n\nBody.\n\n`## Child\n\nNested.\n";
+    let ordinary = run_with_stdin(&["export"], source);
+    assert!(ordinary.status.success());
+    let document: serde_json::Value = serde_json::from_slice(&ordinary.stdout).unwrap();
+    assert_eq!(document["blocks"][0]["t"], "Header");
+    assert!(
+        !run_with_stdin(&["fmt", "--migrate-sections", "--check"], source)
+            .status
+            .success()
+    );
+    let migrated = run_with_stdin(&["fmt", "--migrate-sections"], source);
+    assert!(
+        migrated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&migrated.stderr)
+    );
+    let source = String::from_utf8(migrated.stdout).unwrap();
+    assert!(run_with_stdin(&["fmt", "--check"], &source)
+        .status
+        .success());
+    assert!(
+        run_with_stdin(&["fmt", "--migrate-sections", "--check"], &source)
+            .status
+            .success()
+    );
+    let exported = run_with_stdin(&["export"], &source);
+    assert!(exported.status.success());
+    let document: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
+    assert_eq!(document["blocks"][0]["t"], "Header");
+    assert_eq!(document["blocks"][0]["c"][1][0], "intro");
+    assert_eq!(document["blocks"][2]["c"][0], 2);
+}
+
+#[test]
 fn fmt_trims_inline_group_padding() {
     let formatted = run_with_stdin(&["fmt"], "See `->{   xxx yyy   } and {   }.\n");
     assert!(formatted.status.success());
@@ -497,7 +546,7 @@ fn discovers_workspace_markers_and_applies_ignore_files() {
 
 #[test]
 fn round_trips_the_exported_standard_profile_through_import() {
-    let source = "`= title Import test\n\n`# Intro\n `@ intro\n\nParagraph with `*{emphasis}, `!{strong}, `=={mark}, `~{strike}, `^{super}, `_{sub}, and `->{{a link} other.plumb#id}.\n\n`> Quoted\n `@ quote\n `+ source\n\n`- Item\n `+ task\n `@ task\n `= created 2026-07-23T17:00:00+08:00\n\n`table People\n `- name    age\n  `+ header\n `- Alice   10\n\n`()\n `@ code\n `rust\"\n  fn main() {}\n";
+    let source = "`= title Import test\n\n`- Intro\n `+ section\n `@ intro\n\n Paragraph with `*{emphasis}, `!{strong}, `=={mark}, `~{strike}, `^{super}, `_{sub}, and `->{{a link} other.plumb#id}.\n\n `> Quoted\n  `@ quote\n  `+ source\n\n `- Item\n  `+ task\n  `@ task\n  `= created 2026-07-23T17:00:00+08:00\n\n `| People\n  `- name    age\n   `+ header\n  `- Alice   10\n\n `()\n  `@ code\n  `rust\"\n   fn main() {}\n";
     let first = run_with_stdin(&["export"], source);
     assert!(
         first.status.success(),

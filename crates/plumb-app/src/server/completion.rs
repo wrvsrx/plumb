@@ -179,6 +179,13 @@ pub(super) fn construct_completion_items(
         ConstructCompletionContext::TaskEventLink { replace } => (
             replace,
             vec![
+                ConstructTemplate {
+                    label: "Section",
+                    detail: "plumb structural section",
+                    snippet: format!("`# ${{1:Heading}}\n\n{block_indent}$0"),
+                    plain: "`#".to_string(),
+                    uses_block_indentation: true,
+                },
                 task_construct_template(&block_indent, timestamp),
                 event_construct_template(&block_indent),
                 link_construct_template(),
@@ -243,6 +250,39 @@ fn verbatim_link_construct_template() -> ConstructTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn section_completion_constructs_nested_structural_ownership() {
+        let source = "`node Parent\n `";
+        for snippets in [false, true] {
+            let items = construct_completion_items(
+                source,
+                ConstructCompletionContext::TaskEventLink {
+                    replace: source.len() - 1..source.len(),
+                },
+                snippets,
+                CompletionIndentation {
+                    projection: CompletionIndentationProjection::AsIs,
+                    item_mode: None,
+                },
+                "2026-10-23T10:00:00+08:00",
+            );
+            let item = items.iter().find(|item| item.label == "Section").unwrap();
+            let Some(CompletionTextEdit::Edit(edit)) = &item.text_edit else {
+                panic!("missing edit")
+            };
+            let replacement = edit
+                .new_text
+                .replace("${1:Heading}", "Heading")
+                .replace("$0", "Body");
+            let completed = format!("{}{}\n", &source[..source.len() - 1], replacement);
+            let parsed = plumb_syntax::parse(&completed);
+            assert!(parsed.is_valid(), "{completed}: {:?}", parsed.diagnostics);
+            let headings = plumb_semantics::analyze_headings(parsed.valid_syntax().unwrap());
+            assert_eq!(headings.headings.len(), 1);
+            assert_eq!(headings.headings[0].level, 1);
+        }
+    }
 
     #[test]
     fn cached_completion_projection_preserves_ranges_fields_and_dynamic_kinds() {

@@ -92,7 +92,7 @@ fn completes_current_link_and_task_constructs() {
             .iter()
             .map(|item| item["label"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Task", "Event", "Link"]
+        ["Section", "Task", "Event", "Link"]
     );
     let task = constructs
         .iter()

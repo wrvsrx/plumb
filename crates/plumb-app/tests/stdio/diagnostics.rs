@@ -228,7 +228,7 @@ fn semantic_equal_edits_preserve_references_but_refresh_changed_folding_inputs()
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("note.plumb");
         let dependent_path = root.join("dependent.plumb");
-        let initial = "`# Alpha\n\nBad `cite{two words}.\n";
+        let initial = "`# Alpha\n\n Bad `cite{two words}.\n";
         let dependent = "See `->{target note.plumb#target}.\n";
         std::fs::write(&path, initial).unwrap();
         std::fs::write(&dependent_path, dependent).unwrap();
@@ -278,9 +278,9 @@ fn semantic_equal_edits_preserve_references_but_refresh_changed_folding_inputs()
         session.send(&json!({"jsonrpc":"2.0","id":10,"method":"textDocument/foldingRange","params":{"textDocument":{"uri":uri}}}));
         let old_folds = session.wait_for_response(&json!(10))["result"].clone();
         let changed = if exported_change {
-            "`# Bravo\n `@ target\n\nBad `cite{two words}.\n"
+            "`# Bravo\n `@ target\n\n Bad `cite{two words}.\n"
         } else {
-            "`# Bravo\n\nChanged bad `cite{two words}.\nAdditional body.\n"
+            "`# Bravo\n\n Changed bad `cite{two words}.\n Additional body.\n"
         };
         session.send(&json!({
             "jsonrpc": "2.0", "method": "textDocument/didChange",
@@ -485,7 +485,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
                     "uri": "file:///tmp/first.plumb",
                     "languageId": "plumb",
                     "version": 1,
-                    "text": "`# Root\n`## Child\n"
+                    "text": "`# Root\n `# Child\n"
                 }
             }
         }),
@@ -560,7 +560,7 @@ fn publishes_diagnostics_and_returns_heading_symbols_over_stdio() {
 #[test]
 fn nests_anchors_and_tasks_under_their_containing_headings() {
     let uri = "file:///tmp/symbol-containment.plumb";
-    let source = "`# Project\n\n`node Note\n\n `@ note\n\n`- Write parser\n\n `+ task\n\n `@ write\n\n`## Section\n\n`node Inside\n\n `@ inside\n";
+    let source = "`# Project\n\n `node Note\n\n  `@ note\n\n `- Write parser\n\n  `+ task\n\n  `@ write\n\n `# Section\n\n  `node Inside\n\n   `@ inside\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

@@ -1441,7 +1441,7 @@ fn benchmark_export_record_lookup(c: &mut Criterion) {
     let mut table_source = String::new();
     for index in 0..1_000 {
         table_source.push_str(&format!(
-            "`table Table {index}\n `- name value\n  `+ header\n `- item {index}\n\n"
+            "`| Table {index}\n `- name value\n  `+ header\n `- item {index}\n\n"
         ));
     }
     assert_eq!(

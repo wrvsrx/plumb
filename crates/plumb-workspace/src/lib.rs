@@ -2335,7 +2335,7 @@ impl Workspace {
             .get(&path)
             .filter(|entry| entry.parsed.is_valid() && entry.current.is_some())
             .ok_or(EventShorthandError::StaleOrInvalidDocument)?;
-        let item = own_deepest_green_marked_block(entry.parsed.green(), offset, &["-", "."])
+        let item = own_deepest_green_marked_block(entry.parsed.green(), offset, &["-", ".", "#"])
             .ok_or(EventShorthandError::ListItemNotFound)?;
         if item
             .block
@@ -2389,7 +2389,7 @@ impl Workspace {
             .output
             .metadata();
         let groups =
-            own_green_marked_block_groups(entry.parsed.green(), selection.clone(), &["-", "."])
+            own_green_marked_block_groups(entry.parsed.green(), selection.clone(), &["-", ".", "#"])
                 .map_err(|_| EventShorthandError::StaleOrInvalidDocument)?;
         let mut edits = Vec::new();
         let mut converted = 0;
@@ -3238,7 +3238,7 @@ fn inferred_end_from_owned_sibling(
     let OwnedBlock::Parsed { marker, head, .. } = sibling else {
         return None;
     };
-    if !matches!(marker.as_deref(), Some("-" | "."))
+    if !matches!(marker.as_deref(), Some("-" | "." | "#"))
         || sibling
             .attributes()
             .iter()

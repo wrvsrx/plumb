@@ -12,6 +12,12 @@ use plumb_edit::{apply_text_edits, FormatScope};
 struct Args {
     #[arg(long)]
     check: bool,
+    /// Explicitly migrate legacy hash ownership and table markers.
+    #[arg(long)]
+    migrate_sections: bool,
+    /// Canonicalize section/table markers without changing existing ownership.
+    #[arg(long, conflicts_with = "migrate_sections")]
+    canonical_markers: bool,
     paths: Vec<PathBuf>,
 }
 
@@ -39,7 +45,12 @@ fn format_inputs(args: Args) -> Result<bool, String> {
         io::stdin()
             .read_to_string(&mut source)
             .map_err(|error| format!("cannot read stdin: {error}"))?;
-        let (source, edits) = format_source_edits(source, "stdin")?;
+        let (source, edits) = format_source_edits(
+            source,
+            "stdin",
+            args.migrate_sections,
+            args.canonical_markers,
+        )?;
         if args.check {
             return Ok(edits.is_empty());
         }
@@ -54,7 +65,8 @@ fn format_inputs(args: Args) -> Result<bool, String> {
         let source = fs::read_to_string(&path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
         let name = path.display().to_string();
-        let (source, edits) = format_source_edits(source, &name)?;
+        let (source, edits) =
+            format_source_edits(source, &name, args.migrate_sections, args.canonical_markers)?;
         if edits.is_empty() {
             continue;
         }
@@ -74,8 +86,20 @@ fn format_inputs(args: Args) -> Result<bool, String> {
 fn format_source_edits(
     source: String,
     name: &str,
+    migrate: bool,
+    canonical: bool,
 ) -> Result<(String, Vec<plumb_edit::TextEdit>), String> {
     let parsed = plumb_syntax::parse(source);
+    if canonical {
+        let edits = plumb_edit::canonicalize_structure_markers(&parsed)
+            .map_err(|_| format!("{name} has syntax errors"))?;
+        return Ok((parsed.source, edits));
+    }
+    if migrate {
+        let edits = plumb_edit::migrate_hash_sections(&parsed)
+            .map_err(|_| format!("{name} has syntax errors"))?;
+        return Ok((parsed.source, edits));
+    }
     let edits = plumb_edit::format(&parsed, FormatScope::Document)
         .map_err(|_| format!("{name} has syntax errors"))?;
     Ok((parsed.source, edits))

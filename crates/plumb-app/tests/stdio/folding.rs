@@ -314,7 +314,7 @@ fn same_marker_fold_consumes_separator_and_preserves_changed_marker_boundary() {
 #[test]
 fn provides_structural_folding_for_valid_and_recovered_documents() {
     let uri = "file:///tmp/folding.plumb";
-    let source = "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n     body\n\n     `text\"\n       raw\n`# Next\n\nTail.\n";
+    let source = "`# Top\n\n Intro.\n\n `# Child\n\n  `div Details\n\n     body\n\n     `text\"\n       raw\n`# Next\n\n Tail.\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",

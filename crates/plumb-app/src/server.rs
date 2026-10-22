@@ -5043,7 +5043,7 @@ mod tests {
 
     #[test]
     fn maps_nested_heading_facts_to_nested_symbols() {
-        let parsed = parse("`# One\n`## Two\n");
+        let parsed = parse("`- One\n `+ section\n `- Two\n  `+ section\n");
         let output = analyze_headings(
             parsed
                 .valid_syntax()
@@ -5061,7 +5061,7 @@ mod tests {
     #[test]
     fn folds_heading_sections_and_multiline_syntax_blocks() {
         let parsed = parse(
-            "`# Top\n\nIntro.\n\n`## Child\n\n`div Details\n\n body\n\n `text\"\n  raw\n`# Next\n\nTail.\n",
+            "`- Top\n `+ section\n\n Intro.\n\n `- Child\n  `+ section\n\n  `div Details\n\n   body\n\n   `text\"\n    raw\n`- Next\n `+ section\n\n Tail.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let ranges = folding_ranges(&parsed.source, &parsed.syntax, None, None, false);
@@ -5070,7 +5070,7 @@ mod tests {
                 .iter()
                 .map(|range| (range.start_line, range.end_line))
                 .collect::<Vec<_>>(),
-            [(0, 11), (4, 11), (6, 11), (10, 11), (12, 14)]
+            [(0, 13), (5, 13), (8, 13), (12, 13), (14, 17)]
         );
         assert!(ranges.iter().all(|range| {
             range.start_character.is_none()

@@ -56,6 +56,8 @@ pub(crate) fn structural_inputs_changed(previous: &GreenDocument, current: &Gree
                 match (old, new) {
                     (Block::Parsed(old), Block::Parsed(new))
                         if old.range == new.range
+                            && plumb_semantics::is_section(old)
+                                == plumb_semantics::is_section(new)
                             && old.mark.as_ref().map(|mark| &mark.marker)
                                 == new.mark.as_ref().map(|mark| &mark.marker) =>
                     {
@@ -349,7 +351,6 @@ pub(crate) fn green_ranges(
     line_folding_only: bool,
 ) -> Vec<FoldingRange> {
     let mut byte_ranges = Vec::new();
-    let mut headings = Vec::new();
     let mut shards = document.shards().peekable();
     while let Some(view) = shards.next() {
         let following_marker = shards
@@ -370,22 +371,6 @@ pub(crate) fn green_ranges(
                     (range, label, trailing)
                 }),
         );
-        collect_heading_facts(
-            &view.shard().parsed().syntax.blocks,
-            view.offset(),
-            &mut headings,
-        );
-    }
-    let mut next_by_level = [None; 6];
-    for (range, level) in headings.into_iter().rev() {
-        let end = next_by_level[..usize::from(level)]
-            .iter()
-            .flatten()
-            .copied()
-            .min()
-            .unwrap_or(source.len());
-        next_by_level[usize::from(level - 1)] = Some(range.start);
-        byte_ranges.push((range.start..end, range, false));
     }
 
     finish_ranges(source, byte_ranges, limit, labels, line_folding_only)
@@ -440,7 +425,7 @@ fn collect_block_ranges_with_following(
             Block::Parsed(parsed) => {
                 if parsed.mark.is_some() || !parsed.children.is_empty() {
                     let include_trailing_blank = parsed.mark.as_ref().is_some_and(|mark| {
-                        !is_heading_marker(&mark.marker)
+                        !plumb_semantics::is_section(parsed)
                             && blocks.get(index + 1).map_or_else(
                                 || following_marker == Some(mark.marker.as_str()),
                                 |next| matches!(next, Block::Parsed(next) if next.mark.as_ref().is_some_and(|next_mark| next_mark.marker == mark.marker)),
@@ -468,34 +453,9 @@ fn top_level_marker(blocks: &[Block]) -> Option<&str> {
     block.mark.as_ref().map(|mark| mark.marker.as_str())
 }
 
-fn collect_heading_facts(
-    blocks: &[Block],
-    offset: usize,
-    output: &mut Vec<(std::ops::Range<usize>, u8)>,
-) {
-    for block in blocks {
-        let Block::Parsed(block) = block else {
-            continue;
-        };
-        if let Some(marker) = block.mark.as_ref().map(|mark| mark.marker.as_str()) {
-            if is_heading_marker(marker) {
-                output.push((
-                    block.range.start + offset..block.range.end + offset,
-                    marker.len() as u8,
-                ));
-            }
-        }
-        collect_heading_facts(&block.children, offset, output);
-    }
-}
-
 fn shift_range(range: &mut std::ops::Range<usize>, offset: usize) {
     range.start += offset;
     range.end += offset;
-}
-
-fn is_heading_marker(marker: &str) -> bool {
-    (1..=6).contains(&marker.len()) && marker.bytes().all(|byte| byte == b'#')
 }
 
 fn line_range(
@@ -561,9 +521,7 @@ fn include_one_trailing_blank_line(source: &str, mut end: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        green_ranges, include_one_trailing_blank_line, is_heading_marker, ranges, single_line_label,
-    };
+    use super::{green_ranges, include_one_trailing_blank_line, ranges, single_line_label};
 
     #[test]
     #[ignore = "manual structural invalidation versus folding projection profile"]
@@ -957,13 +915,10 @@ mod tests {
     }
 
     #[test]
-    fn recognizes_only_standard_heading_markers() {
-        for marker in ["#", "##", "######"] {
-            assert!(is_heading_marker(marker));
-        }
-        for marker in ["", "#######", "#note", "task"] {
-            assert!(!is_heading_marker(marker));
-        }
+    fn hash_sections_have_no_inferred_sibling_fold() {
+        let source = "`# Heading\n\nBody\n";
+        let parsed = plumb_syntax::parse(source);
+        assert!(ranges(source, &parsed.syntax, None, None, true).is_empty());
     }
 
     #[test]
@@ -1011,7 +966,13 @@ mod request_profile {
             let labels = collapsed_text_labels(&workspace, Path::new(&path), entry, false);
             let label_time = start.elapsed();
             let start = std::time::Instant::now();
-            let ranges = green_ranges(entry.parsed.source(), entry.parsed.green(), None, Some(&labels), true);
+            let ranges = green_ranges(
+                entry.parsed.source(),
+                entry.parsed.green(),
+                None,
+                Some(&labels),
+                true,
+            );
             let ranges_time = start.elapsed();
             let start = std::time::Instant::now();
             let bytes = serde_json::to_vec(&ranges).unwrap();

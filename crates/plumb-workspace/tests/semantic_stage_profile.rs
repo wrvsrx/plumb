@@ -18,7 +18,7 @@ fn fixture(count: usize) -> String {
             source.push_str(&format!("`# Section {index}\n `@ section-{index}\n\n"));
         }
         if index % 40 == 0 {
-            source.push_str(&format!("`: term-{index} Definition body\n\n`table\n `- name age\n  `+ header\n `- Alice 10\n\n"));
+            source.push_str(&format!("`: term-{index} Definition body\n\n`|\n `- name age\n  `+ header\n `- Alice 10\n\n"));
         }
         source.push_str(&format!("`- Task {index}\n `+ task\n `@ task-{index}\n `= due 2026-09-08T10:00:00Z\n\n`- 10:00 Event {index}\n `+ event\n `= tasks #task-{index}\n\n See `->{{label #task-{index}}}\n\nBody {index}\n\n"));
     }
