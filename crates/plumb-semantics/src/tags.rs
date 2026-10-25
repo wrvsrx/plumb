@@ -104,7 +104,7 @@ impl TagSet {
                         continue;
                     };
                     if !item.children.is_empty()
-                        || !item.mark.as_ref().is_some_and(|m| m.marker == "+")
+                        || !item.mark.as_ref().is_some_and(|m| m.marker == "-")
                     {
                         result.invalid = true;
                         continue;
@@ -170,7 +170,7 @@ impl TagSet {
         } else {
             self.declarations.iter().map(|range| Diagnostic {
                 code: "tags.invalid-value", severity: DiagnosticSeverity::Warning,
-                message: "tags must be a nonempty plain label or a sequence of direct leaf '+' labels".into(),
+                message: "tags must be a nonempty plain label or a sequence of direct leaf '-' labels".into(),
                 range: range.clone(), related: Vec::new(),
             }).collect()
         }
@@ -261,7 +261,7 @@ pub fn tag_completion_context(
                     for item in &block.children {
                         if let Block::Parsed(item) = item {
                             if item.children.is_empty()
-                                && item.mark.as_ref().is_some_and(|m| m.marker == "+")
+                                && item.mark.as_ref().is_some_and(|m| m.marker == "-")
                             {
                                 if let Some(c) = context(&item.content, item.content.range.start) {
                                     return Some(c);
@@ -341,7 +341,7 @@ mod tests {
     }
     #[test]
     fn tags_belong_only_to_the_declaring_document_or_block() {
-        let source = "`= tags journal\n`- Parent\n `@ parent\n `= tags\n  `+ neovim\n  `+ {multi word}\n  `+ neovim\n `- Child\n`- Sibling\n `= tags Exercise\n\nAnonymous\n `= tags plain\n";
+        let source = "`= tags journal\n`- Parent\n `@ parent\n `= tags\n  `- neovim\n  `- {multi word}\n  `- neovim\n `- Child\n`- Sibling\n `= tags Exercise\n\nAnonymous\n `= tags plain\n";
         let output = analyze(source);
         assert!(output.syntax().is_valid());
         let owners = output.tagged_owners();
@@ -360,9 +360,9 @@ mod tests {
             "`= tags",
             "`= tags {}",
             "`= tags `!{rich}",
-            "`= tags\n  `- wrong",
-            "`= tags\n  `+ good\n  `+ {}",
-            "`= tags\n  `+ nested\n   `+ value",
+            "`= tags\n  `+ wrong",
+            "`= tags\n  `- good\n  `- {}",
+            "`= tags\n  `- nested\n   `- value",
             "`= tags first\n `= tags second",
             "`= tags good `+{hidden}",
         ] {
@@ -387,7 +387,9 @@ mod tests {
     }
     #[test]
     fn declaration_payloads_rich_inline_and_unknown_keys_do_not_create_owners() {
-        let output = analyze("`= other\n `= tags nope\n`- Owner\n `= tags other\n  `+ opaque\n`text\n `= tags\n  `+ `\"{标签 space}\"\n`- Inline `(){text `={tags ignored}}\n`rust\"\n `= tags raw\n");
+        let output = analyze(
+            "`= other\n `= tags nope\n`- Owner\n `= tags other\n  `+ opaque\n`text\n `= tags\n  `- `\"{标签 space}\"\n`- Inline `(){text `={tags ignored}}\n`rust\"\n `= tags raw\n",
+        );
         let owners = output.tagged_owners();
         assert_eq!(owners.len(), 1);
         assert_eq!(owners[0].tags.values, ["标签 space"]);
@@ -395,8 +397,8 @@ mod tests {
     #[test]
     fn syntax_invalid_declaration_never_publishes_surviving_partial_values() {
         for source in [
-            "`- Parent\n `= tags\n  `+ good\n  `+ {broken\n`- Healthy\n `= tags yes\n",
-            "`= tags\n `+ good\n `+ {broken\n`- Healthy\n `= tags yes\n",
+            "`- Parent\n `= tags\n  `- good\n  `- {broken\n`- Healthy\n `= tags yes\n",
+            "`= tags\n `- good\n `- {broken\n`- Healthy\n `= tags yes\n",
         ] {
             let output = analyze(source);
             let owners = output.tagged_owners();
@@ -404,6 +406,25 @@ mod tests {
             assert_eq!(owners[0].tags.values, ["yes"]);
         }
     }
+    #[test]
+    fn plus_tag_items_are_invalid_and_do_not_offer_value_completion() {
+        for source in [
+            "`= tags\n `+ neovim\n",
+            "`- Owner\n `= tags\n  `+ neovim\n",
+            "`= tags\n `- valid\n `+ neovim\n",
+        ] {
+            let output = analyze(source);
+            assert!(output.tagged_owners().is_empty(), "{source}");
+            assert!(output
+                .diagnostics()
+                .iter()
+                .chain(output.metadata().diagnostics.iter().cloned())
+                .any(|d| d.code == "tags.invalid-value"));
+            let offset = source.find("neovim").unwrap() + 2;
+            assert!(tag_completion_context(&plumb_syntax::parse(source), offset).is_none());
+        }
+    }
+
     #[test]
     fn incremental_tags_match_fresh_and_reuse_unchanged_shards() {
         let old = "`= tags journal\r\n`- A\r\n `= tags α\r\n`- B\r\n `= tags β\r\n";
@@ -433,7 +454,7 @@ mod tests {
     fn tag_completion_uses_owner_scope_and_current_plain_value_range() {
         for marked in [
             "`= tags ne|ovim",
-            "`- 项目\n `= tags\n  `+ ne|ovim",
+            "`- 项目\n `= tags\n  `- ne|ovim",
             "Anonymous\n `= tags ne|ovim",
         ] {
             let offset = marked.find('|').unwrap();
@@ -482,7 +503,7 @@ mod property_tests {
         }
         for marked in [
             "`= tags a\n\nBody\n\n`= ta|",
-            "`- Item\n `= tags\n  `+ first\n `= ta|",
+            "`- Item\n `= tags\n  `- first\n `= ta|",
             "`= other\n `= ta|",
         ] {
             let offset = marked.find('|').unwrap();

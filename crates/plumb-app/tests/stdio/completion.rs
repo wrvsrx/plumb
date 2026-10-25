@@ -1295,7 +1295,7 @@ fn tags_complete_node_values_with_utf16_locations_and_property_names() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("vocabulary.plumb"),
-        "`= tags\n `+ 中文 标签\n `+ neovim\n",
+        "`= tags\n `- 中文 标签\n `- neovim\n",
     )
     .unwrap();
     let source = "`- 😀\n `= tags 中\n`- Other\n `= ta\n";

@@ -22,7 +22,7 @@ fn strip_cursor(source: &str) -> (String, usize) {
 fn projects_metadata_tasks_events_and_document_structure() {
     let source = concat!(
         "`= title Project Notes\n",
-        "`= tags\n `+ syntax\n `+ notes\n",
+        "`= tags\n `- syntax\n `- notes\n",
         "`# Heading\n `@ intro\n",
         "`- Implement parser\n `+ task\n `@ parser\n `= created 2026-09-02T09:00:00+08:00\n",
         "`- 14:00--15:00 Parser review\n `+ event\n `= date 2026-09-02\n `= timezone +08:00\n",

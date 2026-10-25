@@ -63,8 +63,8 @@ facets are opaque and do not render as body content.
 `= title Document title
 `= created 2026-09-02T09:00:00+08:00
 `= tags
- `+ plumb
- `+ notes
+ `- plumb
+ `- notes
 `= author
  `= name Alice
 ```
@@ -73,7 +73,8 @@ A leaf property uses its first positional element as key and all remaining head 
 value. Group a key containing spaces. With children, the complete head is the
 key and children form a null, scalar, `+` sequence, nested `=` map, or one
 verbatim value. Metadata `+` is non-rendered sequence data; `-` remains a
-rendered list item.
+rendered list item. Root `tags` is an explicit exception: it uses direct leaf
+`-` items, never `+` sequence members.
 
 Under an ordinary marked block or inline group, direct `@`, `+`, and `=` owners
 project as id, facet, and property declarations. They stay source ordered and
@@ -371,7 +372,7 @@ Editor event-category value completion reuses all valid category sets declared b
 
 Document roots and parsed blocks, including list items, headings, tasks, events,
 and anonymous blocks, can declare `tags`. A scalar is one complete label;
-multiple labels use direct leaf `+` children. Labels are case-sensitive, trimmed,
+multiple labels use direct leaf `-` children. Labels are case-sensitive, trimmed,
 and deduplicated in first-occurrence order. Empty/rich values, malformed
 sequences, or repeated `tags` properties invalidate that owner's whole set.
 
@@ -379,8 +380,8 @@ sequences, or repeated `tags` properties invalidate that owner's whole set.
 `= tags journal
 `- Fix folding
  `= tags
-  `+ neovim
-  `+ debugging
+  `- neovim
+  `- debugging
  `- Read help
 ```
 

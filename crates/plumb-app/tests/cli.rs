@@ -1563,10 +1563,10 @@ fn tags_cli_queries_explicit_owners_and_document_summary_with_cache_parity() {
 #[test]
 fn tags_export_keeps_classification_out_of_body_and_preserves_roundtrip() {
     for source in [
-        "`= tags\n `+ journal\n`- Parent\n `= tags\n  `+ neovim\n  `+ multi word\n `- Untagged\n",
-        "`# Heading\n `= tags\n  `+ heading\n",
-        "`- Task\n `+ task\n `= tags\n  `+ task-label\n  `+ second\n",
-        "Paragraph\n `= tags\n  `+ anonymous\n",
+        "`= tags\n `- journal\n`- Parent\n `= tags\n  `- neovim\n  `- multi word\n `- Untagged\n",
+        "`# Heading\n `= tags\n  `- heading\n",
+        "`- Task\n `+ task\n `= tags\n  `- task-label\n  `- second\n",
+        "Paragraph\n `= tags\n  `- anonymous\n",
         "`> Quote\n `= tags quotation\n",
         "`- 2026-10-23T10:00:00Z Meeting\n `+ event\n `= tags calendar\n",
         "`: Term Meaning\n `= tags dictionary\n",

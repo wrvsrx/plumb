@@ -244,7 +244,7 @@ pub(crate) fn analyze_green_metadata_regions(
 
                 let mut local_diagnostics = Vec::new();
                 let mut parsed =
-                    parse_direct_entries([block], document_task, &mut local_diagnostics);
+                    parse_direct_entries([block], true, document_task, &mut local_diagnostics);
                 for entry in &mut parsed {
                     shift_metadata_entry(entry, offset);
                     if let Some(first) = keys.get(&entry.key) {
@@ -398,6 +398,7 @@ fn analyze_metadata_document(document: &Document) -> MetadataOutput {
     if let (Some(first), Some(last)) = (properties.first(), properties.last()) {
         let entries = parse_direct_entries(
             properties.iter().copied(),
+            true,
             document_task,
             &mut output.diagnostics,
         );
@@ -436,6 +437,7 @@ fn analyze_metadata_document(document: &Document) -> MetadataOutput {
 
 fn parse_direct_entries<'a>(
     blocks: impl IntoIterator<Item = &'a Block>,
+    root: bool,
     document_task: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<MetadataEntry> {
@@ -485,7 +487,9 @@ fn parse_direct_entries<'a>(
         } else {
             keys.insert(key.clone(), key_range.clone());
         }
-        let value = if document_task && key == "focused" && !property.children.is_empty() {
+        let value = if root && key == "tags" {
+            document_tags_value(block, property, scalar, diagnostics)
+        } else if document_task && key == "focused" && !property.children.is_empty() {
             document_focus_value(property)
         } else {
             parse_direct_value(property, scalar, diagnostics)
@@ -498,6 +502,43 @@ fn parse_direct_entries<'a>(
         });
     }
     entries
+}
+
+// Tags have their own leaf-list contract, distinct from generic metadata sequences.
+fn document_tags_value(
+    block: &Block,
+    property: &ParsedBlock,
+    scalar: Option<InlineContent>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> MetadataValue {
+    let tags = crate::TagSet::from_blocks(std::slice::from_ref(block));
+    if tags.invalid {
+        return MetadataValue::Unsupported {
+            range: property.range.clone(),
+        };
+    }
+    if property.children.is_empty() {
+        return parse_direct_value(property, scalar, diagnostics);
+    }
+    MetadataValue::List {
+        items: property
+            .children
+            .iter()
+            .map(|child| {
+                let Block::Parsed(item) = child else {
+                    unreachable!("validated tag leaf")
+                };
+                MetadataListItem {
+                    value: MetadataValue::Verbatim {
+                        text: item.content.plain_text().trim().to_owned(),
+                        range: item.content.range.clone(),
+                    },
+                    range: item.range.clone(),
+                }
+            })
+            .collect(),
+        range: body_range(property),
+    }
 }
 
 // Task diagnostics own invalid history shapes; this projection does not broaden
@@ -638,7 +679,7 @@ fn parse_direct_children(
     }
     if blocks.iter().all(|block| parsed_marker(block) == Some("=")) {
         return MetadataValue::Map {
-            entries: parse_direct_entries(blocks, false, diagnostics),
+            entries: parse_direct_entries(blocks, false, false, diagnostics),
             range,
         };
     }
@@ -763,7 +804,7 @@ mod tests {
 
     #[test]
     fn green_metadata_matches_document_reducer_across_shards() {
-        let source = "`: first body\n`= title Document `em{title}\n`: second body\n\n`= tags\n `+ plumb\n `+ parser\n\n`= title Duplicate\n\n`+ unsupported\n`@ forbidden\n";
+        let source = "`: first body\n`= title Document `em{title}\n`: second body\n\n`= tags\n `- plumb\n `- parser\n\n`= title Duplicate\n\n`+ unsupported\n`@ forbidden\n";
         let parsed = parse(source);
         let green = plumb_syntax::GreenDocument::parse(source);
         assert_eq!(
@@ -775,7 +816,7 @@ mod tests {
     #[test]
     fn projects_metadata_values_independently_of_definitions() {
         let parsed = parse(
-            "`= title Document `em{title}\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n  `+ 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
+            "`= title Document `em{title}\n`= tags\n\n `- plumb\n `- parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n  `+ 1\n\n`= author\n\n `= name Alice\n\n`= source\n\n `\"\n  raw\n\n`: term\n\n Definition.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -813,7 +854,7 @@ mod tests {
     #[test]
     fn projects_recursive_document_metadata() {
         let parsed = parse(
-            "`= title Document `em{title}\n`= tags\n\n `+ plumb\n `+ parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n\n`= author\n\n `= name Alice\n\n`= empty\n\nBody.\n",
+            "`= title Document `em{title}\n`= tags\n\n `- plumb\n `- parser\n\n`= macros\n\n `+\n  `+ `\"name\"\n  `+ `\"expansion\"\n\n`= author\n\n `= name Alice\n\n`= empty\n\nBody.\n",
         );
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
         let output = analyze_metadata(
@@ -1005,7 +1046,7 @@ mod tests {
 
     #[test]
     fn item_marker_is_not_a_metadata_list_item() {
-        let parsed = parse("`= tags\n `item Generic block\n");
+        let parsed = parse("`= labels\n `item Generic block\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_metadata(
@@ -1045,7 +1086,7 @@ mod tests {
 
     #[test]
     fn rendered_list_marker_is_not_a_metadata_sequence_member() {
-        let parsed = parse("`= tags\n `- First\n `- Second\n");
+        let parsed = parse("`= labels\n `- First\n `- Second\n");
         assert!(parsed.is_valid(), "{:?}", parsed.diagnostics);
 
         let output = analyze_metadata(

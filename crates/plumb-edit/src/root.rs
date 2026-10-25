@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn cursor_selects_region_without_reordering_other_regions() {
         for nl in ["\n", "\r\n"] {
-            let source = "`= title First\n\n`+ custom\n\n`= tags\n\n `+ alpha\n\n`+ task\n\nBody unchanged\n".replace('\n', nl);
+            let source = "`= title First\n\n`+ custom\n\n`= tags\n\n `- alpha\n\n`+ task\n\nBody unchanged\n".replace('\n', nl);
             let doc = GreenDocument::parse(&source);
             let intents = [RootDeclarationEdit::SetProperty(OwnedDeclaration::scalar(
                 "done", "now",

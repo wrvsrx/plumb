@@ -81,8 +81,8 @@ core 只识别结构；本页介绍官方工具链赋予常用 marker、inline k
    `= title Document title
    `= created 2026-07-20T09:00:00+08:00
    `= tags
-    `+ plumb
-    `+ notes
+    `- plumb
+    `- notes
    `= author
     `= name Alice
 
@@ -382,14 +382,14 @@ core 只识别结构；本页介绍官方工具链赋予常用 marker、inline k
   `= tags journal
   `- 修复折叠
    `= tags
-    `+ neovim
-    `+ debugging
+    `- neovim
+    `- debugging
    `- 阅读帮助
   `- 跑步
    `= tags exercise
 
  这里 document 的标签是 journal，修复折叠的标签是 neovim 与 debugging；阅读帮助没有标签。
- 一个 scalar 的完整内容是一个标签，例如 tags programming languages 表示一个带空格的标签；多个标签使用 + sequence。
+ 一个 scalar 的完整内容是一个标签，例如 tags programming languages 表示一个带空格的标签；多个标签使用 - list。
  标签大小写敏感，同一 owner 内重复值去重。空值、rich inline、非法 sequence 或重复 tags 声明会产生 warning，
  该 owner 的整个集合不进入标签查询。标签不要求节点有 id；持久链接仍使用显式 anchor。
 

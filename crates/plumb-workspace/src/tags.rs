@@ -529,7 +529,7 @@ mod tests {
     fn tag_completion_reports_truncation_and_visits_only_a_bounded_page() {
         let mut workspace = Workspace::new();
         let labels = (0..150)
-            .map(|i| format!(" `+ label-{i:03}\n"))
+            .map(|i| format!(" `- label-{i:03}\n"))
             .collect::<String>();
         workspace.insert("a.plumb", 1, format!("`= tags\n{labels}"));
         let context = plumb_semantics::TagCompletionContext {
@@ -561,7 +561,7 @@ mod tests {
     #[test]
     fn tag_completion_uses_index_and_renders_special_characters_in_edit_layer() {
         let mut w = Workspace::new();
-        w.insert("a.plumb", 1, "`= tags\n `+ 中文 标签\n `+ a`{b`}\n");
+        w.insert("a.plumb", 1, "`= tags\n `- 中文 标签\n `- a`{b`}\n");
         let c = plumb_semantics::TagCompletionContext {
             replace: 7..8,
             query: "a".into(),

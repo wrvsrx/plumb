@@ -1677,7 +1677,7 @@ fn resolves_document_and_anchor_targets_from_declarations_and_reference_componen
 
 #[test]
 fn document_metadata_targets_only_top_level_entry_subtrees_and_offset_zero() {
-    let source = "`= title Document\n\n`note Body\n\n `= nested ordinary property\n\n`= tags\n\n `+ plumb\n `+ notes\n";
+    let source = "`= title Document\n\n`note Body\n\n `= nested ordinary property\n\n`= tags\n\n `- plumb\n `- notes\n";
     let mut workspace = Workspace::new();
     workspace.insert("metadata.plumb", 1, source);
     let parsed = plumb_syntax::parse(source);

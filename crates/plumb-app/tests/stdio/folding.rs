@@ -98,7 +98,7 @@ fn profile_metadata_edit_decoration_latency() {
 #[test]
 fn labels_individual_metadata_entry_folds() {
     let uri = "file:///tmp/metadata-fold-label.plumb";
-    let source = "`= title\n\n 项目 Overview\n\n`= created\n\n 2026-08-05T03:46:54+08:00\n\n`= tags\n `+ plumb\n";
+    let source = "`= title\n\n 项目 Overview\n\n`= created\n\n 2026-08-05T03:46:54+08:00\n\n`= tags\n `- plumb\n";
     let messages = [
         json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -125,7 +125,7 @@ fn labels_individual_metadata_entry_folds() {
             "jsonrpc": "2.0", "method": "textDocument/didChange",
             "params": {
                 "textDocument": { "uri": uri, "version": 2 },
-                "contentChanges": [{ "text": "`= tags\n `+ plumb\n" }]
+                "contentChanges": [{ "text": "`= tags\n `- plumb\n" }]
             }
         }),
         json!({

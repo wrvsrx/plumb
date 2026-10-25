@@ -82,8 +82,8 @@
   `= title Document title
   `= created 2026-09-02T09:00:00+08:00
   `= tags
-   `+ plumb
-   `+ notes
+   `- plumb
+   `- notes
   `= author
    `= name Alice
 
@@ -96,7 +96,7 @@
  `- direct `"+" sequence，preserve source order。
  `- direct `"=" nested map。
 
- 不能混合 incompatible shapes。metadata sequence 只接受 `"+"；`"-"/`"." 保持 rendered list semantics。
+ 不能混合 incompatible shapes。通用 metadata sequence 只接受 `"+"；`"-"/`"." 保持 rendered list semantics。root tags 是明确例外：仅接受第 5.1 节的 direct leaf `"-" 标签列表。
   duplicate key 使用 first value并诊断。title 必须 scalar；created 是完整 RFC 3339，date 可 YYYY-MM-DD 或
   RFC 3339，timezone 是 numeric UTC offset。
 
@@ -114,18 +114,19 @@
   文档根层与任意 parsed block（包括 anonymous block、heading、普通/task/event list item）可声明 tags。
   只消费 owner 的 direct block property；inline owner、declaration value 内部与 verbatim payload 不产生标签 owner。
   标签为大小写敏感的 plain string，不做 Unicode normalization；允许内部空格，去除首尾 whitespace。
-  leaf scalar 的全部 rest 是一个标签；多个标签使用 direct leaf + sequence，每项完整 plain content 是一个标签。
-  anonymous group 与 unmarked inline verbatim 可用于 plain value；marked rich inline、空值、非 + children、nested children
+  leaf scalar 的全部 rest 是一个标签；多个标签使用 direct leaf - list，每项完整 plain content 是一个标签。
+  + children 不作为 tags 的兼容形式；它们使整个标签集合无效。
+  anonymous group 与 unmarked inline verbatim 可用于 plain value；marked rich inline、空值、非 - children、nested children
   或重复 tags property 使该 owner 的整个标签集合无效，不保留部分有效标签。同 owner 重复标签按首次出现顺序去重。
   带 children 的 property 使用完整 head 作为 key，tags other 不是 tags。声明不进入 rendered body 或 task/event details。
 
   `plumb"
    `= tags
-    `+ journal
+    `- journal
    `- 修复折叠
     `= tags
-     `+ neovim
-     `+ debugging
+     `- neovim
+     `- debugging
     `- 阅读帮助
    `- 跑步
     `= tags exercise
@@ -136,8 +137,9 @@
   无 explicit id 的节点仍可定位，返回当前 revision 的 owner range、selection range、title 与 optional id；
   byte offset 只在该 revision 有效，长期链接仍使用显式 anchor。tags 不创建 facet、task、event-category、主题文档或引用边。
 
-  Pandoc export 保留 document tags metadata；block tags 投影为 owner attribute data-plumb-tags，其值是 JSON string array。
-  不把 tags 当 CSS classes，也不把 + sequence 当正文。无 attribute slot 的 owner 使用局部 Div wrapper；task 使用
+  Pandoc export 保留 document tags metadata，root 标签列表投影为 plain string MetaList；非法 root 标签列表拒绝导出。root MetaList import 使用相同 direct leaf - 列表；nested map 中的 tags key 仍是普通 metadata。
+  block tags 投影为 owner attribute data-plumb-tags，其值是 JSON string array。
+  不把 tags 当 CSS classes，也不把标签 - list 当正文。无 attribute slot 的 owner 使用局部 Div wrapper；task 使用
   既有 title Span，list/definition 使用既有 attribute wrapper。import 将该 attribute 恢复为 tags sequence，非法 JSON
   或空/非 string label 拒绝。此 portable projection 不保证 writer 会显示标签，也不赋予 inline tags 新语义。
 

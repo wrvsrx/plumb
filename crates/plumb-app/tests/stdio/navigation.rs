@@ -53,7 +53,7 @@ fn resolves_csl_json_citation_hover_and_definition() {
 #[test]
 fn hovers_document_metadata_from_each_top_level_entry_subtree() {
     let uri = "file:///tmp/document-metadata-hover.plumb";
-    let source = "`= title Document\n\n`note Body\n\n `= nested ordinary\n\n`= tags\n\n `+ plumb\n `+ notes\n\n`= related `->{site https://example.test}\n";
+    let source = "`= title Document\n\n`note Body\n\n `= nested ordinary\n\n`= tags\n\n `- plumb\n `- notes\n\n`= related `->{site https://example.test}\n";
     let requests = [
         (2, 0, 10),
         (3, 6, 4),

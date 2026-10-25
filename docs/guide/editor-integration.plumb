@@ -286,7 +286,7 @@
 `# Tags 补全
 
  在 document 或 parsed block 的 direct property key 输入 tags 前缀可补全属性名；同 owner 已有 tags 时不重复建议。
- 在 plain scalar 标签值或 tags 下直接 + sequence item 输入前缀，可补全 workspace 中已声明的标签，
+ 在 plain scalar 标签值或 tags 下直接 - list item 输入前缀，可补全 workspace 中已声明的标签，
  按大小写敏感的 literal prefix 匹配。候选来自当前语义快照，未保存修改覆盖磁盘；特殊字符由编辑层转义。
  每次最多返回 100 项，候选更多或索引仍在更新时 response 标为 incomplete，可继续输入以缩小候选。
  grouped/raw label 直接编辑其内容；标签的基础写法与作用域见 `->{语义指南 semantics.plumb}。

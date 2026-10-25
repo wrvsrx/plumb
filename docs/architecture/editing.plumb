@@ -159,7 +159,7 @@
 
 `# 10. Document task editing target
 
- OwnedDeclarationValue 除 Scalar 与 direct `"-" List 外，支持 direct `"+" Sequence。Sequence 每项是完整 scalar content，允许空格；set/read/remove 必须保留项边界。任务与 event authoring 在多个引用时使用 Sequence，不把 decoded paths 用空格拼成单个 Scalar；单项仍可用 Scalar。适配层只提供 owned values，分隔符与缩进由 plumb-edit 渲染。
+ OwnedDeclarationValue 除 Scalar 与 direct `"-" List 外，支持 direct `"+" Sequence。List 与 Sequence 每项是完整 scalar content，允许空格；set/read/remove 必须保留项边界。任务与 event authoring 在多个引用时使用 Sequence，不把 decoded paths 用空格拼成单个 Scalar；单项仍可用 Scalar。适配层只提供 owned values，分隔符与缩进由 plumb-edit 渲染。
 
  引用 component rename 向 plumb-edit 提供 current green revision、source-backed component range 与 decoded replacement。edit layer 为 parsed text 转义特殊字符；若 component 在 inline Verbatim payload 内，则保留其余 payload 并按需重建 quote envelope。验证新 revision 后才返回 edit，不能把 decoded filename 原样写进 parsed source 或破坏 raw delimiters。
 
@@ -202,6 +202,6 @@
 
 `# Tags portability fragments
 
- Pandoc import 的标签 attribute 交给 plumb-edit::render_authored_declaration，输入 OwnedDeclaration::sequence。
+ Pandoc import 的 root tags MetaList 与标签 attribute 交给 plumb-edit::render_authored_declaration，输入 OwnedDeclaration::list，生成 direct leaf - 标签列表。
  该纯 authored-fragment renderer 负责生成并验证完整 declaration block；import adapter 复用现有 block attributes
  插入边界，不自行拼 tags sequence、转义 label 或计算其内部缩进。此入口不授权修改 recovered invalid source。

@@ -795,7 +795,7 @@ impl OwnedBlock {
     ///
     /// Returns `None` when the block is not a parsed owner, when no direct `=`
     /// child carries the key, or when the matching declaration's value shape is
-    /// not a scalar or a list of single-element `-` children.
+    /// not a scalar or a list of plain leaf `-` children.
     pub fn declaration(&self, key: &str) -> Option<OwnedDeclaration> {
         let Self::Parsed { children, .. } = self else {
             return None;
@@ -1123,10 +1123,7 @@ fn owned_declaration_item(block: &OwnedBlock, expected_marker: &str) -> Option<S
     else {
         return None;
     };
-    if marker != expected_marker
-        || !children.is_empty()
-        || (expected_marker == "-" && owned_positional_indices(head).len() != 1)
-    {
+    if marker != expected_marker || !children.is_empty() {
         return None;
     }
     let item = plain_owned_argument(head)?;
@@ -4947,15 +4944,15 @@ mod apply_tests {
 #[cfg(test)]
 mod tag_authoring_tests {
     #[test]
-    fn sequence_fragment_owns_escaping_indentation_and_strict_validation() {
-        let source = super::render_authored_declaration(super::OwnedDeclaration::sequence(
+    fn list_fragment_owns_escaping_indentation_and_strict_validation() {
+        let source = super::render_authored_declaration(super::OwnedDeclaration::list(
             "tags",
             ["中文 标签", "a{b}", "tick`"],
         ))
         .unwrap();
         let parsed = plumb_syntax::parse(&source);
         assert!(parsed.is_valid());
-        let super::OwnedDeclarationValue::Sequence(values) = super::OwnedBlock::marked("-", "Item")
+        let super::OwnedDeclarationValue::List(values) = super::OwnedBlock::marked("-", "Item")
             .with_children(vec![super::OwnedBlock::from_syntax(
                 &source,
                 &parsed.syntax.blocks[0],
@@ -4964,11 +4961,11 @@ mod tag_authoring_tests {
             .unwrap()
             .value
         else {
-            panic!("sequence")
+            panic!("list")
         };
         assert_eq!(values, ["中文 标签", "a{b}", "tick`"]);
         assert!(
-            super::render_authored_declaration(super::OwnedDeclaration::sequence("tags", [""]))
+            super::render_authored_declaration(super::OwnedDeclaration::list("tags", [""]))
                 .is_err()
         );
     }

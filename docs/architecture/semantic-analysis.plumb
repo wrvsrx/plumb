@@ -645,6 +645,7 @@
  内提取并复用，document tags 作为 metadata reducer 跨 root shards 判重；标签不进入 Event context key。
  语法错误声明阻止该 owner 的旧标签复用，健康 siblings 继续参与；pending document 撤回贡献，查询显式 Partial。
  无效标签集合不产生 membership，同时发布 tags.invalid-value 或 tags.duplicate-property Warning。
+ 标签列表 marker 改变时更新 persistent cache identity，旧 + 标签 facts 必须从 source 重建。
 
  Workspace 维护 path 到当前 revision/tag owners、tag 到 owner identities 的反向索引及 pending paths。
  owner identity 是 normalized path、document/block kind 与当前 range start；不把它当作跨 revision 的持久 anchor。
@@ -668,7 +669,7 @@
  CLI plumb tag 提供 vocabulary、exact membership 与 document/subtree inspection；CLI 仅格式化共享结果，不重建语义。
  LSP tag value completion 消费相同 vocabulary index，recovered context 与 byte edit 由共享层提供。
  每次最多返回 100 个 prefix candidates；更多候选、pending semantics 或未完成 workspace index 使用标准
- CompletionList.isIncomplete，不能把截断结果当完整集合。plain scalar 与直接 + item 的完整当前值被替换，
+ CompletionList.isIncomplete，不能把截断结果当完整集合。plain scalar 与 tags 下直接 - item 的完整当前值被替换，
  只支持不含 envelope 的 plain prefix；已有 grouped/raw value 不猜测 source mapping。属性名补全覆盖 document
  与任意 parsed block，跨 root shards 判重且不进入 declaration payload。grouped/raw 标签仍可正常手工编辑。
 

@@ -176,7 +176,7 @@ fn render_metadata(
     let mut entries = Vec::new();
     for key in keys {
         require_attr_name(key, "metadata key")?;
-        entries.push(render_metadata_entry(context, key, &meta[key])?);
+        entries.push(render_metadata_entry(context, key, &meta[key], true)?);
     }
     Ok(entries.join("\n"))
 }
@@ -185,7 +185,21 @@ fn render_metadata_entry(
     context: &RenderContext<'_>,
     key: &str,
     value: &MetaValue,
+    root: bool,
 ) -> Result<String, String> {
+    if root && key == "tags" {
+        if let MetaValue::MetaList(values) = value {
+            let labels = values
+                .iter()
+                .map(tag_metadata_label)
+                .collect::<Result<Vec<_>, _>>()?;
+            return plumb_edit::render_authored_declaration(plumb_edit::OwnedDeclaration::list(
+                "tags", labels,
+            ))
+            .map(|source| source.trim_end().to_owned())
+            .map_err(|_| "cannot render tags declaration".into());
+        }
+    }
     let value_source = render_metadata_value(context, value)?;
     if value_source.is_empty() {
         return Ok(format!("`= {key}"));
@@ -196,6 +210,28 @@ fn render_metadata_entry(
         return Ok(format!("`= {key} {value_source}"));
     }
     Ok(format!("`= {key}\n{}", indent(&value_source, 1)))
+}
+
+fn tag_metadata_label(value: &MetaValue) -> Result<String, String> {
+    let label = match value {
+        MetaValue::MetaString(text) => text.clone(),
+        MetaValue::MetaInlines(inlines) => {
+            let mut text = String::new();
+            for inline in inlines {
+                match inline {
+                    Inline::Str(value) => text.push_str(value),
+                    Inline::Space | Inline::SoftBreak => text.push(' '),
+                    _ => return Err("tags metadata labels must be plain text".into()),
+                }
+            }
+            text
+        }
+        _ => return Err("tags metadata labels must be plain text".into()),
+    };
+    if label.trim().is_empty() {
+        return Err("tags metadata labels must be nonempty".into());
+    }
+    Ok(label)
 }
 
 fn render_metadata_value(context: &RenderContext<'_>, value: &MetaValue) -> Result<String, String> {
@@ -225,7 +261,7 @@ fn render_metadata_value(context: &RenderContext<'_>, value: &MetaValue) -> Resu
             let mut entries = Vec::new();
             for key in keys {
                 require_attr_name(key, "metadata key")?;
-                entries.push(render_metadata_entry(context, key, &values[key])?);
+                entries.push(render_metadata_entry(context, key, &values[key], false)?);
             }
             Ok(entries.join("\n"))
         }
@@ -881,7 +917,7 @@ fn render_attrs(attrs: &Attr, consumed_pair: Option<&str>) -> Result<String, Str
                 return Err("data-plumb-tags labels must be nonempty".into());
             }
             let declaration = plumb_edit::render_authored_declaration(
-                plumb_edit::OwnedDeclaration::sequence("tags", tags),
+                plumb_edit::OwnedDeclaration::list("tags", tags),
             )
             .map_err(|_| "cannot render tags declaration")?;
             items.push(declaration.trim_end().to_owned());
@@ -1202,6 +1238,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn imports_root_tag_lists_as_plain_leaf_items_and_preserves_nested_metadata() {
+        let document = json!({
+            "pandoc-api-version": [1, 23, 1],
+            "meta": {
+                "tags": {"t": "MetaList", "c": [
+                    {"t": "MetaInlines", "c": [
+                        {"t": "Str", "c": "中文"}, {"t": "Space"},
+                        {"t": "Str", "c": "标签"}
+                    ]},
+                    {"t": "MetaString", "c": "a{b}`"}
+                ]},
+                "nested": {"t": "MetaMap", "c": {
+                    "tags": {"t": "MetaList", "c": [{"t": "MetaString", "c": "ordinary"}]}
+                }}
+            },
+            "blocks": []
+        });
+        let source = import_json(&document.to_string()).unwrap();
+        let parsed = plumb_syntax::parse(&source);
+        let tags = plumb_semantics::TagSet::from_blocks(&parsed.syntax.blocks);
+        assert_eq!(tags.values, ["中文 标签", "a{b}`"]);
+        assert!(!tags.invalid);
+        assert!(source.contains("`+"), "nested metadata remains a generic sequence: {source}");
+        assert!(source.contains("`- 中文 标签"), "{source}");
+    }
+
+    #[test]
     fn imports_the_exported_standard_profile() {
         let document = json!({
             "pandoc-api-version": [1, 23, 1],
@@ -1239,7 +1302,7 @@ mod tests {
 
         let source = import_json(&document.to_string()).unwrap();
         assert!(
-            source.starts_with("`= tags\n\n `+ plumb\n `+ markup\n\n"),
+            source.starts_with("`= tags\n\n `- plumb\n `- markup\n\n"),
             "{source}"
         );
         assert!(source.contains("`= title Example\n"), "{source}");
