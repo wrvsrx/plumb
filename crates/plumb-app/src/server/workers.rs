@@ -176,6 +176,7 @@ pub(super) fn query<T>(
 mod tests {
     use super::*;
     use async_lsp::LanguageServer;
+    use futures::FutureExt;
     use serde_json::json;
 
     fn server() -> super::super::ServerState {
@@ -286,6 +287,49 @@ mod tests {
                 assert_eq!(result.unwrap(), 42);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn initial_index_installation_rejects_queued_fold_labels_and_retry_succeeds() {
+        let mut server = server();
+        server.supports_folding_collapsed_text = true;
+        server.open_documents.insert(
+            lsp_types::Url::parse("file:///tmp/worker.plumb").unwrap(),
+            PathBuf::from("/tmp/worker.plumb"),
+        );
+        let params =
+            serde_json::from_value(json!({"textDocument":{"uri":"file:///tmp/worker.plumb"}}))
+                .unwrap();
+        let permit = server
+            .workers
+            .decorations
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let mut folds = server.folding_range(params);
+        assert!(folds.as_mut().now_or_never().is_none());
+
+        let _ = server.finish_initial_index(super::super::InitialIndexResult {
+            generation: server.index_generation,
+            workspace: plumb_workspace::Workspace::new(),
+            indexed: 0,
+            cache_hits: 0,
+            complete: true,
+        });
+        drop(permit);
+        assert_eq!(folds.await.unwrap_err().code, ErrorCode::CONTENT_MODIFIED);
+
+        // The retry must use the preserved open document and the installed index.
+        let params =
+            serde_json::from_value(json!({"textDocument":{"uri":"file:///tmp/worker.plumb"}}))
+                .unwrap();
+        assert!(!server
+            .folding_range(params)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

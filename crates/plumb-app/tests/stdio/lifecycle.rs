@@ -7,6 +7,9 @@ use crate::support::{
 
 #[test]
 fn pending_decorations_handle_cancel_new_edits_and_close_reopen_over_stdio() {
+    let root = unique_temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let root_uri = lsp_types::Url::from_directory_path(&root).unwrap();
     let uri = "file:///tmp/decoration-lifecycle.plumb";
     let old = format!(
         "`- Old\n `+ task\n `= done 2026-09-06T00:00:00Z\n\n{}",
@@ -16,7 +19,7 @@ fn pending_decorations_handle_cancel_new_edits_and_close_reopen_over_stdio() {
     for operation in ["cancel", "edit", "reopen"] {
         let mut messages = vec![
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-                "processId":null,"rootUri":null,"capabilities":{
+                "processId":null,"rootUri":root_uri,"capabilities":{
                     "textDocument":{"foldingRange":{"foldingRange":{"collapsedText":true}}}
                 }
             }}),
@@ -52,7 +55,9 @@ fn pending_decorations_handle_cancel_new_edits_and_close_reopen_over_stdio() {
             json!({"jsonrpc":"2.0","id":6,"method":"shutdown","params":null}),
             json!({"jsonrpc":"2.0","method":"exit","params":null}),
         ]);
-        let output = run_server(&messages);
+        // Index installation invalidates in-flight folding queries independently of edits.
+        // Wait for it so this test only races cancellation and document revisions.
+        let output = run_server_after_initial_index(&messages);
         let first_tokens = response(&output, 2);
         if first_tokens.get("error").is_some() {
             assert_eq!(
@@ -83,6 +88,10 @@ fn pending_decorations_handle_cancel_new_edits_and_close_reopen_over_stdio() {
                 .any(|range| range["collapsedText"] == "`- [o]  Old"));
         }
         let current_tokens = response(&output, 4);
+        assert!(
+            current_tokens.get("error").is_none(),
+            "{operation}: current tokens response: {current_tokens}"
+        );
         assert!(!current_tokens["result"]["data"]
             .as_array()
             .unwrap()
@@ -92,12 +101,18 @@ fn pending_decorations_handle_cancel_new_edits_and_close_reopen_over_stdio() {
         } else {
             "`- [x]  Latest"
         };
-        assert!(response(&output, 5)["result"]
+        let current_folds = response(&output, 5);
+        assert!(
+            current_folds.get("error").is_none(),
+            "{operation}: current folds response: {current_folds}"
+        );
+        assert!(current_folds["result"]
             .as_array()
             .unwrap()
             .iter()
             .any(|range| range["collapsedText"] == expected));
     }
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
