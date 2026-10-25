@@ -7,7 +7,7 @@ const task = (key, extra = {}) => ({ key, path: 'a.plumb', documentId: 'a', loca
 const folds = () => ({ documents: new Set(), tasks: new Set(), expandedGroups: new Set() });
 const capture = (tasks, selected, collapsed = folds()) => captureTaskContext(tasks, selected, collapsed);
 
-test('recur insertion does not replace a closed instance that exits the filter', () => {
+test('external recur insertion without an explicit handoff uses ordinary selection fallback', () => {
   const old = [task('a'), task('recur'), task('c')];
   const next = [task('new-instance', { prev: 'recur' }), old[0], old[2]];
   assert.equal(reconcileTaskContext(capture(old, 'recur'), next).selected, 'c');
@@ -115,4 +115,17 @@ test('viewport context stays with neighbors when focus or priority moves selecti
   }
   assert.deepEqual(reconcileTaskViewport(old, [old[1]], observations, 'selected', null), observations[1]);
   assert.equal(reconcileTaskViewport(old, [], observations, 'selected', null), null);
+});
+
+ test('explicit recurring closure handoff selects only the generated identity while original remains selected', () => {
+  const old = [task('old'), task('neighbor')];
+  const next = [task('new'), ...old];
+  const handoff = { from: 'old', to: 'new' };
+  assert.equal(reconcileTaskContext(capture(old, 'old'), next, handoff).selected, 'new');
+  assert.equal(reconcileTaskContext(capture(old, 'old'), next.slice(0, 1), handoff).selected, 'new');
+  assert.equal(reconcileTaskContext(capture(old, 'neighbor'), next, handoff).selected, 'neighbor');
+  assert.equal(reconcileTaskContext(capture(old, 'old'), old, handoff).selected, 'old');
+  assert.equal(reconcileTaskContext(capture(old, 'old'), old.slice(1), handoff).selected, 'neighbor');
+  const anonymous = task('offset', { locator: { kind: 'offset', offset: 0 } });
+  assert.equal(reconcileTaskContext(capture([anonymous], 'offset'), next, { from: 'offset', to: 'new' }).selected, 'new');
 });

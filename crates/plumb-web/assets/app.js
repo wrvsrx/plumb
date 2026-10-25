@@ -61,6 +61,8 @@ import {
     view: initialView,
     tasks: null,
     selectedTask: null,
+    pinnedTask: null,
+    taskDetailHidden: false,
     taskLoadRevision: 0,
     taskNavigation: null,
     taskScope: null,
@@ -234,7 +236,7 @@ import {
   }
 
   function detailOpenFor(view) {
-    if (view === 'tasks') return Boolean(state.selectedTask) || state.detailForms.tasks;
+    if (view === 'tasks') return (Boolean(state.selectedTask) && !state.taskDetailHidden) || state.detailForms.tasks;
     if (view === 'agenda') return Boolean(state.selectedEvent) || state.detailForms.agenda;
     return Boolean(state.selectedGraph || state.current);
   }
@@ -253,6 +255,7 @@ import {
 
   function closeDetail() {
     if (state.view === 'tasks') {
+      state.pinnedTask = null;
       state.selectedTask = null;
       renderTasks();
     } else if (state.view === 'agenda') {
@@ -268,6 +271,8 @@ import {
   }
 
   function readUrlState() {
+    state.taskDetailHidden = false;
+    state.pinnedTask = null;
     state.view = viewFromPath(location.pathname);
     const query = readQueryParameters(location.search, state.view);
     state.presets[state.view] = initialPresets(state.view, query);
@@ -1084,9 +1089,11 @@ import {
     syncDetail();
   }
 
-  async function loadTasks(cursor = null) {
+  async function loadTasks(cursor = null, handoff = null) {
     const generation = ++state.taskLoadRevision;
     const request = queryRequest('tasks');
+    const pin = handoff && state.selectedTask === handoff.from ? handoff.to : state.pinnedTask;
+    request.selectedTask = pin;
     const scope = taskQueryScope(request);
     const snapshot = scope === state.taskScope ? state.tasks : null;
     try {
@@ -1105,10 +1112,11 @@ import {
       });
       const anchor = snapshot && reconcileTaskViewport(context.tasks, result.tasks.tasks,
         observations, state.selectedTask, state.pendingTask);
-      const mapped = reconcileTaskContext(context, result.tasks.tasks);
+      const mapped = reconcileTaskContext(context, result.tasks.tasks, handoff);
       state.tasks = result.tasks;
       state.taskScope = scope;
       state.selectedTask = mapped.selected;
+      state.pinnedTask = mapped.selected === pin ? pin : null;
       state.collapsed = mapped.collapsed;
       observeRevision(state.workspaceRevision, result.tasks.revision);
       setQueryError('tasks', null);
@@ -1527,7 +1535,7 @@ import {
     row.className = 'task-list-item';
     row.dataset.taskKey = task.key;
     row.classList.toggle('selected', task.key === state.selectedTask);
-    if (task.matched === false) row.title = 'Parent task shown for context';
+    if (task.matched === false) row.title = 'Task shown for context outside the current filters';
     row.classList.toggle('collapsed', item.collapsed);
     row.classList.toggle('focused', isFocused(task));
     row.style.setProperty('--task-depth', item.depth);
@@ -1738,21 +1746,25 @@ import {
     }
   }
 
-  function selectTask(task, { history = 'replace', navigate = false } = {}) {
+  function selectTask(task, { history = 'replace', navigate = false, showDetail = true } = {}) {
+    state.taskDetailHidden = !showDetail;
     state.taskNavigation = null;
     revealTask(state.collapsed, state.tasks.tasks, task);
+    state.pinnedTask = task.key === state.pinnedTask ? state.pinnedTask : null;
     state.selectedTask = task.key;
     updateUrl(history);
     renderTasks();
     renderTaskDetail(task);
     syncDetail();
-    if (navigate && !state.narrow) {
+    if (navigate) {
       const row = Array.from(taskList.querySelectorAll('[data-task-key]'))
         .find((element) => element.dataset.taskKey === task.key);
       if (row) {
         const rect = row.getBoundingClientRect();
         const pane = taskList.parentElement.getBoundingClientRect();
-        if (rect.top < pane.top || rect.bottom > pane.bottom) row.scrollIntoView({ block: 'nearest' });
+        const top = Math.max(0, pane.top);
+        const bottom = Math.min(window.innerHeight, pane.bottom);
+        if (rect.top < top || rect.bottom > bottom) row.scrollIntoView({ block: 'nearest' });
       }
     }
   }
@@ -1818,7 +1830,7 @@ import {
     taskPanel.innerHTML = `
       <article class="task-detail">
         <header><p class="document-path"></p><h1></h1><span class="task-detail-state"></span></header>
-        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="focus-task" type="button">Focus</button><button class="edit-task" type="button">Edit</button><button class="open-note" type="button">Open note</button></div>
+        <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="focus-task" type="button">Focus</button><button class="edit-task" type="button">Edit</button><button class="jump-task" type="button">Jump to task</button><button class="open-note" type="button">Open note</button></div>
         <p class="task-mutation-error" role="alert" hidden></p>
         <dl class="task-fields"></dl>
         <section class="task-focus-history" hidden><h2>Focus history</h2><div></div></section>
@@ -1867,6 +1879,9 @@ import {
     taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));
     taskPanel.querySelector('.cancel-task').addEventListener('click', () => updateTask(task, 'cancel'));
     taskPanel.querySelector('.edit-task').addEventListener('click', () => renderTaskForm(task));
+    taskPanel.querySelector('.jump-task').addEventListener('click', () => {
+      selectTask(task, { navigate: true, showDetail: !state.narrow });
+    });
     taskPanel.querySelector('.open-note').addEventListener('click', () => {
       showView('graph', { historyMode: 'push' });
       selectDocument(task.documentId, '', state.narrow ? 'push' : 'replace');
@@ -2053,6 +2068,7 @@ import {
   }
 
   async function renderTaskForm(task = null) {
+    state.taskDetailHidden = false;
     const documents = state.tasks.documents || [];
     if (!documents.length) return clearTaskDetail('Tasks unavailable', 'No valid task document is writable.');
     await Promise.all([
@@ -2296,7 +2312,8 @@ import {
       const body = await response.text();
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
       observeMutationResponse(response);
-      await loadTasks();
+      const result = body ? JSON.parse(body) : {};
+      await loadTasks(null, result.generatedTask ? { from: task.key, to: result.generatedTask } : null);
       notify(`${verb}d task.`);
     } catch (error) {
       await loadTasks();

@@ -353,8 +353,9 @@ async fn update_task(
         "plumb site serve: received task {action} for {document_id} ({:?})",
         request.locator
     );
-    let (path, revision) = {
+    let (path, revision, generated_task) = {
         let workspace = state.workspace.read().await;
+        let mut generated_task = None;
         let result = match action.as_str() {
             "mark-document" | "unmark-document" => workspace.set_document_task_facet(
                 &document_id, &request.revision, action == "mark-document",
@@ -373,7 +374,7 @@ async fn update_task(
                         } else {
                             TaskStatus::Canceled
                         },
-                    )
+                    ).map(|key| { generated_task = key; })
                 }),
             "focus" | "unfocus" => request
                 .locator
@@ -423,6 +424,7 @@ async fn update_task(
                 .expect("validated task document id")
                 .to_path_buf(),
             workspace.revision() + 1,
+            generated_task,
         )
     };
     {
@@ -437,11 +439,14 @@ async fn update_task(
         "plumb site serve: task {action} completed for {document_id} ({:?})",
         request.locator
     );
-    (
-        StatusCode::NO_CONTENT,
-        [("x-plumb-revision", revision.to_string())],
-    )
-        .into_response()
+    if let Some(key) = generated_task {
+        (
+            [("x-plumb-revision", revision.to_string())],
+            Json(serde_json::json!({ "generatedTask": key })),
+        ).into_response()
+    } else {
+        (StatusCode::NO_CONTENT, [("x-plumb-revision", revision.to_string())]).into_response()
+    }
 }
 
 #[derive(Debug, Deserialize)]

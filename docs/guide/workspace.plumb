@@ -93,7 +93,9 @@
 
  `"plumb event --root DIR export-vdir --output DIR" 将 workspace events 原子投影到受管理 vdir，每个 event 对应一个 `"..ics" file。khal calendar 配置使用该目录并设置 `"readonly = true"；`".plumb" 仍是唯一 writable source，Calendar 修改不会回写。
 
- open task 无论是否具有 explicit id 都可以一键 complete 或 cancel，不弹 confirmation dialog；request pending 时当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 使用 server-issued id 或 source-offset locator，携带 document revision guard 并复用 shared task edit，因此 recurring completion 仍生成下一实例；success/error 使用 non-blocking notification，conflict 后重新读取 snapshot。
+ open task 无论是否具有 explicit id 都可以一键 complete 或 cancel，不弹 confirmation dialog；request pending 时当前 task 的 mutation buttons disabled。dependency-waiting task 不能 complete。operation 使用 server-issued id 或 source-offset locator，携带 document revision guard 并复用 shared task edit，因此 recurring complete / cancel 会生成下一实例并自动选中它；如果操作期间已选择其他任务，不抢回 selection。下一实例不符合当前筛选时仍作为上下文显示，筛选条件保持不变。success/error 使用 non-blocking notification，conflict 后重新读取 snapshot。
+
+ 详情的 `"Jump to task" 会展开任务树中的祖先和分组，滚动到选中任务；窄屏返回任务列表并保留选择。`"Open note" 用于打开所在文档。自动选中新 recurring 实例不会抢走当前阅读位置。
 
  Tasks detail 的 `"New task" 与 `"Edit" 打开结构化表单。创建时选择 source document；创建和编辑都可设置 title、parent、同层 position、created、due、wait、priority、recurrence、previous task 与 dependencies。 Datetime 使用本地 date/time control，保存时转为 RFC 3339；priority 是 signed integer，recurrence 从标准 interval 中选择并要求同时设置 due。state 由 task semantics 推导，表单不允许直接修改；关闭 task 仍使用 Complete 或 Cancel。
 

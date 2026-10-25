@@ -228,14 +228,14 @@ impl Workspace {
         &self,
         query: &TaskPageQuery,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
-        self.query_task_page_impl(query, false, &[])
+        self.query_task_page_impl(query, false, &[], None)
     }
 
     pub fn query_task_tree_page(
         &self,
         query: &TaskPageQuery,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
-        self.query_task_page_impl(query, true, &[])
+        self.query_task_page_impl(query, true, &[], None)
     }
 
     /// Refresh a contiguous tree prefix covering the previously loaded documents.
@@ -245,7 +245,18 @@ impl Workspace {
         query: &TaskPageQuery,
         documents: &[PathBuf],
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
-        self.query_task_page_impl(query, true, documents)
+        self.query_task_page_impl(query, true, documents, None)
+    }
+
+    /// Include one explicit task identity as unmatched context on a refreshed tree.
+    /// Resolution reuses the query's identity map; no second workspace traversal.
+    pub fn query_task_tree_page_with_selection(
+        &self,
+        query: &TaskPageQuery,
+        documents: &[PathBuf],
+        selected: Option<&TaskRef>,
+    ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
+        self.query_task_page_impl(query, true, documents, selected)
     }
 
     fn query_task_page_impl(
@@ -253,6 +264,7 @@ impl Workspace {
         query: &TaskPageQuery,
         include_ancestors: bool,
         documents: &[PathBuf],
+        selected: Option<&TaskRef>,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
         let filters = compile_filters(&query.filter_groups)?;
         let candidate = if include_ancestors { None } else { task_candidate_predicate(&filters) };
@@ -313,6 +325,13 @@ impl Workspace {
         let matched_keys = retained.iter().map(|fact| fact.key.clone()).collect::<HashSet<_>>();
         if include_ancestors {
             let mut included = matched_keys.clone();
+            if query.cursor.is_none() {
+                if let Some(key) = selected.and_then(|target| identities.get(target)) {
+                    if included.insert(key.clone()) {
+                        if let Some(fact) = ancestor_facts.get(key) { retained.push(fact.clone()); }
+                    }
+                }
+            }
             let mut index = 0;
             while index < retained.len() {
                 let fact = &retained[index];
@@ -343,7 +362,8 @@ impl Workspace {
         let remaining_count = retained.len();
         let documents = documents.iter().collect::<HashSet<_>>();
         let retained_limit = if query.cursor.is_none() {
-            retained.iter().rposition(|fact| documents.contains(&fact.key.path))
+            retained.iter().rposition(|fact| documents.contains(&fact.key.path)
+                || selected.is_some_and(|task| task.path == fact.key.path))
                 .map_or(0, |index| index + 1)
         } else { 0 };
         truncate_complete_task_documents(&mut retained, query.limit.max(retained_limit), |fact| &fact.document_order);
@@ -1479,6 +1499,29 @@ mod tests {
             cursor: None,
             workspace_revision: 11,
             now: now(),
+        }
+    }
+
+    #[test]
+    fn selected_identity_pins_filtered_task_and_ancestors_without_changing_matches() {
+        for persistent in [false, true] {
+            let mut workspace = Workspace::new();
+            let source = "`- Parent\n `+ task\n `@ parent\n `- Waiting\n  `+ task\n  `@ waiting\n  `= wait 2099-01-01T00:00:00+00:00\n`- Other\n `+ task\n `@ other\n";
+            if persistent { workspace.insert_disk("tasks.plumb", 1, source).unwrap(); }
+            else { workspace.insert("tasks.plumb", 1, source); }
+            let selected = TaskRef { path: "tasks.plumb".into(), id: Some("waiting".into()) };
+            let query = TaskPageQuery { text: "absent".into(), limit: 1, ..query() };
+            for _ in 0..2 {
+                let page = workspace.query_task_tree_page_with_selection(&query, &[], Some(&selected)).unwrap().value;
+                assert_eq!(page.tasks.len(), 2);
+                assert!(page.tasks.iter().all(|task| !task.matched));
+                assert_eq!(page.tasks[1].task.id.as_ref().unwrap().value, "waiting");
+                assert_eq!(page.tasks[1].state, TaskWorkflowState::Waiting);
+            }
+            workspace.insert("unrelated.plumb", 2, "`- Unrelated\n `+ task\n `@ unrelated\n");
+            assert_eq!(workspace.query_task_tree_page_with_selection(&query, &[], Some(&selected)).unwrap().value.tasks.len(), 2);
+            workspace.insert("tasks.plumb", 2, "`- Replaced\n `+ task\n `@ replacement\n");
+            assert!(workspace.query_task_tree_page_with_selection(&query, &[], Some(&selected)).unwrap().value.tasks.is_empty());
         }
     }
 

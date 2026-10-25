@@ -20,7 +20,7 @@ export function captureTaskContext(tasks, selected, collapsed) {
   };
 }
 
-export function reconcileTaskContext(context, tasks) {
+export function reconcileTaskContext(context, tasks, handoff = null) {
   const current = new Map(tasks.map((task) => [identity(task), task]));
   const previous = new Map(context.tasks.map((task) => [task.key, task]));
   const surviving = (task) => task && current.get(identity(task));
@@ -56,6 +56,9 @@ export function reconcileTaskContext(context, tasks) {
     selected = [...neighbors, ...ancestors.map((key) => previous.get(key))]
       .map(surviving).find(Boolean);
   }
+  const successor = handoff && context.selected === handoff.from
+    && tasks.find((task) => task.key === handoff.to);
+  if (successor) selected = successor;
   const pathChanged = selected && old && (selected.path !== old.path
     || JSON.stringify(taskAncestorKeys(tasks, selected)) !== JSON.stringify(taskAncestorKeys(context.tasks, old)));
   if (selected && (!old || selected.key !== old.key || pathChanged)) revealTask(collapsed, tasks, selected);

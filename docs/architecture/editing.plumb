@@ -110,6 +110,8 @@
   的选择、渲染以及两者相互转换都由 edit layer 按 owned value shape 完成，consumer 不手算缩进或分隔符；结束 open
   interval 与写入 closure field 必须是同一 proposal 内不可分割的编辑。
 
+  Recurring status edit 的 WorkspaceEdit 附带可选 generated_task TaskRef，精确标识本次 clone 根任务的新显式 id（原任务无 id 也适用）。Complete 与 Cancel 共用此结果；普通关闭与其他编辑为空。它是 proposal 的非编辑结果，只有 guarded batch 成功应用后 adapter 才能发布，不能通过标题、offset 或全 workspace 扫描重新猜测。
+
  `# 6.1 Inline owner replacement
 
   plumb-edit 的 replace_owned_inline 与 replace_green_inline 接受已有 valid revision、完整 Group/Verbatim owner range 与一个 OwnedInline。edit layer 验证原 owner 存在、渲染 replacement、验证新 revision 的 syntax validity 与 replacement 完整 owner boundary，然后返回唯一 byte edit。green 入口在 owning shard 内验证并 rebase，consumer 不手算 envelope 或 CST replacement。嵌套 replacements 必须通过一次 owned 外层修改或不重叠 batch 完成。其它 source bytes 保持不变，不能为了局部 inline mutation 重写整个 block。这一通用能力可服务 source spelling 转换；显式 semantic-profile migration 见下文，不建立 legacy core parser。

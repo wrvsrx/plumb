@@ -29,7 +29,7 @@ impl WebWorkspace {
         locator: &WebTaskLocator,
         revision: &str,
         status: TaskStatus,
-    ) -> Result<(), String> {
+    ) -> Result<Option<String>, String> {
         let path = self
             .document_path(document_id)
             .ok_or_else(|| "unknown task document".to_string())?;
@@ -71,10 +71,13 @@ impl WebWorkspace {
             }
         }
         .map_err(|error| error.to_string())?;
+        let generated_key = edit.generated_task.as_ref().and_then(|task| task.id.as_ref())
+            .map(|id| format!("{document_id}:{id}"));
         let updated = apply_guarded_edit(disk_source, path, entry.revision, edit, "task")?;
         validate_generated_source(path, entry.revision, &updated, "task")?;
         std::fs::write(path, updated)
-            .map_err(|error| format!("cannot write {}: {error}", path.display()))
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+        Ok(generated_key)
     }
 
     /// Focus a task by appending one open interval, or close its open interval.

@@ -814,6 +814,7 @@ fn applies_one_guarded_document_edit_with_revision_validation() {
             }],
         }],
         resource_operations: Vec::new(),
+        generated_task: None,
     };
     assert_eq!(
         apply_document_edit("Note\n".to_string(), "note.plumb", 7, edit.clone()),
@@ -6944,4 +6945,29 @@ fn query_store_version_detects_local_and_other_connection_writes() {
         .execute_batch_for_test("UPDATE version_probe SET value = 2")
         .unwrap();
     assert_ne!(local, workspace.query_store_version().unwrap());
+}
+
+#[test]
+fn recurring_closure_reports_exact_generated_identity_for_both_statuses() {
+    for status in [TaskStatus::Done, TaskStatus::Canceled] {
+        for explicit_id in ["", " `@ original\n"] {
+            let source = format!("`- Routine\n `+ task\n{explicit_id} `= due 2026-01-31T09:00:00+08:00\n `= recur P1M\n`- Collision\n `@ routine-2026-02-28\n");
+            let mut workspace = Workspace::new();
+            workspace.insert("tasks.plumb", 1, &source);
+            let edit = workspace.set_task_status("tasks.plumb", 0, status, "2026-01-31T10:00:00+08:00").unwrap();
+            let generated = edit.generated_task.clone().unwrap();
+            let updated = apply_document_edit(source, "tasks.plumb", 1, edit).unwrap();
+            workspace.insert("tasks.plumb", 2, &updated);
+            let entry = workspace.get("tasks.plumb").unwrap();
+            let output = &entry.current.as_ref().unwrap().output;
+            let task = output.tasks().tasks.iter().find(|task| task.id.as_ref().map(|id| &id.value) == generated.id.as_ref()).unwrap();
+            assert_eq!(generated.path, PathBuf::from("tasks.plumb"));
+            assert_ne!(generated.id.as_deref(), Some("routine-2026-02-28"));
+            assert_eq!(task.state(), TaskState::Open);
+            assert_eq!(task.due.as_ref().unwrap().value, "2026-02-28T09:00:00+08:00");
+        }
+        let mut workspace = Workspace::new();
+        workspace.insert("plain.plumb", 1, "`- Plain\n `+ task\n");
+        assert!(workspace.set_task_status("plain.plumb", 0, status, "2026-01-31T10:00:00+08:00").unwrap().generated_task.is_none());
+    }
 }

@@ -1023,7 +1023,9 @@ impl Workspace {
         close_task_focus(&mut current, task, timestamp)?;
         let edit = replace_green_blocks(entry.parsed.green(), task.range.clone(), &[current, next])
             .map_err(|_| TaskEditError::GeneratedInvalid)?;
-        Ok(single_document_edit(entry, entry.path.clone(), edit))
+        let mut result = single_document_edit(entry, entry.path.clone(), edit);
+        result.generated_task = Some(TaskRef { path: entry.path.clone(), id: Some(next_id) });
+        Ok(result)
     }
 
     pub(super) fn resolve_task_target(

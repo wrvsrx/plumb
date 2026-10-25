@@ -42,7 +42,7 @@ try {
   const root = join(temporary, 'workspace'); await mkdir(root);
   for (let i = 0; i < 260; i += 1) {
     const source = i === 120
-      ? '`- Parent\n `+ task\n `@ parent\n `= priority 1\n `- Routine\n  `+ task\n  `@ recur\n  `= due 2026-09-24T09:00:00+08:00\n  `= recur P1D\n `- Neighbor\n  `+ task\n  `@ neighbor\n'
+      ? '`- Parent\n `+ task\n `@ parent\n `= priority 1\n `- Routine\n  `+ task\n  `@ recur\n  `= due 2026-09-24T09:00:00+08:00\n  `= recur P1D\n `- Anonymous routine\n  `+ task\n  `= due 2026-01-01T09:00:00+08:00\n  `= wait 2026-01-01T09:00:00+08:00\n  `= recur P1Y\n `- Neighbor\n  `+ task\n  `@ neighbor\n'
       : `\`- Task ${i}\n \`+ task\n \`@ task-${i}\n \`= priority 1\n`;
     await writeFile(join(root, `${String(i).padStart(3, '0')}.plumb`), source);
   }
@@ -102,11 +102,23 @@ try {
     row('recur').scrollIntoView({ block: 'center' });
     select('recur');
     document.querySelector('.complete-task').click();
-    await wait(() => !row('recur') && document.querySelector('.task-detail h1')?.textContent === 'Neighbor');
+    await wait(() => !row('recur') && document.querySelector('.task-detail h1')?.textContent === 'Routine');
+    const first = new URL(location.href).searchParams.get('selected');
+    if (!first || first.endsWith(':recur')) throw new Error('completion did not select generated task');
+    await wait(() => !document.querySelector('.cancel-task').disabled);
+    document.querySelector('.cancel-task').click();
+    await wait(() => new URL(location.href).searchParams.get('selected') !== first && !document.querySelector('.cancel-task').disabled);
+    if (document.querySelector('.task-detail h1').textContent !== 'Routine') throw new Error('cancel did not select next instance');
+    select('neighbor');
     const after = rows().length;
     if (after < loaded) throw new Error('refresh lost loaded extent');
     if (!new URL(location.href).searchParams.get('selected').endsWith(':neighbor')) throw new Error('URL selection disagrees');
     if (!row('neighbor').classList.contains('selected')) throw new Error('row selection disagrees');
+    const fileToggle = [...document.querySelectorAll('.task-document-toggle')].find(button => button.title === 'Collapse 120.plumb');
+    fileToggle.click();
+    if (row('neighbor')) throw new Error('collapse did not hide selected row');
+    listPane.scrollTop = 0;
+    document.querySelector('.jump-task').click();
     const bounds = row('neighbor').getBoundingClientRect();
     const pane = document.querySelector('.task-list-pane').getBoundingClientRect();
     if (bounds.top < pane.top - 1 || bounds.bottom > pane.bottom + 1) throw new Error('mapped focus not visible ' + JSON.stringify({ row: bounds.toJSON(), pane: pane.toJSON(), scroll: document.querySelector('.task-list-pane').scrollTop }));
@@ -173,6 +185,49 @@ try {
     assert.equal(await evaluate('document.querySelector(".task-detail h1").textContent'), 'Task 220');
   }
   console.log('In-flight selection and viewport resize passed');
+  await evaluate(`(async () => {
+    const { wait, rows } = contextTest;
+    const anonymous = rows().find(row => row.textContent.includes('Anonymous routine'));
+    if (!anonymous) throw new Error('missing anonymous recurrence fixture');
+    anonymous.querySelector('.task-row').click();
+    document.querySelector('.complete-task').click();
+    await wait(() => document.querySelector('.task-detail h1')?.textContent === 'Anonymous routine'
+      && document.querySelector('.task-detail-state')?.textContent === 'Waiting'
+      && !document.querySelector('.cancel-task').disabled);
+    const selected = new URL(location.href).searchParams.get('selected');
+    if (!selected.includes(':anonymous-routine-')) throw new Error('anonymous generated identity not selected');
+    if (!document.querySelector('.task-list-item.selected')) throw new Error('filtered successor missing from tree');
+    document.querySelector('.jump-task').click();
+  })()`);
+  await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 800, deviceScaleFactor: 1, mobile: true });
+  await evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
+  const pinnedSelection = await evaluate('new URL(location.href).searchParams.get("selected")');
+  await evaluate("document.querySelector('.jump-task').click()");
+  assert.equal(await evaluate('document.body.classList.contains("detail-open")'), false);
+  assert.equal(await evaluate('new URL(location.href).searchParams.get("selected")'), pinnedSelection);
+  assert.equal(await evaluate('(() => { const rect = document.querySelector(".task-list-item.selected").getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight; })()'), true);
+  await evaluate("document.querySelector('.task-list-item.selected .task-row').click()");
+  assert.equal(await evaluate('document.body.classList.contains("detail-open")'), true);
+  await command('Emulation.setDeviceMetricsOverride', { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+  // Change selection while recurrence response is delayed: never steal it back.
+  await evaluate(`(() => {
+    const original = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await original(...args);
+      if (String(args[0]).endsWith('/cancel')) {
+        window.closeResponsePending = true;
+        await new Promise(r => setTimeout(r, 700));
+      }
+      return response;
+    };
+    document.querySelector('.cancel-task').click();
+  })()`);
+  await waitFor(() => evaluate('Boolean(window.closeResponsePending)'));
+  await evaluate("contextTest.select('task-220')");
+  await waitFor(() => evaluate('!document.querySelector(".cancel-task").disabled'));
+  await delay(900);
+  assert.equal(await evaluate('document.querySelector(".task-detail h1").textContent'), 'Task 220');
+  console.log('Anonymous filtered successor, mobile jump, and recurrence response race passed');
   // Delayed old responses cannot replace a newer search result.
   await evaluate(`(() => {
     const original = window.fetch;

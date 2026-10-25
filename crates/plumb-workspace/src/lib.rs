@@ -117,6 +117,8 @@ pub struct DocumentEdit {
 pub struct WorkspaceEdit {
     pub document_changes: Vec<DocumentEdit>,
     pub resource_operations: Vec<ResourceOperation>,
+    /// Exact successor produced by a recurring task closure, if any.
+    pub generated_task: Option<TaskRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2011,6 +2013,7 @@ impl Workspace {
         Ok(WorkspaceEdit {
             document_changes,
             resource_operations: Vec::new(),
+            generated_task: None,
         })
     }
 
@@ -2254,6 +2257,7 @@ impl Workspace {
         Ok(WorkspaceEdit {
             document_changes,
             resource_operations: vec![ResourceOperation::Rename { old_path, new_path }],
+            generated_task: None,
         })
     }
 
@@ -2444,6 +2448,7 @@ impl Workspace {
                 edits,
             }],
             resource_operations: Vec::new(),
+            generated_task: None,
         })
     }
 
@@ -2715,6 +2720,7 @@ impl Workspace {
                 edits,
             }],
             resource_operations: Vec::new(),
+            generated_task: None,
         })
     }
 
@@ -3066,6 +3072,7 @@ fn single_document_edits(
             edits,
         }],
         resource_operations: Vec::new(),
+        generated_task: None,
     }
 }
 
