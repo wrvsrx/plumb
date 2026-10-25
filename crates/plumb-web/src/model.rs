@@ -329,8 +329,6 @@ pub struct WebQuery {
     pub graph_revision: Option<u64>,
     #[serde(default)]
     pub retained_documents: Vec<String>,
-    /// One task retained as context even when excluded by the current filters.
-    pub selected_task: Option<String>,
     #[serde(default)]
     pub traversal: GraphQuery,
 }
@@ -3244,17 +3242,6 @@ mod tests {
         assert!(retained.tasks.iter().any(|task| task.path == "a.plumb"));
         assert!(retained.tasks.iter().any(|task| task.path == "b.plumb"));
         assert!(retained.tasks.iter().all(|task| task.path == "a.plumb" || task.path == "b.plumb"));
-
-        let pinned = workspace.query_tasks(&WebQuery {
-            view: WebView::Tasks,
-            query: "no-matching-title".into(),
-            selected_task: Some(format!("{}:a-early", workspace.document_id(root.join("a.plumb")).unwrap())),
-            limit: Some(1),
-            ..WebQuery::default()
-        }).unwrap();
-        assert_eq!(pinned.tasks.len(), 1);
-        assert_eq!(pinned.tasks[0].id.as_deref(), Some("a-early"));
-        assert!(!pinned.tasks[0].matched);
 
         let due_then_priority = workspace
             .query_tasks(&WebQuery {

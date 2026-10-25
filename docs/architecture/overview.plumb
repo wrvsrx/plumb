@@ -147,7 +147,7 @@
 
   同一筛选会话内刷新保留已加载文档中仍匹配的树，并至少保留原加载数量；排序变化仍延续会话。改变搜索、presets 或 CEL 条件开始新的加载范围。刷新只安装同一 revision 的完整响应，迟到请求不得覆盖新请求。Load more 沿用生成 cursor 时的 query limit；旧 cursor 失效时重新取得当前范围加一页，不拼接不同 revision。
 
-  协调器优先保留仍在结果树中的同一任务；原任务退出视图时按旧可见顺序选择后继、前驱，最后最近的存活祖先，没有候选则清空 selection。无显式 id 的 offset locator 只在同一 document revision 内表示身份，不得在源码变更后以相同 offset 或标题猜测同一任务。显式 id 与 Document task identity 可跨 revision 延续。删除与筛选退出共用规则。Complete / Cancel recur 的成功响应携带 shared mutation 产生的新实例 identity；若安装刷新结果时用户仍选中被关闭实例，优先选中新实例，包括旧实例仍在筛选内的情况。新实例通过单一 explicit identity 作为 unmatched context 包含在刷新结果中，并保留必要祖先；不改变筛选，匹配计数不含被筛选排除的新实例。该 pin 仅保持到用户改选、关闭详情或任务删除；外部 revision 重新验证 identity，不沿用旧 record。未生成实例或用户已改选时保持普通协调规则，不猜测标题或 offset。
+  协调器优先保留仍在结果树中的同一任务；原任务退出视图时按旧可见顺序选择后继、前驱，最后最近的存活祖先，没有候选则清空 selection。无显式 id 的 offset locator 只在同一 document revision 内表示身份，不得在源码变更后以相同 offset 或标题猜测同一任务。显式 id 与 Document task identity 可跨 revision 延续。删除与筛选退出共用规则。Complete / Cancel recur 的成功响应携带 shared mutation 产生的新实例 identity；仅当安装刷新结果时用户仍选中被关闭实例，且新实例已在正常查询结果中时，优先选中新实例，包括旧实例仍在筛选内的情况。不得为新实例修改筛选、注入结果或建立 pin。新实例被筛选排除或不在当前结果中、未生成实例或用户已改选时保持普通协调规则：原选择仍存在则保留，否则按原有后继、前驱、祖先规则回退，没有候选则清空；不猜测标题或 offset。
 
   展开状态按身份延续；显式 id 的任务暂时被筛选排除不清除其手动折叠状态，恢复筛选后继续使用该状态。仍可识别的旧可见任务若因 focused 分组重建而被隐藏，应展开其新分组路径，但不展开用户此前折叠的子树。selection 映射改变或其路径改变时展开新 selection 路径。普通刷新不推翻用户手动折叠。详情与 URL 使用同一映射后的 selection；未在当前筛选结果中的任务不能误报为已从 workspace 删除。
 
@@ -155,7 +155,7 @@
 
   详情提供 Jump to task 按钮，展开当前选中任务的祖先与分组，并在任务树中定位该行；窄屏关闭详情展示但保留 selection。Open note 仍导航文档。自动 recur selection 不滚动阅读位置。
 
-  Recurrence selection 输入仅为同一次成功 mutation 返回的新 TaskRef、安装时 selection 与当前有界 task page；请求失败不产生 handoff，后发 query 覆盖前发 query。cold start 不保留 mutation hint；每次只在该次刷新协调中消费，新 identity 复用 shared query 已有 identity map，增量成本限于一个任务及其祖先的结果 hydration；不新增 workspace 扫描或跨文档缓存。普通刷新携带同一 pin，cursor continuation 不新增 pin；cold start 从现有 URL selection 恢复常规行为。
+  Recurrence selection 输入仅为同一次成功 mutation 返回的新 TaskRef、安装时 selection 与当前有界 task page；请求失败不产生 handoff，后发 query 覆盖前发 query。cold start 不保留 mutation hint；每次只在该次刷新协调中消费，新 identity 只在当前已加载结果中查找，不改变 shared query 输入或结果集合；不新增 workspace 扫描、额外 hydration 或跨文档缓存。cold start 从现有 URL selection 恢复常规行为。
 
   主动点击详情中的任务跳转或恢复 URL 中已加载的 selection 会展开目标路径，并仅在目标不可见时滚动；点击列表中已可见任务只更新 selection/detail。同一 revision 的 Load more 仅追加结果，不拉回旧 selection。mutation、外部 revision 与排序刷新使用同一协调器。自动化验证覆盖分页后 recur close、Focus/Unfocus 与属性重排不抢浏览位置、删除回退、分组变化、无 id revision 边界和异步响应竞态。
 

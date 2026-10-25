@@ -191,20 +191,19 @@ try {
     if (!anonymous) throw new Error('missing anonymous recurrence fixture');
     anonymous.querySelector('.task-row').click();
     document.querySelector('.complete-task').click();
-    await wait(() => document.querySelector('.task-detail h1')?.textContent === 'Anonymous routine'
-      && document.querySelector('.task-detail-state')?.textContent === 'Waiting'
+    await wait(() => document.querySelector('.task-detail h1')?.textContent === 'Neighbor'
       && !document.querySelector('.cancel-task').disabled);
     const selected = new URL(location.href).searchParams.get('selected');
-    if (!selected.includes(':anonymous-routine-')) throw new Error('anonymous generated identity not selected');
-    if (!document.querySelector('.task-list-item.selected')) throw new Error('filtered successor missing from tree');
+    if (!selected.endsWith(':neighbor')) throw new Error('filtered successor did not preserve normal fallback');
+    if (rows().some(row => row.textContent.includes('Anonymous routine'))) throw new Error('filtered successor was injected into tree');
     document.querySelector('.jump-task').click();
   })()`);
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 800, deviceScaleFactor: 1, mobile: true });
   await evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
-  const pinnedSelection = await evaluate('new URL(location.href).searchParams.get("selected")');
+  const jumpSelection = await evaluate('new URL(location.href).searchParams.get("selected")');
   await evaluate("document.querySelector('.jump-task').click()");
   assert.equal(await evaluate('document.body.classList.contains("detail-open")'), false);
-  assert.equal(await evaluate('new URL(location.href).searchParams.get("selected")'), pinnedSelection);
+  assert.equal(await evaluate('new URL(location.href).searchParams.get("selected")'), jumpSelection);
   assert.equal(await evaluate('(() => { const rect = document.querySelector(".task-list-item.selected").getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight; })()'), true);
   await evaluate("document.querySelector('.task-list-item.selected .task-row').click()");
   assert.equal(await evaluate('document.body.classList.contains("detail-open")'), true);
@@ -220,6 +219,9 @@ try {
       }
       return response;
     };
+    const routine = contextTest.rows().find(row => row.querySelector('strong')?.textContent === 'Routine');
+    if (!routine) throw new Error('missing recurring task for response race');
+    routine.querySelector('.task-row').click();
     document.querySelector('.cancel-task').click();
   })()`);
   await waitFor(() => evaluate('Boolean(window.closeResponsePending)'));
@@ -227,7 +229,7 @@ try {
   await waitFor(() => evaluate('!document.querySelector(".cancel-task").disabled'));
   await delay(900);
   assert.equal(await evaluate('document.querySelector(".task-detail h1").textContent'), 'Task 220');
-  console.log('Anonymous filtered successor, mobile jump, and recurrence response race passed');
+  console.log('Filtered successor exclusion and fallback, mobile jump, and recurrence response race passed');
   // Delayed old responses cannot replace a newer search result.
   await evaluate(`(() => {
     const original = window.fetch;

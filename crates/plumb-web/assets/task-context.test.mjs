@@ -117,7 +117,7 @@ test('viewport context stays with neighbors when focus or priority moves selecti
   assert.equal(reconcileTaskViewport(old, [], observations, 'selected', null), null);
 });
 
- test('explicit recurring closure handoff selects only the generated identity while original remains selected', () => {
+test('explicit recurring closure handoff selects only the generated identity while original remains selected', () => {
   const old = [task('old'), task('neighbor')];
   const next = [task('new'), ...old];
   const handoff = { from: 'old', to: 'new' };
@@ -128,4 +128,16 @@ test('viewport context stays with neighbors when focus or priority moves selecti
   assert.equal(reconcileTaskContext(capture(old, 'old'), old.slice(1), handoff).selected, 'neighbor');
   const anonymous = task('offset', { locator: { kind: 'offset', offset: 0 } });
   assert.equal(reconcileTaskContext(capture([anonymous], 'offset'), next, { from: 'offset', to: 'new' }).selected, 'new');
+});
+
+test('missing recurring successor preserves normal selection and fallback without inserting it', () => {
+  const parent = task('parent');
+  const old = task('old', { parentKey: 'parent' });
+  const neighbor = task('neighbor');
+  const context = capture([parent, old, neighbor], 'old');
+  const handoff = { from: 'old', to: 'filtered-successor' };
+  for (const [tasks, expected] of [[[parent, old, neighbor], 'old'], [[parent, neighbor], 'neighbor'], [[parent], 'parent'], [[], null]]) {
+    assert.equal(reconcileTaskContext(context, tasks, handoff).selected, expected);
+    assert.equal(tasks.some(task => task.key === handoff.to), false);
+  }
 });

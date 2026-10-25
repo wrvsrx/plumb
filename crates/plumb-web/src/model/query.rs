@@ -39,15 +39,9 @@ impl WebWorkspace {
         let retained_documents = query.retained_documents.iter()
             .filter_map(|id| self.document_path(id).map(Path::to_path_buf))
             .collect::<Vec<_>>();
-        let selected_task = query.selected_task.as_deref().and_then(|key| {
-            let (document, id) = key.split_once(':')?;
-            Some(plumb_workspace::TaskRef {
-                path: self.document_path(document)?.to_path_buf(), id: Some(id.to_string()),
-            })
-        });
         let page = self
             .workspace
-            .query_task_tree_page_with_selection(&TaskPageQuery {
+            .query_task_tree_page_retaining(&TaskPageQuery {
                 root: self.root.clone(),
                 text: query.query.clone(),
                 filter_groups,
@@ -56,7 +50,7 @@ impl WebWorkspace {
                 cursor: query.cursor.clone(),
                 workspace_revision: self.revision,
                 now,
-            }, &retained_documents, selected_task.as_ref())
+            }, &retained_documents)
             .map_err(task_query_failure)?
             .value;
         let durations = self

@@ -61,7 +61,6 @@ import {
     view: initialView,
     tasks: null,
     selectedTask: null,
-    pinnedTask: null,
     taskDetailHidden: false,
     taskLoadRevision: 0,
     taskNavigation: null,
@@ -255,7 +254,6 @@ import {
 
   function closeDetail() {
     if (state.view === 'tasks') {
-      state.pinnedTask = null;
       state.selectedTask = null;
       renderTasks();
     } else if (state.view === 'agenda') {
@@ -272,7 +270,6 @@ import {
 
   function readUrlState() {
     state.taskDetailHidden = false;
-    state.pinnedTask = null;
     state.view = viewFromPath(location.pathname);
     const query = readQueryParameters(location.search, state.view);
     state.presets[state.view] = initialPresets(state.view, query);
@@ -1092,8 +1089,6 @@ import {
   async function loadTasks(cursor = null, handoff = null) {
     const generation = ++state.taskLoadRevision;
     const request = queryRequest('tasks');
-    const pin = handoff && state.selectedTask === handoff.from ? handoff.to : state.pinnedTask;
-    request.selectedTask = pin;
     const scope = taskQueryScope(request);
     const snapshot = scope === state.taskScope ? state.tasks : null;
     try {
@@ -1116,7 +1111,6 @@ import {
       state.tasks = result.tasks;
       state.taskScope = scope;
       state.selectedTask = mapped.selected;
-      state.pinnedTask = mapped.selected === pin ? pin : null;
       state.collapsed = mapped.collapsed;
       observeRevision(state.workspaceRevision, result.tasks.revision);
       setQueryError('tasks', null);
@@ -1535,7 +1529,7 @@ import {
     row.className = 'task-list-item';
     row.dataset.taskKey = task.key;
     row.classList.toggle('selected', task.key === state.selectedTask);
-    if (task.matched === false) row.title = 'Task shown for context outside the current filters';
+    if (task.matched === false) row.title = 'Parent task shown for context';
     row.classList.toggle('collapsed', item.collapsed);
     row.classList.toggle('focused', isFocused(task));
     row.style.setProperty('--task-depth', item.depth);
@@ -1750,7 +1744,6 @@ import {
     state.taskDetailHidden = !showDetail;
     state.taskNavigation = null;
     revealTask(state.collapsed, state.tasks.tasks, task);
-    state.pinnedTask = task.key === state.pinnedTask ? state.pinnedTask : null;
     state.selectedTask = task.key;
     updateUrl(history);
     renderTasks();
