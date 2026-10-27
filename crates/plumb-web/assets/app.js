@@ -38,6 +38,22 @@ import {
 (function () {
   'use strict';
 
+  // Read computed colors once per scheme change, never once per node/frame.
+  function readGraphPalette() {
+    const styles = getComputedStyle(document.documentElement);
+    return Object.fromEntries(['canvas', 'red', 'teal', 'unresolved', 'edge-depends',
+      'edge-prev', 'edge', 'label-bg', 'ink'].map((name) =>
+      [name, styles.getPropertyValue(`--${name}`).trim()]));
+  }
+  let graphPalette = readGraphPalette();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    graphPalette = readGraphPalette();
+    if (state.graphView) {
+      state.graphView.backgroundColor(graphPalette.canvas);
+      refreshStyles();
+    }
+  });
+
   const config = JSON.parse(document.body.dataset.plumbConfig);
   const initialView = viewFromPath(location.pathname);
   const state = {
@@ -754,7 +770,7 @@ import {
   function ensureGraphView() {
     if (state.graphView) return;
     state.graphView = ForceGraph()(graphElement)
-      .backgroundColor('#f7f7f5')
+      .backgroundColor(graphPalette['canvas'])
       .nodeId('id')
       .linkSource('source')
       .linkTarget('target')
@@ -849,17 +865,17 @@ import {
   }
 
   function nodeColor(node) {
-    if (node.id === state.current) return '#d94b3d';
-    if (node.id === state.hovered) return '#d94b3d';
-    if (node.unresolved) return '#a9aaa6';
-    return '#188578';
+    if (node.id === state.current) return graphPalette['red'];
+    if (node.id === state.hovered) return graphPalette['red'];
+    if (node.unresolved) return graphPalette['unresolved'];
+    return graphPalette['teal'];
   }
 
   function linkColor(link) {
-    if (isHighlightedLink(link)) return link.kind === 'task-depends' ? '#d94b3d' : '#188578';
-    if (link.kind === 'task-depends') return 'rgba(217, 75, 61, 0.32)';
-    if (link.kind === 'task-prev') return 'rgba(215, 165, 34, 0.32)';
-    return 'rgba(120, 124, 126, 0.22)';
+    if (isHighlightedLink(link)) return link.kind === 'task-depends' ? graphPalette['red'] : graphPalette['teal'];
+    if (link.kind === 'task-depends') return graphPalette['edge-depends'];
+    if (link.kind === 'task-prev') return graphPalette['edge-prev'];
+    return graphPalette['edge'];
   }
 
   function linkWidth(link) {
@@ -887,9 +903,9 @@ import {
       bounds.top < other.bottom && bounds.bottom > other.top
     )) return;
     state.labelBounds.push(bounds);
-    context.fillStyle = 'rgba(247, 247, 245, 0.92)';
+    context.fillStyle = graphPalette['label-bg'];
     context.fillRect(x, y, width + padding * 2, fontSize + padding * 2);
-    context.fillStyle = '#202124';
+    context.fillStyle = graphPalette['ink'];
     context.textAlign = 'center';
     context.textBaseline = 'top';
     context.fillText(node.title, node.x, y + padding);

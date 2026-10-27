@@ -184,3 +184,9 @@
  import 是 portability boundary 的反向 consumer，而不是 syntax authority。`"plumb-import" 使用 typed Pandoc AST，拒绝没有标准 plumb 表示的 nodes 与冲突 attributes；生成 source 必须经过 strict parser 与 protocol-neutral formatter。它保证官方 exporter profile 内的 semantic round-trip，不把任意 Pandoc presentation surface 变成 core syntax 或隐式 semantics。
 
  LSP stdio tests 不得把共享 /tmp 或用户目录作为隐式 workspace；无 workspace 需求时 rootUri 为 null，需要索引时使用独立 TestDirectory。测试 shutdown 后对子进程退出设置有界 deadline，超时必须 kill/reap，不能无限等待后台索引。
+
+`# Web color scheme
+
+ Web shell、独立 note 页面与 graph canvas 跟随浏览器 prefers-color-scheme；初次绘制即使用对应配色，系统偏好改变后无需刷新即可更新。未声明暗色偏好时保持浅色。背景、文本、链接、状态、选中项、表单与移动端浮层使用共享语义颜色，原生控件通过 color-scheme 同步；图片和视频不反色。
+
+ 主题的唯一输入是浏览器颜色偏好；CSS 更新页面颜色，graph 缓存一份固定大小的 CSS palette，并在偏好 change 时失效和重读。更新只触发现有 graph 的绘制属性刷新，不请求 workspace、不重新加载 graph data、不重启布局，不改变 camera、selection、filters 或任务状态。冷启动在创建 graph 前读取 palette，主题更新的准备工作与 workspace 大小无关。

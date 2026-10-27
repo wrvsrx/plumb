@@ -59,6 +59,8 @@
 
 `# Web app
 
+ 网页自动跟随系统的浅色或暗色外观，切换系统外观后即时生效；图谱、任务、日程和独立文档页面使用一致配色。
+
  `"plumb site serve --root DIR" 启动默认只监听 `"127.0.0.1" 的本地 Web server，并在 stdout 输出 ready URL；进程不主动打开浏览器。`"--current path.plumb" 初始选择一个 note，`"--port" 指定 port。server 监听 `"..plumb" 与 `".ignore" changes，并通过 SSE 更新 graph；ignored document 的内容变化不会发布 workspace revision。
 
  浏览器提供 workspace/local graph、incoming/outgoing direction、depth、edge-kind filters、search、pan、 zoom、node labels、node selection 与 note preview。同一 document 内的 references 不产生 self-edge。 unresolved document targets 显示为独立 node。
