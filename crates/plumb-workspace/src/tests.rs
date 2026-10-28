@@ -6971,3 +6971,89 @@ fn recurring_closure_reports_exact_generated_identity_for_both_statuses() {
         assert!(workspace.set_task_status("plain.plumb", 0, status, "2026-01-31T10:00:00+08:00").unwrap().generated_task.is_none());
     }
 }
+
+#[test]
+fn task_selection_is_projected_without_changing_tree_membership_or_pages() {
+    for disk in [false, true] {
+        let mut workspace = if disk {
+            Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+        } else { Workspace::new() };
+        let mut insert = |path: &str, source: &str| {
+            if disk { workspace.insert_disk(path, 1, source).unwrap(); }
+            else { workspace.insert(path, 1, source); }
+        };
+        insert("a.plumb", "`- Alpha\n `+ task\n `@ a\n");
+        insert("z.plumb", "`+ task\n`= title Project\n`- Target\n `+ task\n `@ target\n `= priority 3\n");
+        let selected = TaskRef { path: PathBuf::from("z.plumb"), id: Some("target".into()) };
+        let mut query = TaskPageQuery {
+            root: PathBuf::from("."), text: String::new(), filter_groups: Vec::new(),
+            sort: vec![TaskSortOrder::Source], limit: 1, cursor: None, workspace_revision: 1,
+            now: DateTime::parse_from_rfc3339("2026-09-21T10:00:00+08:00").unwrap(),
+        };
+        for text in ["", "Alpha", "Target", "No matching task"] {
+            query.text = text.into();
+            let plain = workspace.query_task_tree_page(&query).unwrap().value;
+            for _ in 0..2 {
+                let page = workspace.query_task_tree_page_with_selection(&query, &[], Some(&selected)).unwrap().value;
+                assert_eq!(page.hydrated_records, plain.hydrated_records + usize::from(!page.tasks.iter().any(|task| task.task.id.as_ref().is_some_and(|id| id.value == "target"))));
+                assert_eq!(page.tasks, plain.tasks);
+                assert_eq!(page.next_cursor, plain.next_cursor);
+                assert_eq!(page.complete, plain.complete);
+                assert_eq!(page.selected_in_results, text == "" || text == "Target");
+                assert_eq!(page.selected.as_ref().unwrap().task.title, "Target");
+                assert_eq!(page.selected.as_ref().unwrap().task.priority, Some(3));
+            }
+        }
+        query.text = "Target".into();
+        let document = TaskRef { path: selected.path.clone(), id: None };
+        let page = workspace.query_task_tree_page_with_selection(&query, &[], Some(&document)).unwrap().value;
+        assert!(page.selected_in_results, "nonmatching ancestors belong to the tree");
+        assert!(!page.selected.unwrap().matched);
+        let missing = TaskRef { path: selected.path.clone(), id: Some("deleted".into()) };
+        assert!(workspace.query_task_tree_page_with_selection(&query, &[], Some(&missing)).unwrap().value.selected.is_none());
+        // Unrelated growth does not enlarge the selection projection or page.
+        query.text.clear();
+        let before = workspace.query_task_tree_page_with_selection(&query, &[], Some(&selected)).unwrap().value;
+        for i in 0..20 {
+            let path = format!("other-{i}.plumb");
+            let source = "`- Unrelated\n `+ task\n `@ unrelated\n";
+            if disk { workspace.insert_disk(&path, 1, source).unwrap(); }
+            else { workspace.insert(&path, 1, source); }
+        }
+        let after = workspace.query_task_tree_page_with_selection(&query, &[], Some(&selected)).unwrap().value;
+        assert_eq!(before.tasks, after.tasks);
+        assert_eq!(before.selected, after.selected);
+        assert_eq!(before.hydrated_records, after.hydrated_records);
+    }
+}
+
+#[test]
+fn task_selection_tracks_overlay_deletion_recovery_and_snapshot_boundaries() {
+    let store = SqliteSemanticStore::open_in_memory().unwrap();
+    let mut workspace = Workspace::with_sqlite_store(store.clone());
+    let source = "`- Selected\n `+ task\n `@ target\n `= priority 1\n";
+    workspace.insert_disk("a.plumb", 1, source).unwrap();
+    let snapshot = workspace.with_updated_store(store.readonly_snapshot().unwrap());
+    let selected = TaskRef { path: PathBuf::from("a.plumb"), id: Some("target".into()) };
+    let query = TaskPageQuery {
+        root: PathBuf::from("."), text: "excluded".into(), filter_groups: Vec::new(),
+        sort: vec![TaskSortOrder::Source], limit: 1, cursor: None, workspace_revision: 1,
+        now: DateTime::parse_from_rfc3339("2026-09-21T10:00:00+08:00").unwrap(),
+    };
+    let project = |workspace: &Workspace| workspace.query_task_tree_page_with_selection(&query, &[], Some(&selected)).unwrap().value;
+    workspace.insert("a.plumb", 2, source.replace("priority 1", "priority 7"));
+    let overlay = project(&workspace);
+    assert_eq!(overlay.selected.unwrap().task.priority, Some(7));
+    assert_eq!(overlay.hydrated_records, 1);
+    workspace.close_document("a.plumb");
+    assert_eq!(project(&workspace).selected.unwrap().task.priority, Some(1));
+    workspace.remove_disk("a.plumb").unwrap();
+    assert!(project(&workspace).selected.is_none());
+    assert_eq!(project(&snapshot).selected.unwrap().task.priority, Some(1));
+    workspace.insert_disk("a.plumb", 3, source.replace("priority 1", "priority 9")).unwrap();
+    let recovered = project(&workspace);
+    assert_eq!(recovered.selected.as_ref().unwrap().task.priority, Some(9));
+    let mut cold = Workspace::new();
+    cold.insert("a.plumb", 3, source.replace("priority 1", "priority 9"));
+    assert_eq!(recovered, project(&cold));
+}

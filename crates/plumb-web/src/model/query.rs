@@ -39,9 +39,18 @@ impl WebWorkspace {
         let retained_documents = query.retained_documents.iter()
             .filter_map(|id| self.document_path(id).map(Path::to_path_buf))
             .collect::<Vec<_>>();
+        let selected = query.selected_task.as_deref().and_then(|key| {
+            let (document, id) = if let Some(document) = key.strip_suffix("/document-task") {
+                (document, None)
+            } else {
+                let (document, id) = key.split_once(':')?;
+                (document, Some(id.to_string()))
+            };
+            Some(TaskRef { path: self.document_path(document)?.to_path_buf(), id })
+        });
         let page = self
             .workspace
-            .query_task_tree_page_retaining(&TaskPageQuery {
+            .query_task_tree_page_with_selection(&TaskPageQuery {
                 root: self.root.clone(),
                 text: query.query.clone(),
                 filter_groups,
@@ -50,12 +59,12 @@ impl WebWorkspace {
                 cursor: query.cursor.clone(),
                 workspace_revision: self.revision,
                 now,
-            }, &retained_documents)
+            }, &retained_documents, selected.as_ref())
             .map_err(task_query_failure)?
             .value;
         let durations = self
             .workspace
-            .task_durations_for(page.tasks.iter().map(|item| plumb_workspace::AgendaItem {
+            .task_durations_for(page.tasks.iter().chain(page.selected.iter()).map(|item| plumb_workspace::AgendaItem {
                 path: item.path.clone(),
                 id: item.task.id.as_ref().map(|id| id.value.clone()),
             }))
@@ -63,6 +72,7 @@ impl WebWorkspace {
                 source: "workspace".to_string(),
                 message,
             })?;
+        let selected_task = page.selected.and_then(|task| self.web_task(task, &durations));
         let mut tasks = page
             .tasks
             .into_iter()
@@ -70,6 +80,8 @@ impl WebWorkspace {
             .collect::<Vec<_>>();
         assign_task_parents(&mut tasks);
         Ok(TaskQuerySnapshot {
+            selected_task,
+            selected_in_results: page.selected_in_results,
             revision: self.revision,
             tasks,
             all_tasks: Vec::new(),

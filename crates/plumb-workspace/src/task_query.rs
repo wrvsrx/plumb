@@ -56,6 +56,10 @@ pub struct WorkspaceTask {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskPage {
+    #[cfg(test)]
+    pub hydrated_records: usize,
+    pub selected: Option<WorkspaceTask>,
+    pub selected_in_results: bool,
     pub tasks: Vec<WorkspaceTask>,
     pub complete: bool,
     pub next_cursor: Option<String>,
@@ -228,14 +232,14 @@ impl Workspace {
         &self,
         query: &TaskPageQuery,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
-        self.query_task_page_impl(query, false, &[])
+        self.query_task_page_impl(query, false, &[], None)
     }
 
     pub fn query_task_tree_page(
         &self,
         query: &TaskPageQuery,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
-        self.query_task_page_impl(query, true, &[])
+        self.query_task_page_impl(query, true, &[], None)
     }
 
     /// Refresh a contiguous tree prefix covering the previously loaded documents.
@@ -245,7 +249,17 @@ impl Workspace {
         query: &TaskPageQuery,
         documents: &[PathBuf],
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
-        self.query_task_page_impl(query, true, documents)
+        self.query_task_page_impl(query, true, documents, None)
+    }
+
+    /// Project one stable selection independently of tree membership/pagination.
+    pub fn query_task_tree_page_with_selection(
+        &self,
+        query: &TaskPageQuery,
+        documents: &[PathBuf],
+        selected: Option<&TaskRef>,
+    ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
+        self.query_task_page_impl(query, true, documents, selected)
     }
 
     fn query_task_page_impl(
@@ -253,6 +267,7 @@ impl Workspace {
         query: &TaskPageQuery,
         include_ancestors: bool,
         documents: &[PathBuf],
+        selected: Option<&TaskRef>,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
         let filters = compile_filters(&query.filter_groups)?;
         let candidate = if include_ancestors { None } else { task_candidate_predicate(&filters) };
@@ -280,6 +295,8 @@ impl Workspace {
             fact.actionable = state == TaskWorkflowState::Ready;
         }
 
+        let selected_key = selected.and_then(|target| identities.get(target)).cloned();
+        let selected_fact = selected_key.as_ref().and_then(|key| facts.iter().find(|fact| &fact.key == key)).cloned();
         let ancestor_facts = if include_ancestors {
             facts.iter().map(|fact| (fact.key.clone(), fact.clone())).collect::<HashMap<_, _>>()
         } else { HashMap::new() };
@@ -339,6 +356,9 @@ impl Workspace {
             due: fact.due_millis.and_then(datetime_from_millis),
             relevance: Some(fact.relevance),
         });
+        let selected_in_results = selected_key.as_ref().is_some_and(|key| retained.iter().any(|fact| &fact.key == key));
+        let selected_fact = selected_key.as_ref()
+            .and_then(|key| retained.iter().find(|fact| &fact.key == key)).cloned().or(selected_fact);
         apply_cursor(&mut retained, query, include_ancestors)?;
         let remaining_count = retained.len();
         let documents = documents.iter().collect::<HashSet<_>>();
@@ -356,6 +376,9 @@ impl Workspace {
             })
             .flatten();
 
+        // Append at most one hydration input, after cursor/limit computation.
+        let selection_appended = selected_fact.as_ref().is_some_and(|selected| !retained.iter().any(|fact| fact.key == selected.key));
+        if selection_appended { retained.push(selected_fact.unwrap()); }
         let page_keys = retained
             .iter()
             .map(|fact| fact.key.clone())
@@ -384,6 +407,8 @@ impl Workspace {
             }
         }
 
+        #[cfg(test)]
+        let hydrated_records = records.len();
         let mut tasks = Vec::with_capacity(retained.len());
         for fact in retained {
             let task = records.remove(&fact.key).ok_or_else(|| {
@@ -420,7 +445,15 @@ impl Workspace {
                 previous,
             });
         }
+        let selected = if selection_appended { tasks.pop() } else {
+            tasks.iter().find(|task| selected_key.as_ref().is_some_and(|key|
+                task.path == key.path && task.task.source_key() == key.start)).cloned()
+        };
         Ok(self.query_result(TaskPage {
+            #[cfg(test)]
+            hydrated_records,
+            selected,
+            selected_in_results,
             tasks,
             complete,
             next_cursor,

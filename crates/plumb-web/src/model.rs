@@ -312,6 +312,7 @@ pub struct QueryPreset {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WebQuery {
+    pub selected_task: Option<String>,
     #[serde(default)]
     pub view: WebView,
     #[serde(default)]
@@ -359,6 +360,8 @@ pub struct QueryFailure {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskQuerySnapshot {
+    pub selected_task: Option<WebTask>,
+    pub selected_in_results: bool,
     pub revision: u64,
     pub tasks: Vec<WebTask>,
     pub all_tasks: Vec<WebTaskCandidate>,
