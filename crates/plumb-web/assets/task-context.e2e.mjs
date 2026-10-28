@@ -262,6 +262,54 @@ try {
     if (new URL(location.href).searchParams.get('selected') !== selected) throw new Error('same-title insertion stole selection');
   })()`);
   console.log('Same-title insertion preserves selection');
+  // Cold URL selection outside the first page remains available for explicit navigation.
+  const retainedUrl = new URL(`${origin}/tasks`);
+  retainedUrl.searchParams.set('cel', 'priority != null && priority >= 0');
+  retainedUrl.searchParams.set('selected', selection);
+  await command('Page.navigate', { url: retainedUrl.href });
+  await waitFor(() => evaluate(`(() => { const error = document.querySelector('.task-filters .query-error'); if (error && !error.hidden && error.textContent) throw new Error(error.textContent); return document.querySelector('.task-detail h1')?.textContent === 'Task 220'; })()`));
+  assert.equal(await evaluate('Boolean(document.querySelector(".task-list-item.selected"))'), false);
+  assert.equal(await evaluate('document.querySelector(".jump-task").getAttribute("aria-disabled")'), 'false');
+  await evaluate('document.querySelector(".jump-task").click()');
+  await waitFor(() => evaluate('Boolean(document.querySelector(".task-list-item.selected"))'));
+  const excluded = await evaluate(`(async () => {
+    const wait = async test => {
+      for (let i = 0; i < 200; i++) { if (test()) return; await new Promise(r => setTimeout(r, 50)); }
+      throw new Error('selection retention timed out');
+    };
+    const row = id => [...document.querySelectorAll('.task-list-item')].find(r => r.dataset.taskKey.endsWith(':' + id));
+    const pane = document.querySelector('.task-list-pane');
+    row('task-221').scrollIntoView({ block: 'start' });
+    const before = row('task-221').getBoundingClientRect().top;
+    const selected = new URL(location.href).searchParams.get('selected');
+    document.querySelector('.task-property-value[data-property="priority"]').click();
+    const form = document.querySelector('.task-property-editor');
+    form.elements.value.value = '-100'; form.requestSubmit();
+    await wait(() => document.querySelector('.jump-task')?.getAttribute('aria-disabled') === 'true');
+    if (row('task-220')) throw new Error('excluded task was injected into the tree');
+    if (document.querySelector('.task-detail h1').textContent !== 'Task 220') throw new Error('filtered selection lost');
+    if (new URL(location.href).searchParams.get('selected') !== selected) throw new Error('filtered URL selection lost');
+    if (Math.abs(row('task-221').getBoundingClientRect().top - before) > 1) throw new Error('filter exit moved reading position');
+    const jump = document.querySelector('.jump-task');
+    if (!jump.title || !document.getElementById(jump.getAttribute('aria-describedby'))?.textContent) throw new Error('missing disabled explanation');
+    const scroll = pane.scrollTop;
+    jump.click();
+    if (pane.scrollTop !== scroll) throw new Error('disabled jump navigated');
+    // The retained detail must remain editable and carry the latest revision.
+    document.querySelector('.focus-task').click();
+    await wait(() => document.querySelector('.focus-task')?.textContent === 'Unfocus' && !document.querySelector('.focus-task').disabled);
+    if (document.querySelector('.task-detail h1').textContent !== 'Task 220' || row('task-220')) throw new Error('off-list focus lost selection');
+    document.querySelector('.task-property-value[data-property="priority"]').click();
+    const restore = document.querySelector('.task-property-editor');
+    restore.elements.value.value = '1'; restore.requestSubmit();
+    await wait(() => document.querySelector('.jump-task')?.getAttribute('aria-disabled') === 'false');
+    if (!row('task-220')?.classList.contains('selected')) throw new Error('restored row is not selected');
+    if (Math.abs(row('task-221').getBoundingClientRect().top - before) > 1) throw new Error('restoring membership moved reading position');
+    return selected;
+  })()`);
+  assert.equal(excluded, selection);
+  console.log('Off-page manual jump, filtered selection, disabled explanation and continued editing passed');
+
 } finally {
   socket?.close();
   for (const child of children.reverse()) {

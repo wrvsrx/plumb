@@ -141,3 +141,22 @@ test('missing recurring successor preserves normal selection and fallback withou
     assert.equal(tasks.some(task => task.key === handoff.to), false);
   }
 });
+
+
+test('selection survives filtering independently of the result tree and manual folds', () => {
+  const selected = task('selected');
+  const other = task('other');
+  const collapsed = folds(); collapsed.documents.add('a.plumb');
+  const latest = task('selected', { revision: '2', priority: -10 });
+  const context = captureTaskContext([selected, other], selected.key, collapsed, selected);
+  const next = [other];
+  const mapped = reconcileTaskContext(context, next, null, latest);
+  assert.equal(mapped.selected, selected.key);
+  assert.equal(mapped.collapsed.documents.has('a.plumb'), true);
+  assert.deepEqual(next, [other]);
+  const filtered = captureTaskContext(next, selected.key, mapped.collapsed, latest);
+  assert.equal(reconcileTaskContext(filtered, [], null, latest).selected, selected.key);
+  assert.equal(reconcileTaskContext(filtered, [], null, null).selected, null);
+  assert.equal(reconcileTaskContext(captureTaskContext([], selected.key, folds()), [], null, latest).selected, selected.key);
+  assert.equal(reconcileTaskContext(captureTaskContext([other], other.key, folds()), [other], null, latest).selected, other.key);
+});

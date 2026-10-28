@@ -1105,14 +1105,18 @@ import {
   async function loadTasks(cursor = null, handoff = null) {
     const generation = ++state.taskLoadRevision;
     const request = queryRequest('tasks');
+    const requestedSelection = state.selectedTask;
+    request.selectedTask = taskByKey(state.tasks, requestedSelection)?.locator?.kind === 'offset'
+      ? null : requestedSelection;
     const scope = taskQueryScope(request);
     const snapshot = scope === state.taskScope ? state.tasks : null;
     try {
       const result = await queryTaskContext(request, snapshot, Boolean(cursor),
         (query) => executeQuery('tasks', query.cursor, query));
       if (generation !== state.taskLoadRevision) return;
+      if (state.selectedTask !== requestedSelection) return loadTasks(cursor, handoff);
       // Capture at installation, so selection/folding changed during the request wins.
-      const context = captureTaskContext(state.tasks?.tasks || [], state.selectedTask, state.collapsed);
+      const context = captureTaskContext(state.tasks?.tasks || [], state.selectedTask, state.collapsed, taskByKey(state.tasks, state.selectedTask));
       const pane = taskList.parentElement;
       const paneTop = pane.getBoundingClientRect().top;
       const scrollTop = pane.scrollTop;
@@ -1123,7 +1127,7 @@ import {
       });
       const anchor = snapshot && reconcileTaskViewport(context.tasks, result.tasks.tasks,
         observations, state.selectedTask, state.pendingTask);
-      const mapped = reconcileTaskContext(context, result.tasks.tasks, handoff);
+      const mapped = reconcileTaskContext(context, result.tasks.tasks, handoff, result.tasks.selectedTask);
       state.tasks = result.tasks;
       state.taskScope = scope;
       state.selectedTask = mapped.selected;
@@ -1778,6 +1782,24 @@ import {
     }
   }
 
+  function taskJumpAvailable(task) {
+    return state.tasks.tasks.some((item) => item.key === task.key)
+      || (state.tasks.selectedTask?.key === task.key && state.tasks.selectedInResults);
+  }
+
+  async function jumpToTask(task) {
+    if (!taskJumpAvailable(task)) return;
+    const scope = state.taskScope;
+    while (!state.tasks.tasks.some((item) => item.key === task.key) && state.tasks.nextCursor) {
+      const cursor = state.tasks.nextCursor;
+      await loadTasks(cursor);
+      if (state.selectedTask !== task.key || state.taskScope !== scope || !taskJumpAvailable(task)) return;
+      if (state.tasks.nextCursor === cursor) return;
+    }
+    const target = state.tasks.tasks.find((item) => item.key === task.key);
+    if (target) selectTask(target, { navigate: true, showDetail: !state.narrow });
+  }
+
   function clearTaskDetail(title, message) {
     state.detailForms.tasks = false;
     taskPanel.innerHTML = '<div class="note-empty"><h1></h1><p></p></div>';
@@ -1888,9 +1910,19 @@ import {
     taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));
     taskPanel.querySelector('.cancel-task').addEventListener('click', () => updateTask(task, 'cancel'));
     taskPanel.querySelector('.edit-task').addEventListener('click', () => renderTaskForm(task));
-    taskPanel.querySelector('.jump-task').addEventListener('click', () => {
-      selectTask(task, { navigate: true, showDetail: !state.narrow });
-    });
+    const jump = taskPanel.querySelector('.jump-task');
+    const canJump = taskJumpAvailable(task);
+    jump.setAttribute('aria-disabled', String(!canJump));
+    if (!canJump) {
+      const reason = document.createElement('p');
+      reason.id = 'task-jump-reason';
+      reason.className = 'task-jump-reason';
+      reason.textContent = 'This task is excluded by the current search or filters.';
+      jump.title = reason.textContent;
+      jump.setAttribute('aria-describedby', reason.id);
+      taskPanel.querySelector('.task-actions').after(reason);
+    }
+    jump.addEventListener('click', () => { void jumpToTask(task); });
     taskPanel.querySelector('.open-note').addEventListener('click', () => {
       showView('graph', { historyMode: 'push' });
       selectDocument(task.documentId, '', state.narrow ? 'push' : 'replace');

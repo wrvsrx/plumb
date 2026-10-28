@@ -7,10 +7,11 @@ function identity(task) {
     ? JSON.stringify([task.key, task.revision]) : JSON.stringify([task.key]);
 }
 
-export function captureTaskContext(tasks, selected, collapsed) {
+export function captureTaskContext(tasks, selected, collapsed, selectedTask = null) {
   return {
     tasks,
     selected,
+    selectedTask,
     visible: taskListItems(tasks, collapsed).filter((item) => item.kind === 'task').map((item) => item.task),
     collapsed: {
       documents: new Set(collapsed.documents),
@@ -20,7 +21,7 @@ export function captureTaskContext(tasks, selected, collapsed) {
   };
 }
 
-export function reconcileTaskContext(context, tasks, handoff = null) {
+export function reconcileTaskContext(context, tasks, handoff = null, selectedTask = null) {
   const current = new Map(tasks.map((task) => [identity(task), task]));
   const previous = new Map(context.tasks.map((task) => [task.key, task]));
   const surviving = (task) => task && current.get(identity(task));
@@ -43,9 +44,11 @@ export function reconcileTaskContext(context, tasks, handoff = null) {
   revealTasks(collapsed, tasks, context.visible.map(surviving).filter(Boolean));
   const previouslyFocused = new Set(context.tasks.filter((task) => task.focused).map(identity));
   revealTasks(collapsed, tasks, tasks.filter((task) => task.focused && !previouslyFocused.has(identity(task))));
-  const old = previous.get(context.selected);
+  const old = previous.get(context.selected) || context.selectedTask;
   let selected = surviving(old);
-  if (!old) selected = tasks.find((task) => task.key === context.selected);
+  if (!selected && selectedTask?.key === context.selected
+    && (!old || identity(old) === identity(selectedTask))) selected = selectedTask;
+  if (!old && !selected) selected = tasks.find((task) => task.key === context.selected);
   if (old && !selected) {
     const ancestors = taskAncestorKeys(context.tasks, old);
     const index = context.visible.findIndex((task) => task.key === old.key);
@@ -59,9 +62,7 @@ export function reconcileTaskContext(context, tasks, handoff = null) {
   const successor = handoff && context.selected === handoff.from
     && tasks.find((task) => task.key === handoff.to);
   if (successor) selected = successor;
-  const pathChanged = selected && old && (selected.path !== old.path
-    || JSON.stringify(taskAncestorKeys(tasks, selected)) !== JSON.stringify(taskAncestorKeys(context.tasks, old)));
-  if (selected && (!old || selected.key !== old.key || pathChanged)) revealTask(collapsed, tasks, selected);
+  if (selected && (!old || selected.key !== old.key) && tasks.includes(selected)) revealTask(collapsed, tasks, selected);
   return { selected: selected?.key || null, collapsed };
 }
 

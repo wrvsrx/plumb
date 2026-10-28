@@ -527,3 +527,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   .load-more-tasks, .agenda-page-control { min-height: 44px; }
   .detail-back { min-height: 40px; }
 }
+
+.jump-task[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+.task-jump-reason { color: var(--muted); font-size: 13px; }
