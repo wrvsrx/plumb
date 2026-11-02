@@ -1928,19 +1928,10 @@ pub fn event_category_completion_context(
                     .is_some_and(|e| e.plain_text() == "event-category")
             {
                 if block.children.is_empty() {
-                    let first =
-                        block.content.items.iter().find(|i| {
-                            !matches!(i, Inline::Space { .. } | Inline::SoftBreak { .. })
-                        })?;
-                    let key_end = inline_range(first).end;
-                    let Some(tail) = source.get(key_end..offset) else {
-                        continue;
-                    };
-                    if tail.starts_with(' ') {
-                        let start = key_end + tail.len() - tail.trim_start_matches(' ').len();
-                        if let Some(context) = value(&block.content, source, start, offset) {
-                            return Some(context);
-                        }
+                    if let Some((replace, query)) =
+                        crate::tags::inline_value_completion(&block.content, source, offset)
+                    {
+                        return Some(EventCategoryCompletionContext { replace, query });
                     }
                 } else {
                     for child in &block.children {

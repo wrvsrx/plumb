@@ -132,5 +132,5 @@ row uses direct non-declaration block children as expanded cells. Direct
 `+ header` marks leading header rows or expanded row-header cells.
 
 Document and parsed-block `tags` properties classify only their declaring owner.
-Use a scalar for one label or direct leaf `-` children for several; tags never
+Inline positional elements each form one label (group multiword labels); direct leaf `-` children each contribute their whole plain content. The same value splitting applies to event-category; tags never
 inherit. `plumb tag` queries owners or vocabulary. See the semantic reference.

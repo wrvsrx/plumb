@@ -114,7 +114,7 @@
   文档根层与任意 parsed block（包括 anonymous block、heading、普通/task/event list item）可声明 tags。
   只消费 owner 的 direct block property；inline owner、declaration value 内部与 verbatim payload 不产生标签 owner。
   标签为大小写敏感的 plain string，不做 Unicode normalization；允许内部空格，去除首尾 whitespace。
-  leaf scalar 的全部 rest 是一个标签；多个标签使用 direct leaf - list，每项完整 plain content 是一个标签。
+  leaf property 的 key 后每个顶层 positional element 是一个标签，空格分隔标签；含空格标签使用 anonymous group 或 unmarked inline verbatim。也可使用 direct leaf - list，每项完整 plain content 是一个标签，项内空格不分词。
   + children 不作为 tags 的兼容形式；它们使整个标签集合无效。
   anonymous group 与 unmarked inline verbatim 可用于 plain value；marked rich inline、空值、非 - children、nested children
   或重复 tags property 使该 owner 的整个标签集合无效，不保留部分有效标签。同 owner 重复标签按首次出现顺序去重。
@@ -364,7 +364,7 @@
  `# 11.1 Agenda accounting
   分类声明字段为 event-category；旧 category 仍是普通属性，不再参与事件核算。普通文档也可在根层声明 event-category，作为直接引用整个文档的 event 的默认分类，不要求 task 或 activity facet；普通文档不会进入 task 用时统计。引用具体条目只读取条目本身的分类，不回退到文档。summary 的 --group-by category 及 JSON category/values 字段保持不变。
 
-  `"event-category" 的 scalar spelling 按 first : rest 分隔：首个元素是 key，全部剩余内容是一个分类（例如 phd misc）。 允许 anonymous grouping 与 unmarked inline verbatim；多个分类必须使用head 仅含 event-category 的 property 下直接 leaf `"-" list items，每项完整内容是一个分类。 分类按首次出现顺序去重。不允许 marked rich inline、重复 property、空值、非 list children 或嵌套 children。 文档根层与任意 parsed block（包括 list item、heading、anonymous owner）可以声明事件默认分类。不从标题前缀、tags 或任意链接递归推导。 普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
+  `"event-category" 与 tags 使用相同分词：首个元素是 key，其后每个顶层 positional element 是一个分类。例如 `"{{phd misc} daily}" 表示 phd misc 与 daily 两项；含空格值使用 anonymous grouping 或 unmarked inline verbatim。多行形式使用 head 仅含 event-category 的 property 下直接 leaf `"-" list items，每项完整内容是一个分类，项内空格不分词。 分类按首次出现顺序去重。不允许 marked rich inline、重复 property、空值、非 list children 或嵌套 children。 文档根层与任意 parsed block（包括 list item、heading、anonymous owner）可以声明事件默认分类。不从标题前缀、tags 或任意链接递归推导。 普通 list item 加 explicit id 即可表示可重复事项；不增加 activity property 或 facet。
 
   event 显式 tasks 声明优先定义核算事项集合，保持现有 task target 校验；即使为空或非法也不回退。
    否则只从 event title 中的直接 Link members 收集事项引用，details 中的链接、embedded resources 与嵌套 inline 的链接不参与核算。

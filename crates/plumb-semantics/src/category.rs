@@ -46,7 +46,20 @@ impl Category {
             let mut values = Vec::new();
             if let Some(c) = scalar {
                 if plain_scalar(&c.items) && !c.plain_text().trim().is_empty() {
-                    values.push(c.plain_text().trim().to_owned());
+                    for element in c.positional_elements() {
+                        let text = plumb_syntax::InlineContent::from_items(
+                            plumb_syntax::inline_range(element).clone(),
+                            vec![element.clone()],
+                        )
+                        .plain_text()
+                        .trim()
+                        .to_owned();
+                        if text.is_empty() {
+                            result.invalid = true;
+                        } else if !values.contains(&text) {
+                            values.push(text);
+                        }
+                    }
                 } else {
                     result.invalid = true;
                 }

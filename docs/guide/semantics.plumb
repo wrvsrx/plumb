@@ -389,7 +389,7 @@ core 只识别结构；本页介绍官方工具链赋予常用 marker、inline k
    `= tags exercise
 
  这里 document 的标签是 journal，修复折叠的标签是 neovim 与 debugging；阅读帮助没有标签。
- 一个 scalar 的完整内容是一个标签，例如 tags programming languages 表示一个带空格的标签；多个标签使用 - list。
+ tags 与 event-category 的单行值按顶层元素分词：例如 `"tags {programming languages} computer" 表示 programming languages 与 computer 两项。多行 - list 每项完整内容是一个值，内部空格不分词；分组和 unmarked inline verbatim 可以包裹含空格的值。两种属性的传播与汇总语义保持独立。
  标签大小写敏感，同一 owner 内重复值去重。空值、rich inline、非法 sequence 或重复 tags 声明会产生 warning，
  该 owner 的整个集合不进入标签查询。标签不要求节点有 id；持久链接仍使用显式 anchor。
 

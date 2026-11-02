@@ -84,9 +84,15 @@ impl TagSet {
             let (_, _, scalar) = crate::metadata::direct_property_parts(property).unwrap();
             let mut values = Vec::new();
             if let Some(scalar) = scalar {
-                match value(&scalar) {
-                    Some(v) => values.push(v),
-                    None => result.invalid = true,
+                for element in scalar.positional_elements() {
+                    let content = plumb_syntax::InlineContent::from_items(
+                        plumb_syntax::inline_range(element).clone(),
+                        vec![element.clone()],
+                    );
+                    match value(&content) {
+                        Some(v) => values.push(v),
+                        None => result.invalid = true,
+                    }
                 }
                 // owner_semantic_view filters declarations, but a label is plain text.
                 if property
@@ -219,6 +225,41 @@ pub struct TagCompletionContext {
     pub query: String,
 }
 
+/// Locate one inline classification argument without replacing its neighbors.
+pub(crate) fn inline_value_completion(
+    content: &plumb_syntax::InlineContent,
+    source: &str,
+    offset: usize,
+) -> Option<(Range<usize>, String)> {
+    let mut elements = content.positional_elements();
+    let key = elements.next()?;
+    if offset <= plumb_syntax::inline_range(key).end || offset > content.range.end {
+        return None;
+    }
+    for element in elements {
+        let range = plumb_syntax::inline_range(element);
+        if range.start <= offset && offset <= range.end {
+            let start = match element {
+                Inline::Text { .. } => range.start,
+                Inline::Group {
+                    mark: None,
+                    content,
+                    ..
+                } => content.range.start,
+                _ => return None,
+            };
+            let prefix = source.get(start..offset)?;
+            if prefix.contains(['\n', '\r', '`', '{', '}']) {
+                return None;
+            }
+            return Some((range.clone(), prefix.to_owned()));
+        }
+    }
+    source
+        .is_char_boundary(offset)
+        .then(|| (offset..offset, String::new()))
+}
+
 /// Recovered plain-prefix assist; existing grouped/raw labels can be edited normally.
 pub fn tag_completion_context(
     document: &plumb_syntax::ParsedDocument,
@@ -247,15 +288,10 @@ pub fn tag_completion_context(
             };
             if is_tags_property(block) {
                 if block.children.is_empty() {
-                    let first = block.content.items.iter().find(|i| !i.is_whitespace())?;
-                    let key_end = plumb_syntax::inline_range(first).end;
-                    if source
-                        .get(key_end..offset)
-                        .is_some_and(|s| s.starts_with(' '))
+                    if let Some((replace, query)) =
+                        inline_value_completion(&block.content, source, offset)
                     {
-                        if let Some(c) = context(&block.content, key_end) {
-                            return Some(c);
-                        }
+                        return Some(TagCompletionContext { replace, query });
                     }
                 } else {
                     for item in &block.children {

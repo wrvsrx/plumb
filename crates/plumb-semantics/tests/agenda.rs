@@ -3,7 +3,7 @@ use plumb_syntax::parse;
 
 #[test]
 fn category_is_owner_local_and_preserves_invalid_declarations() {
-    let source = "`+ task\n`= event-category project\n`- Phone\n `@ phone\n `= event-category relax\n`- Child task\n `+ task\n `= event-category phd misc\n`- Invalid\n `@ invalid\n `= event-category\n  `+ relax\n`- Duplicate\n `@ duplicate\n `= event-category work\n `= event-category relax\n`- Missing\n `@ missing\n";
+    let source = "`+ task\n`= event-category project\n`- Phone\n `@ phone\n `= event-category relax\n`- Child task\n `+ task\n `= event-category {phd misc}\n`- Invalid\n `@ invalid\n `= event-category\n  `+ relax\n`- Duplicate\n `@ duplicate\n `= event-category work\n `= event-category relax\n`- Missing\n `@ missing\n";
     let parsed = parse(source);
     let output = analyze_document(parsed.valid_syntax().unwrap());
     let tasks = &output.tasks().tasks;
@@ -56,13 +56,16 @@ fn list_item_category_inherits_document_and_parent_item() {
         .filter(|anchor| anchor.list_item)
         .map(|anchor| anchor.category.values.clone())
         .collect::<Vec<_>>();
-    assert_eq!(categories, vec![
-        vec!["work".to_string()],
-        vec!["work".to_string()],
-        vec!["personal".to_string()],
-        vec!["personal".to_string()],
-        vec!["work".to_string()],
-    ]);
+    assert_eq!(
+        categories,
+        vec![
+            vec!["work".to_string()],
+            vec!["work".to_string()],
+            vec!["personal".to_string()],
+            vec!["personal".to_string()],
+            vec!["work".to_string()],
+        ]
+    );
 }
 
 #[test]
@@ -87,7 +90,7 @@ fn accounting_links_only_include_direct_title_members() {
 
 #[test]
 fn category_accepts_plain_grouping_and_literal_spelling_but_not_rich_values() {
-    for spelling in ["phd misc", "{phd misc}", "`\"phd misc\""] {
+    for spelling in ["{phd misc}", "`\"phd misc\""] {
         let source = format!("`- Work\n `+ task\n `= event-category {spelling}\n");
         let parsed = parse(&source);
         let output = analyze_document(parsed.valid_syntax().unwrap());
@@ -134,8 +137,53 @@ fn category_list_preserves_multiword_values_and_deduplicates() {
 
 #[test]
 fn category_remains_generic_metadata_and_event_category_is_document_local() {
-    let parsed = parse("`= category topic\n`= event-category phd misc\n\n`- Item\n `@ item\n `= category unrelated\n");
+    let parsed = parse("`= category topic\n`= event-category {phd misc}\n\n`- Item\n `@ item\n `= category unrelated\n");
     let output = analyze_document(parsed.valid_syntax().unwrap());
     assert_eq!(output.document_category().values, ["phd misc"]);
     assert!(output.anchors().get(0).unwrap().category.values.is_empty());
+}
+
+#[test]
+fn classification_inline_elements_and_multiline_items_share_values() {
+    for spelling in [
+        "{phd misc} daily daily",
+        "\n `- phd misc\n `- daily\n `- daily",
+        "\n `- {phd misc}\n `- daily",
+    ] {
+        let source = format!("`= event-category {spelling}\n`= tags {spelling}\n");
+        let parsed = parse(&source);
+        let output = analyze_document(parsed.valid_syntax().unwrap());
+        assert_eq!(output.document_category().values, ["phd misc", "daily"]);
+        assert_eq!(output.metadata().tags.values, ["phd misc", "daily"]);
+    }
+    let parsed = parse("`= event-category phd misc\n`= tags phd misc\n");
+    let output = analyze_document(parsed.valid_syntax().unwrap());
+    assert_eq!(output.document_category().values, ["phd", "misc"]);
+    assert_eq!(output.metadata().tags.values, ["phd", "misc"]);
+}
+
+#[test]
+fn classification_completion_replaces_current_inline_value_only() {
+    for key in ["tags", "event-category"] {
+        for (tail, expected, prefix) in [
+            ("first ph|d last", "phd", "ph"),
+            ("first {phd mi|sc} last", "{phd misc}", "phd mi"),
+            ("first | last", "", ""),
+        ] {
+            let source = format!("`= {key} {tail}");
+            let offset = source.find('|').unwrap();
+            let source = source.replace('|', "");
+            let parsed = parse(&source);
+            let (replace, query) = if key == "tags" {
+                let c = plumb_semantics::tag_completion_context(&parsed, offset).unwrap();
+                (c.replace, c.query)
+            } else {
+                let c =
+                    plumb_semantics::event_category_completion_context(&parsed, offset).unwrap();
+                (c.replace, c.query)
+            };
+            assert_eq!(&source[replace], expected);
+            assert_eq!(query, prefix);
+        }
+    }
 }

@@ -1333,6 +1333,15 @@ mod tests {
     }
 
     #[test]
+    fn inline_classification_tags_export_as_individual_metadata_values() {
+        let inline = export("`= tags {phd misc} daily daily\n").unwrap();
+        let multiline = export("`= tags\n `- phd misc\n `- daily\n").unwrap();
+        assert_eq!(inline["meta"]["tags"], multiline["meta"]["tags"]);
+        assert_eq!(inline["meta"]["tags"]["c"].as_array().unwrap().len(), 2);
+        assert_eq!(inline["meta"]["tags"]["c"][0]["c"], "phd misc");
+    }
+
+    #[test]
     fn lifts_typed_metadata_out_of_the_document_body() {
         let source = "`= title Rich `*{title}\n`= tags\n `- plumb\n `- tools\n\n`= macros\n `+\n  `+ `\"nearSet\"\n  `+ `\"\\mathscr{C}\"\n  `+ 0\n\n`= author\n `= name Alice\n\n`= source\n `\"\n  raw\n  \n  \n`= empty\n\n`- Section\n `+ section\n";
         let document = export(source).unwrap();

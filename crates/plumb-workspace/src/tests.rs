@@ -6827,7 +6827,7 @@ fn category_value_completion_collects_all_sets_and_overlays_disk() {
         .iter()
         .any(|c| c.label == "work"));
     workspace
-        .insert_disk("literal.plumb", 1, "`= event-category ph* misc\n")
+        .insert_disk("literal.plumb", 1, "`= event-category {ph* misc}\n")
         .unwrap();
     let context = plumb_semantics::EventCategoryCompletionContext {
         query: "ph*".into(),
@@ -6838,7 +6838,7 @@ fn category_value_completion_collects_all_sets_and_overlays_disk() {
         "ph* misc"
     );
     workspace
-        .insert_disk("vocabulary.plumb", 3, "`= event-category phd misc\n")
+        .insert_disk("vocabulary.plumb", 3, "`= event-category {phd misc}\n")
         .unwrap();
     let context = plumb_semantics::EventCategoryCompletionContext {
         query: "phd".into(),

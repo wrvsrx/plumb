@@ -260,8 +260,8 @@ does accounting use linked item categories. Indentation defines ancestry; a prec
 sibling heading does not supply defaults. Category lists replace rather than merge.
 Invalid or empty declarations block fallback. Overrides do not change item shares.
 Categories accept nonempty plain text, anonymous grouping and unmarked verbatim,
-but not rich values or duplicate declarations. Scalar properties split first : rest, so
-`= event-category phd misc` is one event-category. Multiple categories use direct leaf `-`
+but not rich values or duplicate declarations. Inline classification values split by positional elements:
+`= event-category {phd misc} daily` declares two categories; ungrouped inline words are separate values. Alternatively use direct leaf `-`
 children under `= event-category`, one full plain value per item. Duplicate values count
 once; each item share is divided equally among its categories.
 
@@ -371,8 +371,8 @@ Editor event-category value completion reuses all valid category sets declared b
 ## Owner Tags
 
 Document roots and parsed blocks, including list items, headings, tasks, events,
-and anonymous blocks, can declare `tags`. A scalar is one complete label;
-multiple labels use direct leaf `-` children. Labels are case-sensitive, trimmed,
+and anonymous blocks, can declare `tags`. Each inline positional element is one label; group multiword values.
+Alternatively, direct leaf `-` children each contribute their complete plain content. Labels are case-sensitive, trimmed,
 and deduplicated in first-occurrence order. Empty/rich values, malformed
 sequences, or repeated `tags` properties invalidate that owner's whole set.
 

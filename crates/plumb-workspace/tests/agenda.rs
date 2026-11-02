@@ -265,7 +265,7 @@ fn category_check_covers_all_dates_points_and_requires_resolvable_inheritance() 
         1,
         EVENT
             .replace("items.plumb#a", "missing.plumb")
-            .replace(" `+ event", " `+ event\n `= event-category phd misc"),
+            .replace(" `+ event", " `+ event\n `= event-category {phd misc}"),
     );
     assert!(check(&w).complete);
     assert!(!check(&w).issues.is_empty());

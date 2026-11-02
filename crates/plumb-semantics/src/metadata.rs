@@ -518,7 +518,26 @@ fn document_tags_value(
         };
     }
     if property.children.is_empty() {
-        return parse_direct_value(property, scalar, diagnostics);
+        if scalar
+            .as_ref()
+            .is_some_and(|value| value.positional_elements().count() == 1)
+        {
+            return parse_direct_value(property, scalar, diagnostics);
+        }
+        return MetadataValue::List {
+            items: tags
+                .values
+                .into_iter()
+                .map(|text| MetadataListItem {
+                    value: MetadataValue::Verbatim {
+                        text,
+                        range: property.content.range.clone(),
+                    },
+                    range: property.content.range.clone(),
+                })
+                .collect(),
+            range: body_range(property),
+        };
     }
     MetadataValue::List {
         items: property
@@ -934,6 +953,31 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["title", "created"]
         );
+    }
+
+    #[test]
+    fn inline_tag_metadata_preserves_value_boundaries_after_deduplication() {
+        for (source, expected) in [
+            ("`= tags {phd misc} daily\n", vec!["phd misc", "daily"]),
+            ("`= tags daily daily\n", vec!["daily"]),
+        ] {
+            let parsed = parse(source);
+            let output = analyze_metadata(parsed.valid_syntax().unwrap());
+            let MetadataValue::List { items, .. } = &output.metadata.unwrap().entries[0].value
+            else {
+                panic!("multiple inline arguments must project as a list");
+            };
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| match &item.value {
+                        MetadataValue::Verbatim { text, .. } => text.as_str(),
+                        _ => panic!("tag must be plain text"),
+                    })
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 
     #[test]
