@@ -60,7 +60,8 @@ export function reconcileTaskContext(context, tasks, handoff = null, selectedTas
       .map(surviving).find(Boolean);
   }
   const successor = handoff && context.selected === handoff.from
-    && tasks.find((task) => task.key === handoff.to);
+    && (tasks.find((task) => task.key === handoff.to)
+      || (selectedTask?.key === handoff.to ? selectedTask : null));
   if (successor) selected = successor;
   if (selected && (!old || selected.key !== old.key) && tasks.includes(selected)) revealTask(collapsed, tasks, selected);
   return { selected: selected?.key || null, collapsed };

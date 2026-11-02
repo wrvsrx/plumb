@@ -190,12 +190,30 @@ try {
     const anonymous = rows().find(row => row.textContent.includes('Anonymous routine'));
     if (!anonymous) throw new Error('missing anonymous recurrence fixture');
     anonymous.querySelector('.task-row').click();
+    const oldSelection = new URL(location.href).searchParams.get('selected');
+    const pane = document.querySelector('.task-list-pane');
+    contextTest.row('task-121').scrollIntoView({ block: 'start' });
+    const readingTop = contextTest.row('task-121').getBoundingClientRect().top;
     document.querySelector('.complete-task').click();
-    await wait(() => document.querySelector('.task-detail h1')?.textContent === 'Neighbor'
+    await wait(() => new URL(location.href).searchParams.get('selected') !== oldSelection
+      && document.querySelector('.task-detail h1')?.textContent === 'Anonymous routine'
       && !document.querySelector('.cancel-task').disabled);
     const selected = new URL(location.href).searchParams.get('selected');
-    if (!selected.endsWith(':neighbor')) throw new Error('filtered successor did not preserve normal fallback');
+    if (!selected || selected === oldSelection) throw new Error('filtered successor not selected');
+    const jump = document.querySelector('.jump-task');
+    if (jump.getAttribute('aria-disabled') !== 'true' || !jump.title) throw new Error('filtered successor jump not disabled with reason');
+    if (Math.abs(contextTest.row('task-121').getBoundingClientRect().top - readingTop) > 1) throw new Error('recurrence moved reading position');
+    const scroll = pane.scrollTop;
+    jump.click();
+    if (pane.scrollTop !== scroll || new URL(location.href).searchParams.get('selected') !== selected) throw new Error('disabled jump navigated');
     if (rows().some(row => row.textContent.includes('Anonymous routine'))) throw new Error('filtered successor was injected into tree');
+    document.querySelector('.cancel-task').click();
+    await wait(() => new URL(location.href).searchParams.get('selected') !== selected
+      && !document.querySelector('.cancel-task').disabled);
+    if (document.querySelector('.task-detail h1').textContent !== 'Anonymous routine'
+      || document.querySelector('.jump-task').getAttribute('aria-disabled') !== 'true') throw new Error('off-list cancel lost successor detail');
+    if (Math.abs(contextTest.row('task-121').getBoundingClientRect().top - readingTop) > 1) throw new Error('off-list cancel moved reading position');
+    contextTest.select('neighbor');
     document.querySelector('.jump-task').click();
   })()`);
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 800, deviceScaleFactor: 1, mobile: true });
@@ -229,7 +247,7 @@ try {
   await waitFor(() => evaluate('!document.querySelector(".cancel-task").disabled'));
   await delay(900);
   assert.equal(await evaluate('document.querySelector(".task-detail h1").textContent'), 'Task 220');
-  console.log('Filtered successor exclusion and fallback, mobile jump, and recurrence response race passed');
+  console.log('Filtered successor selection and disabled jump, mobile jump, and recurrence response race passed');
   // Delayed old responses cannot replace a newer search result.
   await evaluate(`(() => {
     const original = window.fetch;

@@ -1106,8 +1106,9 @@ import {
     const generation = ++state.taskLoadRevision;
     const request = queryRequest('tasks');
     const requestedSelection = state.selectedTask;
-    request.selectedTask = taskByKey(state.tasks, requestedSelection)?.locator?.kind === 'offset'
-      ? null : requestedSelection;
+    request.selectedTask = handoff && requestedSelection === handoff.from
+      ? handoff.to
+      : (taskByKey(state.tasks, requestedSelection)?.locator?.kind === 'offset' ? null : requestedSelection);
     const scope = taskQueryScope(request);
     const snapshot = scope === state.taskScope ? state.tasks : null;
     try {
@@ -1115,6 +1116,12 @@ import {
         (query) => executeQuery('tasks', query.cursor, query));
       if (generation !== state.taskLoadRevision) return;
       if (state.selectedTask !== requestedSelection) return loadTasks(cursor, handoff);
+      // A successor removed before the refresh must not invalidate the original
+      // selection merely because this request projected the successor instead.
+      if (handoff && requestedSelection === handoff.from
+        && !result.tasks.selectedTask && !result.tasks.tasks.some((task) => task.key === handoff.to)) {
+        return loadTasks(cursor);
+      }
       // Capture at installation, so selection/folding changed during the request wins.
       const context = captureTaskContext(state.tasks?.tasks || [], state.selectedTask, state.collapsed, taskByKey(state.tasks, state.selectedTask));
       const pane = taskList.parentElement;

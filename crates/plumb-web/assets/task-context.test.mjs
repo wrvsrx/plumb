@@ -160,3 +160,19 @@ test('selection survives filtering independently of the result tree and manual f
   assert.equal(reconcileTaskContext(captureTaskContext([], selected.key, folds()), [], null, latest).selected, selected.key);
   assert.equal(reconcileTaskContext(captureTaskContext([other], other.key, folds()), [other], null, latest).selected, other.key);
 });
+
+
+test('recurring successor outside the page becomes selection without entering the tree', () => {
+  const original = task('old');
+  const neighbor = task('neighbor');
+  const successor = task('new', { revision: '2', state: 'waiting' });
+  const handoff = { from: 'old', to: 'new' };
+  for (const next of [[], [neighbor], [original, neighbor]]) {
+    const before = [...next];
+    const mapped = reconcileTaskContext(capture([original, neighbor], 'old'), next, handoff, successor);
+    assert.equal(mapped.selected, 'new');
+    assert.deepEqual(next, before);
+  }
+  assert.equal(reconcileTaskContext(capture([original, neighbor], 'neighbor'), [neighbor], handoff, successor).selected, 'neighbor');
+  assert.equal(reconcileTaskContext(capture([original, neighbor], 'old'), [neighbor], null, successor).selected, 'neighbor');
+});
