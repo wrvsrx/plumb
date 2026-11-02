@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, writeFile, unlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, unlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import net from 'node:net';
@@ -46,6 +46,7 @@ try {
       : `\`- Task ${i}\n \`+ task\n \`@ task-${i}\n \`= priority 1\n`;
     await writeFile(join(root, `${String(i).padStart(3, '0')}.plumb`), source);
   }
+  await writeFile(join(root, 'document.plumb'), '`+ task\n`= title Document without id\n\nBody stays.\n');
   const server = start(resolve('target/debug/plumb'), ['site', 'serve', '--root', root, '--port', String(port)], {
     ...process.env, PLUMB_CACHE_DIR: join(temporary, 'cache'),
   });
@@ -327,6 +328,43 @@ try {
   })()`);
   assert.equal(excluded, selection);
   console.log('Off-page manual jump, filtered selection, disabled explanation and continued editing passed');
+  await command('Page.navigate', { url: `${origin}/tasks?q=Document%20without%20id` });
+  await waitFor(() => evaluate('Boolean(document.querySelector(".task-list-item .task-row"))'));
+  await evaluate(`(async () => {
+    const wait = async test => {
+      for (let i = 0; i < 200; i++) { if (test()) return; await new Promise(r => setTimeout(r, 50)); }
+      throw new Error('document task editing timed out: ' + document.querySelector('#notification').textContent);
+    };
+    document.querySelector('.task-list-item .task-row').click();
+    const selected = new URL(location.href).searchParams.get('selected');
+    if (!selected.endsWith('/document-task')) throw new Error('not a document locator');
+    document.querySelector('.add-task-property').click();
+    const picker = document.querySelector('.task-property-picker');
+    picker.value = 'priority'; picker.dispatchEvent(new Event('change'));
+    let form = document.querySelector('.task-property-editor');
+    form.elements.value.value = '7'; form.requestSubmit();
+    await wait(() => document.querySelector('.task-property-value[data-property="priority"]')?.textContent === '7');
+    document.querySelector('.task-property-value[data-property="priority"]').click();
+    form = document.querySelector('.task-property-editor');
+    form.elements.value.value = '9'; form.requestSubmit();
+    await wait(() => document.querySelector('.task-property-value[data-property="priority"]')?.textContent === '9');
+    document.querySelector('.edit-task').click();
+    await wait(() => document.querySelector('.task-form [name="title"]')?.value === 'Document without id');
+    form = document.querySelector('.task-form');
+    form.elements.due.value = '2099-01-02T10:00';
+    form.requestSubmit();
+    await wait(() => document.querySelector('.task-property-value[data-property="due"]'));
+    document.querySelector('.focus-task').click();
+    await wait(() => document.querySelector('.focus-task')?.textContent === 'Unfocus' && !document.querySelector('.focus-task').disabled);
+    if (new URL(location.href).searchParams.get('selected') !== selected) throw new Error('document identity changed after editing');
+  })()`);
+  const documentSource = await readFile(join(root, 'document.plumb'), 'utf8');
+  assert.ok(documentSource.includes('`= priority 9'));
+  assert.ok(documentSource.includes('`= due 2099-01-02'));
+  assert.ok(documentSource.endsWith('Body stays.\n'));
+  assert.equal(documentSource.includes('`@'), false);
+  console.log('Document task without id supports add/edit property, form save and focus');
+
 
 } finally {
   socket?.close();
