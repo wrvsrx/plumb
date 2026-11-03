@@ -149,6 +149,8 @@
 
   协调器优先保留 workspace 中仍存在且身份可验证的同一任务，selection 独立于当前筛选、分页和折叠；详情使用同一 snapshot 的最新事实，不向结果树注入该任务。原任务被删除或身份失效时按旧可见顺序选择后继、前驱，最后最近的存活祖先，没有候选则清空 selection。无显式 id 的 offset locator 只在同一 document revision 内表示身份，不得在源码变更后以相同 offset 或标题猜测同一任务。显式 id 与 Document task identity 可跨 revision 延续。筛选退出不触发删除回退。Complete / Cancel recur 的成功响应携带 shared mutation 产生的新实例 identity；仅当安装刷新结果时用户仍选中被关闭实例，且新实例仍存在时，优先选中新实例，包括旧实例仍在筛选内的情况。不得为新实例修改筛选、注入结果或建立 pin。新实例被筛选排除或尚未加载时仍选中新实例并使用独立详情 projection，Jump to task 按完整结果树 membership 决定是否可用。未生成实例、新实例已不存在或用户已改选时保持普通协调规则：原选择仍存在则保留，否则按原有后继、前驱、祖先规则回退，没有候选则清空；不猜测标题或 offset。
 
+  Focus/Unfocus 的 shared mutation 对无显式 id 的 list task 返回精确保留的 source owner，只有编辑成功且刷新后的源码等于该编辑产物才发布 retainedTask（key、offset locator、document revision）。该提示只连接本次操作前后的身份，不写入 id，不通过标题或相同 offset 猜测外部修改。安装时仍选中原身份才接受；若目标 revision 已改变则失效。后续 query 为 offset selection 显式携带 document revision，在同一 facts snapshot 中按 path/start/revision 投影最多一个详情与完整结果树 membership；筛选退出仍保留 selection，Jump to task 不可用。它沿用 page 加一个 task 的 hydration 上界，不增加 workspace 扫描或长期身份缓存；URL cold start 不恢复未验证的 offset selection。焦点操作不触发主动导航。
+
   展开状态按身份延续；显式 id 的任务暂时被筛选排除不清除其手动折叠状态，恢复筛选后继续使用该状态。仍可识别的旧可见任务若因 focused 分组重建而被隐藏，应展开其新分组路径，但不展开用户此前折叠的子树。selection 身份不变时不因路径变化主动展开；显式导航才展开目标路径。普通刷新不推翻用户手动折叠。详情与 URL 使用同一映射后的 selection；未在当前筛选结果中的任务不能误报为已从 workspace 删除。
 
   数据刷新与主动导航分别处理。Focus、Unfocus、完成、属性修改、外部 revision 和排序刷新保持浏览上下文，不因 selection 移位滚动到它。DOM adapter 在安装结果前读取当前视口内任务及临时相对偏移；协调器优先选择非 selection、非当前操作文档中仍存活的节点作为阅读锚点，再回退到同文档节点；身份、父级或业务 focused 状态改变的节点不能作稳定锚点。没有锚点时保留原 scrollTop 并由浏览器限制在有效范围。读取与恢复在同一同步安装中完成，不保存长期坐标、不监听窗口尺寸补偿；请求期间用户滚动以安装时位置为准。加载范围继续保留原文档，不围绕 selection 换页。

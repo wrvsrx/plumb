@@ -21,6 +21,23 @@ export function captureTaskContext(tasks, selected, collapsed, selectedTask = nu
   };
 }
 
+// A source selection is valid only in its observed document revision. Mutation
+// handoffs additionally bind the old revision, so later edits cannot reuse them.
+function acceptsHandoff(selected, old, handoff) {
+  return handoff && selected === handoff.from
+    && (!handoff.fromRevision || old?.revision === handoff.fromRevision);
+}
+
+export function taskSelectionRequest(selected, task, handoff = null) {
+  if (acceptsHandoff(selected, task, handoff)) {
+    return { selectedTask: handoff.to, selectedTaskRevision: handoff.revision || null };
+  }
+  if (task?.locator?.kind === 'offset') {
+    return { selectedTask: selected, selectedTaskRevision: task.revision };
+  }
+  return { selectedTask: selected, selectedTaskRevision: null };
+}
+
 export function reconcileTaskContext(context, tasks, handoff = null, selectedTask = null) {
   const current = new Map(tasks.map((task) => [identity(task), task]));
   const previous = new Map(context.tasks.map((task) => [task.key, task]));
@@ -59,10 +76,10 @@ export function reconcileTaskContext(context, tasks, handoff = null, selectedTas
     selected = [...neighbors, ...ancestors.map((key) => previous.get(key))]
       .map(surviving).find(Boolean);
   }
-  const successor = handoff && context.selected === handoff.from
+  const successor = acceptsHandoff(context.selected, old, handoff)
     && (tasks.find((task) => task.key === handoff.to)
       || (selectedTask?.key === handoff.to ? selectedTask : null));
-  if (successor) selected = successor;
+  if (successor && (!handoff.revision || successor.revision === handoff.revision)) selected = successor;
   if (selected && (!old || selected.key !== old.key) && tasks.includes(selected)) revealTask(collapsed, tasks, selected);
   return { selected: selected?.key || null, collapsed };
 }

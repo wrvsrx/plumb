@@ -92,7 +92,7 @@ impl WebWorkspace {
         document_id: &str,
         locator: &WebTaskLocator,
         revision: &str,
-    ) -> Result<(), String> {
+    ) -> Result<Option<RetainedFocusTask>, String> {
         self.mutate_task_focus(document_id, locator, revision, true)
     }
 
@@ -101,7 +101,7 @@ impl WebWorkspace {
         document_id: &str,
         locator: &WebTaskLocator,
         revision: &str,
-    ) -> Result<(), String> {
+    ) -> Result<Option<RetainedFocusTask>, String> {
         self.mutate_task_focus(document_id, locator, revision, false)
     }
 
@@ -111,7 +111,7 @@ impl WebWorkspace {
         locator: &WebTaskLocator,
         revision: &str,
         focus: bool,
-    ) -> Result<(), String> {
+    ) -> Result<Option<RetainedFocusTask>, String> {
         let path = self
             .document_path(document_id)
             .ok_or_else(|| "unknown task document".to_string())?;
@@ -169,6 +169,7 @@ impl WebWorkspace {
             }
         }
         .map_err(|error| error.to_string())?;
+        let retained = edit.retained_task.as_ref().map(|task| task.start);
         // Idempotent operations (already focused, or no open interval to close)
         // succeed without touching the file: the shared operation returns an
         // empty edit, and a no-op must not be reported as a failed mutation.
@@ -177,12 +178,13 @@ impl WebWorkspace {
             .iter()
             .all(|change| change.edits.is_empty())
         {
-            return Ok(());
+            return Ok(retained.map(|offset| RetainedFocusTask { offset, source: disk_source }));
         }
         let updated = apply_guarded_edit(disk_source, path, entry.revision, edit, "task")?;
         validate_generated_source(path, entry.revision, &updated, "task")?;
-        std::fs::write(path, updated)
-            .map_err(|error| format!("cannot write {}: {error}", path.display()))
+        std::fs::write(path, &updated)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+        Ok(retained.map(|offset| RetainedFocusTask { offset, source: updated }))
     }
 
     pub fn create_task(

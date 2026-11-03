@@ -11,11 +11,26 @@ use plumb_workspace::{
     scan_workspace_files, search_score, sort_task_records_by, ApplyDocumentEditError,
     BatchIndexOptions, DocumentEntry, EventEditError, EventInput, ResolvedTarget, SearchRecordKind,
     SqliteSemanticStore, TaskAuthoringError, TaskAuthoringInput, TaskPageQuery, TaskPageQueryError,
-    TaskPlacement, TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortFacts, TaskSortOrder,
+    TaskPlacement, TaskSelection, TaskQueryFilter, TaskQueryFilterGroup, TaskRef, TaskSortFacts, TaskSortOrder,
     Workspace, WorkspaceEvent, WorkspaceEventCursor, WorkspaceOperationError, WorkspaceTask,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTaskSelection {
+    pub key: String,
+    pub revision: String,
+    pub locator: WebTaskLocator,
+}
+
+/// Internal proof, published only after the refreshed snapshot matches this source.
+#[derive(Debug)]
+pub struct RetainedFocusTask {
+    pub offset: usize,
+    pub source: String,
+}
 
 mod mutations;
 mod query;
@@ -313,6 +328,7 @@ pub struct QueryPreset {
 #[serde(rename_all = "camelCase")]
 pub struct WebQuery {
     pub selected_task: Option<String>,
+    pub selected_task_revision: Option<String>,
     #[serde(default)]
     pub view: WebView,
     #[serde(default)]
@@ -1637,6 +1653,16 @@ impl WebWorkspace {
                 .and_then(|stem| stem.to_str())
                 .unwrap_or("Untitled")
                 .to_string()
+        })
+    }
+
+    pub(crate) fn retained_focus_selection(&self, document_id: &str, retained: RetainedFocusTask) -> Option<WebTaskSelection> {
+        let path = self.document_path(document_id)?;
+        let document = self.documents.get(path)?;
+        (document.source.as_ref() == retained.source).then(|| WebTaskSelection {
+            key: format!("{document_id}:{}", retained.offset),
+            revision: document.revision.to_string(),
+            locator: WebTaskLocator::Offset { offset: retained.offset },
         })
     }
 

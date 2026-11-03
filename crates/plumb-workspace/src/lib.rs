@@ -92,7 +92,7 @@ pub use search::{
 };
 pub use task_query::{
     NextQuery, NextResult, NextSkippedFocus, TaskDocumentMetrics, TaskPage, TaskPageQuery,
-    TaskPageQueryError, TaskQueryFilter, TaskQueryFilterGroup, WorkspaceTask, NEXT_FOCUSED_PAGE,
+    TaskPageQueryError, TaskSelection, TaskQueryFilter, TaskQueryFilterGroup, WorkspaceTask, NEXT_FOCUSED_PAGE,
 };
 pub use task_sort::{
     sort_task_records, sort_task_records_by, truncate_complete_task_documents, TaskSortFacts,
@@ -113,8 +113,16 @@ pub struct DocumentEdit {
     pub edits: Vec<TextEdit>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskSourceRef {
+    pub path: PathBuf,
+    pub start: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WorkspaceEdit {
+    /// Exact anonymous task owner retained by this edit, bound to its output source.
+    pub retained_task: Option<TaskSourceRef>,
     pub document_changes: Vec<DocumentEdit>,
     pub resource_operations: Vec<ResourceOperation>,
     /// Exact successor produced by a recurring task closure, if any.
@@ -2014,6 +2022,7 @@ impl Workspace {
             document_changes,
             resource_operations: Vec::new(),
             generated_task: None,
+            retained_task: None,
         })
     }
 
@@ -2258,6 +2267,7 @@ impl Workspace {
             document_changes,
             resource_operations: vec![ResourceOperation::Rename { old_path, new_path }],
             generated_task: None,
+            retained_task: None,
         })
     }
 
@@ -2449,6 +2459,7 @@ impl Workspace {
             }],
             resource_operations: Vec::new(),
             generated_task: None,
+            retained_task: None,
         })
     }
 
@@ -2721,6 +2732,7 @@ impl Workspace {
             }],
             resource_operations: Vec::new(),
             generated_task: None,
+            retained_task: None,
         })
     }
 
@@ -3073,6 +3085,7 @@ fn single_document_edits(
         }],
         resource_operations: Vec::new(),
         generated_task: None,
+        retained_task: None,
     }
 }
 

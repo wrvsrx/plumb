@@ -37,6 +37,13 @@ pub struct TaskPageQuery {
     pub now: DateTime<FixedOffset>,
 }
 
+/// Stable reference, or an exact source identity valid only in one document revision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskSelection {
+    Stable(TaskRef),
+    Source { path: PathBuf, start: usize, revision: i64 },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceTask {
     pub matched: bool,
@@ -259,6 +266,15 @@ impl Workspace {
         documents: &[PathBuf],
         selected: Option<&TaskRef>,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
+        self.query_task_tree_page_with_selection_target(query, documents, selected.cloned().map(TaskSelection::Stable).as_ref())
+    }
+
+    pub fn query_task_tree_page_with_selection_target(
+        &self,
+        query: &TaskPageQuery,
+        documents: &[PathBuf],
+        selected: Option<&TaskSelection>,
+    ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
         self.query_task_page_impl(query, true, documents, selected)
     }
 
@@ -267,7 +283,7 @@ impl Workspace {
         query: &TaskPageQuery,
         include_ancestors: bool,
         documents: &[PathBuf],
-        selected: Option<&TaskRef>,
+        selected: Option<&TaskSelection>,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
         let filters = compile_filters(&query.filter_groups)?;
         let candidate = if include_ancestors { None } else { task_candidate_predicate(&filters) };
@@ -295,7 +311,16 @@ impl Workspace {
             fact.actionable = state == TaskWorkflowState::Ready;
         }
 
-        let selected_key = selected.and_then(|target| identities.get(target)).cloned();
+        let selected_key = selected.and_then(|target| match target {
+            TaskSelection::Stable(target) => identities.get(target).cloned(),
+            TaskSelection::Source { path, start, revision } => {
+                let path = normalize(path);
+                facts.iter()
+                    .find(|fact| !fact.document_task && fact.id.is_none() && fact.key.path == path
+                        && fact.key.start == *start && fact.revision == *revision)
+                    .map(|fact| fact.key.clone())
+            }
+        });
         let selected_fact = selected_key.as_ref().and_then(|key| facts.iter().find(|fact| &fact.key == key)).cloned();
         let ancestor_facts = if include_ancestors {
             facts.iter().map(|fact| (fact.key.clone(), fact.clone())).collect::<HashMap<_, _>>()

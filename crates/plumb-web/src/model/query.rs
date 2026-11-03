@@ -40,17 +40,24 @@ impl WebWorkspace {
             .filter_map(|id| self.document_path(id).map(Path::to_path_buf))
             .collect::<Vec<_>>();
         let selected = query.selected_task.as_deref().and_then(|key| {
+            if let Some(revision) = &query.selected_task_revision {
+                let (document, offset) = key.split_once(':')?;
+                return Some(TaskSelection::Source {
+                    path: self.document_path(document)?.to_path_buf(),
+                    start: offset.parse().ok()?, revision: revision.parse().ok()?,
+                });
+            }
             let (document, id) = if let Some(document) = key.strip_suffix("/document-task") {
                 (document, None)
             } else {
                 let (document, id) = key.split_once(':')?;
                 (document, Some(id.to_string()))
             };
-            Some(TaskRef { path: self.document_path(document)?.to_path_buf(), id })
+            Some(TaskSelection::Stable(TaskRef { path: self.document_path(document)?.to_path_buf(), id }))
         });
         let page = self
             .workspace
-            .query_task_tree_page_with_selection(&TaskPageQuery {
+            .query_task_tree_page_with_selection_target(&TaskPageQuery {
                 root: self.root.clone(),
                 text: query.query.clone(),
                 filter_groups,

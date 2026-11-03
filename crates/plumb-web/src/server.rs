@@ -353,9 +353,10 @@ async fn update_task(
         "plumb site serve: received task {action} for {document_id} ({:?})",
         request.locator
     );
-    let (path, revision, generated_task) = {
+    let (path, revision, generated_task, retained_task) = {
         let workspace = state.workspace.read().await;
         let mut generated_task = None;
+        let mut retained_task = None;
         let result = match action.as_str() {
             "mark-document" | "unmark-document" => workspace.set_document_task_facet(
                 &document_id, &request.revision, action == "mark-document",
@@ -385,7 +386,7 @@ async fn update_task(
                         workspace.focus_task(&document_id, locator, &request.revision)
                     } else {
                         workspace.unfocus_task(&document_id, locator, &request.revision)
-                    }
+                    }.map(|task| { retained_task = task; })
                 }),
             "create" => request
                 .task
@@ -425,12 +426,17 @@ async fn update_task(
                 .to_path_buf(),
             workspace.revision() + 1,
             generated_task,
+            retained_task,
         )
     };
+    let mut retained_selection = None;
     {
         let mut snapshot = state.workspace.write().await;
-        if let Err(error) = Arc::make_mut(&mut snapshot).refresh_document(path, revision) {
+        if let Err(error) = Arc::make_mut(&mut snapshot).refresh_document(&path, revision) {
             return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response();
+        }
+        if let Some(retained) = retained_task {
+            retained_selection = snapshot.retained_focus_selection(&document_id, retained);
         }
     }
     state.html_cache.lock().await.clear();
@@ -439,7 +445,12 @@ async fn update_task(
         "plumb site serve: task {action} completed for {document_id} ({:?})",
         request.locator
     );
-    if let Some(key) = generated_task {
+    if let Some(selection) = retained_selection {
+        (
+            [("x-plumb-revision", revision.to_string())],
+            Json(serde_json::json!({ "retainedTask": selection })),
+        ).into_response()
+    } else if let Some(key) = generated_task {
         (
             [("x-plumb-revision", revision.to_string())],
             Json(serde_json::json!({ "generatedTask": key })),
@@ -1359,6 +1370,64 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["source"], "custom");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn anonymous_focus_handoff_projects_filtered_selection_and_rejects_stale_revision() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("tasks.plumb");
+        std::fs::write(&path, "`- Target\n `+ task\n`- Neighbor\n `+ task\n `@ neighbor\n").unwrap();
+        let workspace = WebWorkspace::load_with_revision(&root, 1).unwrap();
+        let task = workspace.tasks().unwrap().tasks.into_iter().find(|task| task.title == "Target").unwrap();
+        let shared = Arc::new(RwLock::new(Arc::new(workspace)));
+        let (changes, _) = broadcast::channel(4);
+        let app = router(AppState {
+            workspace: shared.clone(), html_cache: Arc::new(Mutex::new(HashMap::new())),
+            changes, current: None, exclude: None, allow_mutations: true,
+            public_origin: None, listen_addr: "127.0.0.1:4242".parse().unwrap(),
+        });
+        let mut revision = task.revision.clone();
+        for action in ["focus", "focus", "unfocus", "unfocus"] {
+            let response = app.clone().oneshot(
+                Request::post(format!("/api/task/{}/{action}", task.document_id))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::HOST, "127.0.0.1:4242")
+                    .header(header::ORIGIN, "http://127.0.0.1:4242")
+                    .body(Body::from(json!({"revision": revision, "locator": task.locator}).to_string())).unwrap()
+            ).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let response: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+            let retained = &response["retainedTask"];
+            assert_eq!(retained["key"], task.key);
+            assert_eq!(retained["locator"]["kind"], "offset");
+            revision = retained["revision"].as_str().unwrap().to_owned();
+            let response = app.clone().oneshot(
+                Request::post("/api/query").header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(json!({"view":"tasks", "filter":"focused", "selectedTask":task.key,
+                        "selectedTaskRevision":revision, "limit":1}).to_string())).unwrap()
+            ).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let response: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+            assert_eq!(response["tasks"]["selectedTask"]["title"], "Target");
+            assert_eq!(response["tasks"]["selectedTask"]["revision"], revision);
+            assert_eq!(response["tasks"]["selectedInResults"], action == "focus");
+            assert_eq!(response["tasks"]["tasks"].as_array().unwrap().len(), usize::from(action == "focus"));
+        }
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("`@ target"));
+        std::fs::write(&path, "`- Replacement\n `+ task\n").unwrap();
+        {
+            let mut snapshot = shared.write().await;
+            Arc::make_mut(&mut snapshot).refresh_document(&path, 9).unwrap();
+        }
+        let response = app.oneshot(
+            Request::post("/api/query").header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"view":"tasks", "selectedTask":task.key,
+                    "selectedTaskRevision":revision}).to_string())).unwrap()
+        ).await.unwrap();
+        let response: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert!(response["tasks"]["selectedTask"].is_null());
         std::fs::remove_dir_all(root).unwrap();
     }
 

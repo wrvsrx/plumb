@@ -815,6 +815,7 @@ fn applies_one_guarded_document_edit_with_revision_validation() {
         }],
         resource_operations: Vec::new(),
         generated_task: None,
+        retained_task: None,
     };
     assert_eq!(
         apply_document_edit("Note\n".to_string(), "note.plumb", 7, edit.clone()),
@@ -7056,4 +7057,58 @@ fn task_selection_tracks_overlay_deletion_recovery_and_snapshot_boundaries() {
     let mut cold = Workspace::new();
     cold.insert("a.plumb", 3, source.replace("priority 1", "priority 9"));
     assert_eq!(recovered, project(&cold));
+}
+
+
+#[test]
+fn focus_edits_report_the_exact_anonymous_owner_and_preserve_source_identity() {
+    let path = PathBuf::from("focus.plumb");
+    let source = "`- Same title\n `+ task\n`- Parent\n `+ task\n `- Same title 中文\n  `+ task\n  `= priority 50\n";
+    let mut workspace = Workspace::new();
+    workspace.insert(&path, 1, source);
+    let start = source.find("`- Same title 中文").unwrap();
+    for (revision, focus) in [(1, true), (2, true), (3, false), (4, false)] {
+        let edit = if focus {
+            workspace.focus_task(&path, start, "2026-11-03T08:00:00+08:00")
+        } else {
+            workspace.unfocus_task(&path, start, "2026-11-03T09:00:00+08:00")
+        }.unwrap();
+        let retained = edit.retained_task.as_ref().unwrap();
+        assert_eq!(retained.path, path);
+        assert_eq!(retained.start, start);
+        let current = workspace.get(&path).unwrap().parsed.source().to_string();
+        let updated = apply_document_edit(current, &path, revision, edit).unwrap();
+        assert!(!updated.contains("`@"));
+        workspace.insert(&path, revision + 1, updated);
+        let target = workspace.get(&path).unwrap().current.as_ref().unwrap().output.tasks().tasks.iter()
+            .find(|task| task.source_key() == start).unwrap();
+        assert_eq!(target.title, "Same title 中文");
+        assert_eq!(target.is_focused(), focus);
+    }
+}
+
+#[test]
+fn source_selection_requires_matching_revision_in_memory_and_persistent_facts() {
+    for disk in [false, true] {
+        let mut workspace = if disk { Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap()) }
+            else { Workspace::new() };
+        let path = PathBuf::from("selection.plumb");
+        let source = "`- Neighbor\n `+ task\n`- Target\n `+ task\n";
+        if disk { workspace.insert_disk(&path, 2, source).unwrap(); } else { workspace.insert(&path, 2, source); }
+        let query = TaskPageQuery {
+            root: PathBuf::from("."), text: "Neighbor".into(), filter_groups: Vec::new(),
+            sort: vec![TaskSortOrder::Source], limit: 1, cursor: None, workspace_revision: 2,
+            now: DateTime::parse_from_rfc3339("2026-11-03T10:00:00+08:00").unwrap(),
+        };
+        for revision in [1, 2, 3] {
+            let selected = TaskSelection::Source { path: path.clone(), start: source.find("`- Target").unwrap(), revision };
+            let page = workspace.query_task_tree_page_with_selection_target(&query, &[], Some(&selected)).unwrap().value;
+            assert_eq!(page.tasks.len(), 1);
+            assert_eq!(page.tasks[0].task.title, "Neighbor");
+            assert!(!page.selected_in_results);
+            assert_eq!(page.selected.is_some(), revision == 2);
+            assert_eq!(page.hydrated_records, 1 + usize::from(revision == 2));
+            if let Some(task) = page.selected { assert_eq!(task.task.title, "Target"); }
+        }
+    }
 }

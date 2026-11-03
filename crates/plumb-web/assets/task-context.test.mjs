@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { captureTaskContext, reconcileTaskContext, queryTaskContext, taskQueryScope } from './task-context.js';
+import { captureTaskContext, reconcileTaskContext, queryTaskContext, taskQueryScope, taskSelectionRequest } from './task-context.js';
 import { taskListItems } from './task-tree.js';
 
 const task = (key, extra = {}) => ({ key, path: 'a.plumb', documentId: 'a', locator: { kind: 'id', id: key }, revision: '1', ...extra });
@@ -175,4 +175,28 @@ test('recurring successor outside the page becomes selection without entering th
   }
   assert.equal(reconcileTaskContext(capture([original, neighbor], 'neighbor'), [neighbor], handoff, successor).selected, 'neighbor');
   assert.equal(reconcileTaskContext(capture([original, neighbor], 'old'), [neighbor], null, successor).selected, 'neighbor');
+});
+
+
+test('focus handoff retains an anonymous task across its own edit, including outside results', () => {
+  const original = task('a:10', { locator: { kind: 'offset', offset: 10 }, focused: true });
+  const neighbor = task('neighbor', { focused: true });
+  const latest = { ...original, revision: '2', focused: false };
+  const handoff = { from: original.key, fromRevision: '1', to: latest.key, revision: '2' };
+  const context = capture([original, neighbor], original.key);
+  assert.deepEqual(taskSelectionRequest(original.key, original, handoff), {
+    selectedTask: latest.key, selectedTaskRevision: '2',
+  });
+  for (const tasks of [[neighbor, latest], [neighbor]]) {
+    assert.equal(reconcileTaskContext(context, tasks, handoff, latest).selected, original.key);
+  }
+  // Later refreshes keep the verified new revision, without retaining a hint.
+  const refreshed = captureTaskContext([neighbor], latest.key, folds(), latest);
+  assert.equal(reconcileTaskContext(refreshed, [neighbor], null, latest).selected, latest.key);
+  assert.deepEqual(taskSelectionRequest(latest.key, latest), {
+    selectedTask: latest.key, selectedTaskRevision: '2',
+  });
+  assert.equal(reconcileTaskContext(context, [neighbor, { ...latest, revision: '3' }], handoff).selected, neighbor.key);
+  assert.equal(reconcileTaskContext(capture([original, neighbor], neighbor.key), [neighbor, latest], handoff).selected, neighbor.key);
+  assert.equal(reconcileTaskContext(capture([{ ...original, revision: '0' }, neighbor], original.key), [neighbor, latest], handoff).selected, neighbor.key);
 });

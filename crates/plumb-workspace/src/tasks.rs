@@ -867,7 +867,7 @@ impl Workspace {
             return Err(TaskEditError::InvalidFocusHistory);
         }
         if task.is_focused() {
-            return Ok(no_focus_edit(entry, path));
+            return Ok(retain_focus_task(no_focus_edit(entry, path), path, task));
         }
         let green = entry.parsed.green();
         let existing = task_declaration(green, task, "focused")
@@ -909,7 +909,7 @@ impl Workspace {
         let edit = append_green_declaration_item(green, task.range.clone(), "focused", &interval)
             .map_err(|_| TaskEditError::GeneratedInvalid)?
             .ok_or(TaskEditError::GeneratedInvalid)?;
-        Ok(single_document_edit(entry, path.to_path_buf(), edit))
+        Ok(retain_focus_task(single_document_edit(entry, path.to_path_buf(), edit), path, task))
     }
 
     fn unfocus_edit(
@@ -924,7 +924,7 @@ impl Workspace {
             return Err(TaskEditError::InvalidFocusHistory);
         }
         if !task.has_open_focus_interval() {
-            return Ok(no_focus_edit(entry, path));
+            return Ok(retain_focus_task(no_focus_edit(entry, path), path, task));
         }
         let green = entry.parsed.green();
         let existing = task_declaration(green, task, "focused")
@@ -943,7 +943,7 @@ impl Workspace {
         let edit = set_green_declaration(green, task.range.clone(), declaration)
             .map_err(|_| TaskEditError::GeneratedInvalid)?
             .ok_or(TaskEditError::GeneratedInvalid)?;
-        Ok(single_document_edit(entry, path.to_path_buf(), edit))
+        Ok(retain_focus_task(single_document_edit(entry, path.to_path_buf(), edit), path, task))
     }
 
     fn recurring_task_status_edit(
@@ -1291,6 +1291,15 @@ fn focus_task_at(
         })
         .max_by_key(|task| (task.depth, task.range.start))
         .ok_or(TaskEditError::TaskAlreadyClosed)
+}
+
+// These declaration edits preserve the selected owner marker. This proof belongs
+// to the operation, not an adapter guessing identity from a refreshed offset.
+fn retain_focus_task(mut edit: WorkspaceEdit, path: &Path, task: &TaskRecord) -> WorkspaceEdit {
+    if task.owner == TaskOwner::ListItem && task.id.is_none() {
+        edit.retained_task = Some(crate::TaskSourceRef { path: path.to_path_buf(), start: task.source_key() });
+    }
+    edit
 }
 
 /// A successful idempotent operation still reports the revision it inspected,

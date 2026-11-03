@@ -17,7 +17,7 @@ import {
 } from './agenda-state.js';
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties, taskTimeSpent } from './task-ui.js';
 import { revealTask, taskListItems } from './task-tree.js';
-import { captureTaskContext, reconcileTaskContext, reconcileTaskViewport, taskQueryScope, queryTaskContext } from './task-context.js';
+import { captureTaskContext, reconcileTaskContext, reconcileTaskViewport, taskQueryScope, queryTaskContext, taskSelectionRequest } from './task-context.js';
 import {
   focusAge,
   focusBadge,
@@ -1106,9 +1106,8 @@ import {
     const generation = ++state.taskLoadRevision;
     const request = queryRequest('tasks');
     const requestedSelection = state.selectedTask;
-    request.selectedTask = handoff && requestedSelection === handoff.from
-      ? handoff.to
-      : (taskByKey(state.tasks, requestedSelection)?.locator?.kind === 'offset' ? null : requestedSelection);
+    Object.assign(request, taskSelectionRequest(requestedSelection,
+      taskByKey(state.tasks, requestedSelection), handoff));
     const scope = taskQueryScope(request);
     const snapshot = scope === state.taskScope ? state.tasks : null;
     try {
@@ -1740,7 +1739,12 @@ import {
       const body = await response.text();
       if (!response.ok) throw new Error(body || `HTTP ${response.status}`);
       observeMutationResponse(response);
-      await loadTasks();
+      const result = body ? JSON.parse(body) : {};
+      const retained = result.retainedTask;
+      await loadTasks(null, retained ? {
+        from: task.key, fromRevision: task.revision,
+        to: retained.key, revision: retained.revision,
+      } : null);
       notify(action === 'focus' ? 'Task focused.' : 'Task unfocused.');
     } catch (error) {
       // Never flip focus optimistically: reload the server facts and surface the

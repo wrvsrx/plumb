@@ -110,6 +110,8 @@
   的选择、渲染以及两者相互转换都由 edit layer 按 owned value shape 完成，consumer 不手算缩进或分隔符；结束 open
   interval 与写入 closure field 必须是同一 proposal 内不可分割的编辑。
 
+  Focus/Unfocus 的 WorkspaceEdit 可附带 retained_task TaskSourceRef（path、编辑后的 source start），表示本次声明编辑保留的无 id list task owner。该操作只改 owner 的 direct focused 声明，保留 owner 的 marker/start，幂等操作同样返回该 owner。此位置只绑定本次编辑产物，不是跨任意 revision 的身份；adapter 成功应用并核对产物后才可连同新 document revision 发布。
+
   Recurring status edit 的 WorkspaceEdit 附带可选 generated_task TaskRef，精确标识本次 clone 根任务的新显式 id（原任务无 id 也适用）。Complete 与 Cancel 共用此结果；普通关闭与其他编辑为空。它是 proposal 的非编辑结果，只有 guarded batch 成功应用后 adapter 才能发布，不能通过标题、offset 或全 workspace 扫描重新猜测。
 
  `# 6.1 Inline owner replacement
