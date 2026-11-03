@@ -65,7 +65,7 @@ export function reconcileTaskContext(context, tasks, handoff = null, selectedTas
   let selected = surviving(old);
   if (!selected && selectedTask?.key === context.selected
     && (!old || identity(old) === identity(selectedTask))) selected = selectedTask;
-  if (!old && !selected) selected = tasks.find((task) => task.key === context.selected);
+  if (!old && !selected) selected = tasks.find((task) => task.key === context.selected && task.locator?.kind !== 'offset');
   if (old && !selected) {
     const ancestors = taskAncestorKeys(context.tasks, old);
     const index = context.visible.findIndex((task) => task.key === old.key);

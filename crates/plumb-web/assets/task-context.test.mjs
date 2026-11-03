@@ -200,3 +200,12 @@ test('focus handoff retains an anonymous task across its own edit, including out
   assert.equal(reconcileTaskContext(capture([original, neighbor], neighbor.key), [neighbor, latest], handoff).selected, neighbor.key);
   assert.equal(reconcileTaskContext(capture([{ ...original, revision: '0' }, neighbor], original.key), [neighbor, latest], handoff).selected, neighbor.key);
 });
+
+
+test('cold URL selection restores stable identity but does not trust a bare source offset', () => {
+  const anonymous = task('a:10', { locator: { kind: 'offset', offset: 10 } });
+  const stable = task('stable');
+  const tasks = [anonymous, stable];
+  assert.equal(reconcileTaskContext(capture([], anonymous.key), tasks).selected, null);
+  assert.equal(reconcileTaskContext(capture([], stable.key), tasks).selected, stable.key);
+});
