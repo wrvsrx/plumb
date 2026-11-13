@@ -125,6 +125,8 @@
    plumb site serve: received task complete for DOCUMENT (Id { id: "TASK" })
    plumb site serve: POST /api/task/DOCUMENT/complete -> 409
 
+ Web Graph 和 Tasks 的 `"+ → Custom CEL" 可以使用 tags 筛选当前节点直接声明的标签，例如 `"tags.contains('project/xxx')" 或 `"'project/xxx' in tags"。文档节点读取根层标签，task 节点读取自身标签；子节点不继承文档或祖先标签。没有标签时 tags 是空列表，可用 `"size(tags) == 0" 查找。完整匹配区分大小写；前缀筛选可显式写 `"tags.exists(t, t.startsWith('project/'))"。任务树保留用于展示结构的未匹配祖先，但不把它们计为标签匹配结果。
+
  `"--exclude EXPR" 使用 note CEL fields 隐藏 predicate 为 true 的 node 及其 connections：
 
  `text"

@@ -391,3 +391,11 @@ create task facets, event categories, reference edges, or implicit hierarchy.
 `plumb tag --root DIR neovim` locates tagged owners;
 `plumb tag --root DIR --document day.plumb --json` inspects document-local facts.
 Inline owners and declaration payloads do not acquire owner-tag semantics.
+
+Note/task/event CEL queries and Web graph/task filters expose `tags` as a list of
+strings belonging directly to the queried owner. Documents use the same field;
+a document task reads its root tags, while a block task/event reads only its own
+tags. Missing or invalid tag sets yield `[]`, with existing diagnostics retained.
+Use `tags.contains("project/xxx")` or `"project/xxx" in tags` for exact,
+case-sensitive membership; `tags.exists(t, t.startsWith("project/"))` explicitly
+matches a prefix. Tags never inherit from a document or ancestor.

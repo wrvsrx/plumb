@@ -824,6 +824,51 @@ mod tests {
 mod timing {
     use super::*;
     #[test]
+    #[ignore = "explicit CEL owner tag lookup timing evidence"]
+    fn cel_owner_tag_timing() {
+        for disk in [false, true] {
+            for size in [100, 1000] {
+                let mut workspace = if disk {
+                    Workspace::with_sqlite_store(
+                        crate::SqliteSemanticStore::open_in_memory().unwrap(),
+                    )
+                } else {
+                    Workspace::new()
+                };
+                for i in 0..size {
+                    let path = format!("{i}.plumb");
+                    let source = format!("`= tags tag-{i}\n");
+                    if disk {
+                        workspace.insert_disk(&path, 1, source).unwrap();
+                    } else {
+                        workspace.insert(&path, 1, source);
+                    }
+                }
+                let program = cel::Program::compile("tags.contains('tag-1')").unwrap();
+                workspace.owner_tag_snapshot().unwrap();
+                let start = std::time::Instant::now();
+                for _ in 0..1000 {
+                    let snapshot = workspace.owner_tag_snapshot().unwrap();
+                    let mut context = cel::Context::default();
+                    context.add_variable_from_value(
+                        "tags",
+                        snapshot.value.tags(Path::new("1.plumb"), None).to_vec(),
+                    );
+                    assert_eq!(
+                        std::hint::black_box(program.execute(&context).unwrap()),
+                        cel::Value::Bool(true)
+                    );
+                }
+                eprintln!(
+                    "CEL tags disk={disk} owners={size}: 1000 warm snapshot/lookup/evaluate={:?}",
+                    start.elapsed()
+                );
+                assert_eq!(workspace.tag_query_work(), TagQueryWork::default());
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "explicit tag query timing evidence"]
     fn tag_query_timing() {
         let mut workspace = Workspace::new();

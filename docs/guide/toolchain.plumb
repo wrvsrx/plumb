@@ -212,3 +212,14 @@
  命令复用 workspace discovery、ignore 与语义缓存；--no-cache 可改用内存分析，--cache-stats 可显示缓存统计。
  CLI 读取已保存文件；查询失败返回非零状态。语法错误区域和无效标签集合不进入结果，使用 plumb check 查看诊断。
  标签查询使用 label、prefix 与 document 参数；--query CEL 属于 note/task/event 查询。
+
+`# CEL 标签筛选
+
+ note、task、event 的 --query 与 LSP search filter 支持 tags 字符串列表，含义是当前节点直接声明的标签。文档与其它节点使用同一个 tags 字段；根标签只属于文档自身（包括 document task），不传递给子任务或事件。没有标签或标签集合无效时返回空列表，标签诊断仍保留。
+
+ `sh"
+  plumb note --root notes --query 'tags.contains("project/xxx")'
+  plumb task --root notes --query '"project/xxx" in tags'
+  plumb event --root notes --query 'tags.exists(t, t.startsWith("project/"))'
+
+ contains 和 in 按完整标签、大小写敏感匹配。模糊文本搜索与 CEL 筛选保持独立。

@@ -14,6 +14,7 @@
 
 `# Benchmark suites
 
+ `- `"cel_owner_tag_timing"：100/1,000 owners 的 memory/SQLite 标签索引，计时前构建并 warm；循环 1,000 次取得 immutable snapshot、读取一个 document owner 的 tags 并执行已编译 contains predicate。计时包含 context construction 与 store change-cursor check，不包含 source indexing、完整 workspace CEL selection 或 HTTP。使用 `"cargo test -p plumb-workspace --lib cel_owner_tag_timing -- --ignored --nocapture" 显式执行，并保留测试要求的硬内存限制。与普通 deterministic owner-tag work-count tests 配合，不设置 wall-clock CI 阈值。
  `- `"semantic_store_build"：memory/SQLite cold build 与 generation publication。
  `- `"semantic_store_warm_start"：content-hash cache hit 和 independent-process warm startup。
  `- `"semantic_store_queries_33512"：agenda、references、event title completion 与 selected-decode search。

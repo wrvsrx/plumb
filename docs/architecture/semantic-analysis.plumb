@@ -680,7 +680,7 @@
 
 `# CEL owner tags
 
- 实现状态：待验证。note、task、event 和 Web graph CEL 共同提供 tags，类型为 string list，仅包含当前节点直接声明的有效标签，按首次声明顺序去重。文档是普通 owner：note/graph 和 document task 使用根节点标签，list task/event 使用自身 block 标签；不继承 ancestor/document 标签，不引入 document_tags。没有标签、标签集合无效或 unresolved graph node 的 tags 为 []；现有标签 diagnostics 保留。contains 与 in 按大小写敏感的完整标签匹配，不展开层级前缀。
+ note、task、event 和 Web graph CEL 共同提供 tags，类型为 string list，仅包含当前节点直接声明的有效标签，按首次声明顺序去重。文档是普通 owner：note/graph 和 document task 使用根节点标签，list task/event 使用自身 block 标签；不继承 ancestor/document 标签，不引入 document_tags。没有标签、标签集合无效或 unresolved graph node 的 tags 为 []；现有标签 diagnostics 保留。contains 与 in 按大小写敏感的完整标签匹配，不展开层级前缀。
 
  例如 tags.contains('project/xxx') 与 'project/xxx' in tags 等价；tags.exists(t, t.startsWith('project/')) 显式选择前缀。任意 CEL 类型错误和未知变量仍按现有 filter error contract 报告；不改变 preset AND/OR、task ancestor retention 或 fuzzy query 行为。
 
