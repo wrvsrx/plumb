@@ -2330,7 +2330,7 @@ fn completes_and_resolves_relative_embed_targets() {
 
     for (query, expected) in [
         ("closing", "static/closing]image.PNG"),
-        ("tick", "static/tick``image.PNG"),
+        ("tick", "{static/tick``image.PNG}"),
     ] {
         let candidate = workspace
             .complete_embed_path(

@@ -21,6 +21,8 @@
   anonymous Group与 empty Group。caller 不在 flat sequence 中手工插 delimiter。property/definition helper 按
   first element + remaining sequence生成 current shape。
 
+ authored text arguments 的每个非空输入必须渲染为一个顶层 positional element。含反引号或花括号的文本使用 anonymous group 包住转义后的内容，避免 escape 形成多个相邻 Text 元素；例如标签 a{b} 补全后仍是一个标签。此规则同样适用于 event-category 补全，候选查询依赖与工作界限不变。
+
  OwnedInline::with_arguments 接受 marker、完整 positional argument vectors 与 direct children，由 edit layer 的既有 argument binding helper 为 multi-element 或 empty argument 添加必要 Group，caller 不手工拼 envelope。
 
  generic declarations仍可由 OwnedAttribute convenience 转成 direct `"@"/`"+"/`"=" owners；meaning 不进入 edit

@@ -96,7 +96,8 @@ fn hovers_document_metadata_from_each_top_level_entry_subtree() {
         assert!(value.contains("**Document:** `/tmp/document-metadata-hover.plumb`"));
         assert!(value.contains("`title`: Document"), "{value}");
         assert!(value.contains("`tags`:"), "{value}");
-        assert!(value.contains("- plumb"), "{value}");
+        assert!(value.contains("- `plumb`"), "{value}");
+        assert!(value.contains("- `notes`"), "{value}");
         assert!(value.contains("`related`: site"), "{value}");
     }
     assert_eq!(response(&output, 2)["result"]["range"]["start"]["line"], 0);

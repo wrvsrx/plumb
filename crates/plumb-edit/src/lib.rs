@@ -292,7 +292,17 @@ pub fn aligned_associations(entries: &[(&str, &str)]) -> Vec<OwnedBlock> {
 pub fn render_authored_text_arguments(arguments: &[&str]) -> String {
     let arguments = arguments
         .iter()
-        .map(|argument| owned_authored_text(argument))
+        .map(|argument| {
+            let content = owned_authored_text(argument);
+            if argument.contains(['`', '{', '}']) {
+                vec![OwnedInline::Element {
+                    kind: String::new(),
+                    members: vec![OwnedInlineMember::ParsedArgument(content)],
+                }]
+            } else {
+                content
+            }
+        })
         .collect::<Vec<_>>();
     let head = padded_owned_arguments(arguments);
     let mut rendered = String::new();
@@ -4756,6 +4766,21 @@ mod tests {
             association.format().unwrap(),
             "`= {project title} Project Guide\n"
         );
+    }
+
+    #[test]
+    fn authored_arguments_keep_escaped_text_in_one_positional_element() {
+        for value in ["a{b}", "tick`", "中文 标签", "plain"] {
+            let rendered = render_authored_text_arguments(&[value]);
+            let source = format!("`- {rendered}\n");
+            let parsed = parse(&source);
+            assert!(parsed.is_valid(), "{source}");
+            let plumb_syntax::Block::Parsed(block) = &parsed.syntax.blocks[0] else {
+                panic!("expected parsed block");
+            };
+            assert_eq!(block.content.positional_elements().count(), 1, "{source}");
+            assert_eq!(block.content.plain_text(), value);
+        }
     }
 
     #[test]
