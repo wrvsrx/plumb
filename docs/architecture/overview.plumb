@@ -194,3 +194,27 @@
  Web shell、独立 note 页面与 graph canvas 跟随浏览器 prefers-color-scheme；初次绘制即使用对应配色，系统偏好改变后无需刷新即可更新。未声明暗色偏好时保持浅色。背景、文本、链接、状态、选中项、表单与移动端浮层使用共享语义颜色，原生控件通过 color-scheme 同步；图片和视频不反色。
 
  主题的唯一输入是浏览器颜色偏好；CSS 更新页面颜色，graph 缓存一份固定大小的 CSS palette，并在偏好 change 时失效和重读。更新只触发现有 graph 的绘制属性刷新，不请求 workspace、不重新加载 graph data、不重启布局，不改变 camera、selection、filters 或任务状态。冷启动在创建 graph 前读取 palette，主题更新的准备工作与 workspace 大小无关。
+
+`# Web unified node detail
+
+ Graph、Tasks、Agenda 的详情使用同一个节点骨架：标题与来源、facet 属性与操作、富文本正文。
+  facet 来自节点自身的语义记录，不由入口视图决定。无 task/event facet 的节点仍显示正常正文；
+  文档 task 在 Graph 与 Tasks 使用同一属性组件。Graph canvas、task tree 与 agenda timeline 不合并。
+
+ 文档详情正文是整篇文档的非声明内容；内部 task/event 的正文只包含其自身的非声明 children，
+  保持 source order、富文本、嵌套结构、链接与媒体。节点 head 在共享标题中渲染；event schedule
+  只出现在属性区，不在标题重复。子任务正文只显示一次，Child tasks 保留为属性区的直接子任务导航。
+  正文与标题链接使用相同的 workspace URL adaptation。普通 note 页面继续使用完整文档导出。
+
+ 详情读取是单文档 operation：输入为 document identity、可选 owner start 与 document revision。
+  内部 owner 必须携带匹配 revision；过期位置、缺失节点和导出错误明确报错，不回退整篇文档或旧正文。
+  目标 revision 只 materialize 一次，复用 parsed tree 和 semantic output 完成 subtree export、facet 投影
+  与 bibliography 读取，请求结束释放。不得通过全库 task/event collection 装饰一个节点。
+  无 facet 的 cold/warm 请求只处理目标文档及其渲染依赖；task 附加查询限于该任务的依赖与累计时长。
+
+ 详情响应绑定同一 immutable workspace snapshot。正文请求以当前详情 DOM generation 为安装条件，
+  切换节点、进入编辑或刷新后到达的旧响应不能覆盖当前详情。外部 revision 按既有可见 view refresh
+  重新读取详情；不增加跨文档缓存或全库扫描。Graph 的 task 操作进入 Tasks 中同一任务的编辑上下文，
+  不以当前列表 selection 替代被点击任务的 identity。
+
+ 本节 Web integration 为待实现 contract；共享 exporter 已提供节点标题与正文投影。

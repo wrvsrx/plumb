@@ -79,6 +79,56 @@ pub fn export(source: &str) -> Result<Value, String> {
     }))
 }
 
+/// Render a document or one owner's detail from the caller's parsed revision.
+/// The title and body are separate regions so adapters can insert facet controls
+/// without flattening rich content or reparsing a source slice out of context.
+pub fn export_detail(
+    parsed: &plumb_syntax::ParsedDocument,
+    analysis: &DocumentOutput,
+    start: Option<usize>,
+) -> Result<Value, String> {
+    if parsed.valid_syntax().is_none() {
+        return Err("document has syntax errors".into());
+    }
+    let (title, body) = if let Some(start) = start {
+        let mut pending = parsed.syntax.blocks.iter().collect::<Vec<_>>();
+        let mut owner = None;
+        while let Some(block) = pending.pop() {
+            if let Block::Parsed(block) = block {
+                if block.range.start == start {
+                    owner = Some(block);
+                    break;
+                }
+                pending.extend(&block.children);
+            }
+        }
+        let owner = owner.ok_or("node is no longer available")?;
+        let title = if analysis.events().events.view_at_start(start).is_some() {
+            let view = owner_semantic_view(&owner.content);
+            view.split_first()
+                .and_then(|args| args.rest_content())
+                .map(|content| lower_inlines(&content, analysis))
+                .unwrap_or_default()
+        } else {
+            lower_inlines(&owner.content, analysis)
+        };
+        (title, lower_body(owner, analysis))
+    } else {
+        (
+            Vec::new(),
+            lower_document_blocks(&parsed.syntax.blocks, analysis),
+        )
+    };
+    Ok(json!({
+        "pandoc-api-version": [1, 23, 1],
+        "meta": lower_metadata(analysis.metadata().metadata.as_ref(), analysis)?,
+        "blocks": [
+            {"t": "Div", "c": [["", ["node-title"], []], [{"t": "Plain", "c": title}]]},
+            {"t": "Div", "c": [["", ["node-body"], []], body]},
+        ],
+    }))
+}
+
 fn lower_document_blocks(blocks: &[Block], analysis: &DocumentOutput) -> Vec<Value> {
     let body = blocks
         .iter()
@@ -794,6 +844,31 @@ mod tests {
 
     fn export(source: &str) -> Result<Value, String> {
         super::export(source)
+    }
+
+    #[test]
+    fn detail_export_preserves_rich_title_and_only_the_selected_owner_body() {
+        let source = "`= date 2026-11-13\n`= timezone +08:00\n`- Parent\n `+ task\n `@ parent\n\n Parent `!{details}.\n\n `- 10:00--11:00 `!{Review} `->{guide guide.plumb}\n  `+ event\n  `@ review\n\n  Event `*{body}.\n  `- Nested list\n\n`- Sibling must stay outside\n `+ task\n";
+        let parsed = parse(source);
+        let analysis = analyze_document(parsed.valid_syntax().unwrap());
+        let start = analysis.events().events.iter().next().unwrap().range.start;
+        let detail = export_detail(&parsed, &analysis, Some(start)).unwrap();
+        let title = detail["blocks"][0].to_string();
+        let body = detail["blocks"][1].to_string();
+        assert!(
+            title.contains("Strong") && title.contains("Link"),
+            "{title}"
+        );
+        assert!(!title.contains("10:00") && !title.contains("event"));
+        assert!(
+            body.contains("Emph") && body.contains("BulletList"),
+            "{body}"
+        );
+        assert!(!body.contains("Parent") && !body.contains("Sibling"));
+        assert!(!body.contains("review") && !body.contains("event"));
+        assert!(export_detail(&parsed, &analysis, Some(usize::MAX)).is_err());
+        let document = export_detail(&parsed, &analysis, None).unwrap().to_string();
+        assert!(document.contains("Parent") && document.contains("Sibling"));
     }
 
     #[test]
