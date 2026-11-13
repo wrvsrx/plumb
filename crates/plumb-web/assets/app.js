@@ -984,7 +984,7 @@ import {
   function renderNodeDetail(host, node, { task = null, event = null, fragment = '' } = {}) {
     host.innerHTML = `
       <article class="document node-detail">
-        <header class="document-header"><p class="document-path"></p><h1></h1></header>
+        <header class="document-header"><nav class="document-path node-breadcrumbs" aria-label="Node hierarchy"></nav><h1></h1></header>
         <div class="node-facets"></div>
         <div class="note-actions"><a class="command full-note">Open full note</a><button class="local-note" type="button">Show local graph</button></div>
         <div class="note-content" aria-busy="true"><p>Loading content...</p></div>
@@ -1017,6 +1017,7 @@ import {
     if (task?.locator.kind === 'id') query.set('taskId', task.locator.id);
     else if (task?.locator.kind === 'offset') query.set('start', task.locator.offset);
     else if (event) query.set('start', event.locator.start);
+    else if (node.start != null) query.set('start', node.start);
     fetch(`${config.nodeApiBase}${encodeURIComponent(node.documentId)}?${query}`, { cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) throw new Error(await response.text());
@@ -1034,7 +1035,24 @@ import {
         if (body) body.replaceWith(...body.childNodes);
         content.replaceChildren(template.content);
         content.removeAttribute('aria-busy');
-        path.textContent = node.id ? `${detail.path}#${node.id}` : detail.path;
+        path.replaceChildren();
+        path.title = detail.path;
+        for (const [index, crumb] of (detail.breadcrumbs || []).entries()) {
+          if (index) {
+            const separator = document.createElement('span');
+            separator.textContent = '/';
+            separator.setAttribute('aria-hidden', 'true');
+            path.append(separator);
+          }
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = crumb.title || '(untitled)';
+          button.addEventListener('click', () => renderNodeDetail(host, {
+            documentId: detail.id, revision: detail.revision, start: crumb.start,
+            title: crumb.title, path: detail.path,
+          }));
+          path.append(button);
+        }
         if (!task && !event) decorate(detail.task, detail.event);
         renderChildTaskNavigation(facets, detail.children || []);
         if (host === panel) scrollPreviewToFragment(fragment);
@@ -1052,7 +1070,7 @@ import {
   }
 
   async function runTaskAction(task, action) {
-    if (state.view !== 'tasks' || !taskByKey(state.tasks, task.key)) {
+    if (state.view !== 'tasks' || state.selectedTask !== task.key || !taskByKey(state.tasks, task.key)) {
       state.tasks = { ...state.tasks, tasks: (state.tasks?.tasks || []).filter((candidate) => candidate.key !== task.key), selectedTask: task };
       state.selectedTask = task.key;
       state.taskDetailHidden = false;

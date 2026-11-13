@@ -1963,6 +1963,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn node_breadcrumbs_use_structural_sections_and_tasks_without_current_or_siblings() {
+        use super::detail::DetailQuery;
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("hierarchy.plumb");
+        let source = "`= title Notebook\n\n`# Earlier\n\n`# Top `!{section}\n `()\n  `# Nested\n   `- Parent\n    `+ task\n    `@ parent\n    `- Child\n     `+ task\n     `@ child\n";
+        std::fs::write(&path, source).unwrap();
+        let workspace = WebWorkspace::load_with_revision(&root, 1).unwrap();
+        let id = workspace.document_id(&path).unwrap();
+        let revision = workspace.documents[&path].revision.to_string();
+        let detail = workspace.node_detail(id, &DetailQuery {
+            task_id: Some("child".into()), revision: Some(revision.clone()), ..Default::default()
+        }).unwrap();
+        let crumbs = detail["breadcrumbs"].as_array().unwrap();
+        assert_eq!(crumbs.iter().map(|c| c["title"].as_str().unwrap()).collect::<Vec<_>>(),
+            ["Notebook", "Top section", "Nested", "Parent"]);
+        for (index, crumb) in crumbs.iter().enumerate() {
+            let ancestor = workspace.node_detail(id, &DetailQuery {
+                start: crumb["start"].as_u64().map(|start| start as usize),
+                revision: Some(revision.clone()), ..Default::default()
+            }).unwrap();
+            assert_eq!(ancestor["breadcrumbs"].as_array().unwrap().len(), index.max(1));
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn node_detail_is_scoped_rich_revision_guarded_and_document_local() {
         use super::detail::DetailQuery;
         use std::sync::atomic::Ordering;

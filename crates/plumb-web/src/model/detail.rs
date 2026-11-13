@@ -106,6 +106,33 @@ impl WebWorkspace {
             })
             .transpose()?
             .flatten();
+        let mut ancestors = Vec::new();
+        if let Some(start) = start {
+            let mut headings = analysis.headings().headings.iter().collect::<Vec<_>>();
+            while let Some(heading) = headings.pop() {
+                if heading.node_range.start < start && start < heading.node_range.end {
+                    ancestors.push((heading.node_range.start, heading.title.clone()));
+                    headings.extend(&heading.children);
+                }
+            }
+            for task in &tasks.tasks {
+                if task.owner == plumb_semantics::TaskOwner::ListItem
+                    && task.range.start < start
+                    && start < task.range.end
+                {
+                    ancestors.push((task.range.start, task.title.clone()));
+                }
+            }
+            ancestors.sort_by_key(|(start, _)| *start);
+            ancestors.dedup_by_key(|(start, _)| *start);
+        }
+        let document_title = self.titles.get(path).filter(|title| !title.is_empty())
+            .cloned().unwrap_or_else(|| {
+                path.file_name().unwrap_or_default().to_string_lossy().into_owned()
+            });
+        let mut breadcrumbs = vec![serde_json::json!({"title": document_title, "start": null})];
+        breadcrumbs.extend(ancestors.into_iter().map(|(start, title)|
+            serde_json::json!({"title": title, "start": start})));
         let mut pandoc =
             plumb_export::export_detail(&entry.parsed.green().materialize(), analysis, start)?;
         let bibliography = load_bibliography(&self.root, path, analysis.metadata());
@@ -121,6 +148,7 @@ impl WebWorkspace {
             "task": task,
             "event": event,
             "children": children,
+            "breadcrumbs": breadcrumbs,
         }))
     }
 

@@ -44,6 +44,7 @@ async function until(check, message) {
 }
 try {
   await writeFile(join(root, 'project.plumb'), '`+ task\n`= title Project\n`= date 2026-11-13\n`= timezone +08:00\n\nDocument body.\n\n`- Rich `!{task}\n `+ task\n `@ target\n `= priority 3\n\n Own `*{body} with `->{other other.plumb} and `->{image image.svg `+{embed}}.\n `- Child\n  `+ task\n  `@ child\n\n  Child body.\n\n`- Sibling\n `+ task\n `@ sibling\n\n Sibling body.\n\n`- 10:00--11:00 `!{Meeting}\n `+ event\n `@ meeting\n\n Event `*{details}.\n');
+  await writeFile(join(root, 'hierarchy.plumb'), '`= title Notebook\n\n`# Earlier\n\n`# Top `!{section}\n `()\n  `# Nested\n   `- Nested task\n    `+ task\n    `@ nested\n\n    Nested body.\n');
   await writeFile(join(root, 'other.plumb'), '`= title Ordinary\n\nOther `!{document}.\n');
   await writeFile(join(root, 'image.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20"/></svg>');
   start(process.env.PLUMB_E2E_BINARY || fileURLToPath(new URL('../../../target/debug/plumb', import.meta.url)),
@@ -103,6 +104,12 @@ try {
     const graphBody = await evaluate(`document.querySelector('#note-panel .note-content').innerHTML`);
     const graphFields = await evaluate(`document.querySelector('#note-panel .task-fields').textContent`);
     await navigate(`${base}/tasks`);
+    await select('Nested task');
+    await until(() => loaded('#task-panel'), 'nested content missing');
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('#task-panel .node-breadcrumbs button')].map(b => b.textContent)`), ['Notebook', 'Top section', 'Nested']);
+    await evaluate(`document.querySelectorAll('#task-panel .node-breadcrumbs button')[2].click()`);
+    await until(() => evaluate(`document.querySelector('#task-panel h1')?.textContent === 'Nested' && !document.querySelector('#task-panel [aria-busy]')`), 'idless section breadcrumb missing');
+    assert.equal(await evaluate(`document.querySelector('#task-panel .note-content').textContent.includes('Nested body')`), true);
     await select('Project');
     await until(() => loaded('#task-panel'), 'document task content missing');
     assert.equal(await evaluate(`document.querySelector('#task-panel .note-content').innerHTML`), graphBody);
@@ -116,6 +123,11 @@ try {
     assert.equal(await evaluate(`document.querySelector('#task-panel .note-content').textContent.includes('Document body')`), false);
     await evaluate(`document.querySelector('#task-panel .task-children button').click()`);
     await until(() => evaluate(`document.querySelector('#task-panel .note-content')?.textContent.includes('Child body')`), 'child navigation lost');
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('#task-panel .node-breadcrumbs button')].map(b => b.textContent)`), ['Project', 'Rich task']);
+    await evaluate(`document.querySelectorAll('#task-panel .node-breadcrumbs button')[1].click()`);
+    await until(() => evaluate(`document.querySelector('#task-panel h1')?.textContent === 'Rich task' && !document.querySelector('#task-panel [aria-busy]')`), 'parent breadcrumb missing');
+    await evaluate(`document.querySelector('#task-panel .node-breadcrumbs button').click()`);
+    await until(() => evaluate(`document.querySelector('#task-panel .note-content')?.textContent.includes('Document body')`), 'document breadcrumb missing');
     await select('Rich task');
     await until(() => loaded('#task-panel'), 'task content missing again');
     await evaluate(`document.querySelector('#task-panel .note-content a[data-plumb-document]').click()`);

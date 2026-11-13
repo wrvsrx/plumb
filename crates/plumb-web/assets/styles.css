@@ -532,3 +532,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .node-detail .note-content { overflow-wrap: anywhere; }
 .node-content-error { color: var(--red); }
 .node-detail .note-content img, .node-detail .note-content video { max-width: 100%; }
+
+.node-breadcrumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.node-breadcrumbs button { color: inherit; font: inherit; background: none; border: 0; padding: 2px 0; text-align: left; overflow-wrap: anywhere; min-width: 0; cursor: pointer; }
+.node-breadcrumbs button:hover { text-decoration: underline; }
