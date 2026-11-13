@@ -1,5 +1,5 @@
 mod tags;
-pub use tags::{TagCursor, TagMatch, TagPage, TagQueryError, TagQueryWork, TagValues};
+pub use tags::{OwnerTagSnapshot, TagCursor, TagMatch, TagPage, TagQueryError, TagQueryWork, TagValues};
 mod indexed_documents;
 mod agenda;
 pub use agenda::*;

@@ -169,9 +169,12 @@ impl Workspace {
                 .search_records_unfiltered_lightweight(&root, kind, query, limit, now)
                 .map_err(Into::into);
         }
-        let filter = filter
+        let mut filter = filter
             .map(|source| SemanticSearchFilter::compile(source, now))
             .transpose()?;
+        if let Some(filter) = filter.as_mut().filter(|filter| filter.uses("tags")) {
+            filter.tags = self.owner_tag_snapshot()?.value;
+        }
         let reverse = filter
             .as_ref()
             .filter(|filter| filter.needs_reverse_references())
@@ -1430,6 +1433,7 @@ fn note_search_title(
 }
 
 struct SemanticSearchFilter {
+    tags: crate::OwnerTagSnapshot,
     program: Program,
     variables: HashSet<String>,
     now: DateTime<FixedOffset>,
@@ -1455,6 +1459,7 @@ impl SemanticSearchFilter {
             .map(str::to_string)
             .collect();
         Ok(Self {
+            tags: crate::OwnerTagSnapshot::default(),
             program,
             variables,
             now,
@@ -1481,6 +1486,7 @@ impl SemanticSearchFilter {
         reverse: Option<&ReverseReferences>,
     ) -> Result<bool, WorkspaceSearchError> {
         let mut context = Context::default();
+        context.add_variable_from_value("tags", self.tags.tags(path, None).to_vec());
         context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value("title", title.to_string());
         if self.uses("directly_referenced_by") {
@@ -1518,6 +1524,10 @@ impl SemanticSearchFilter {
         facts: TaskMatchFacts<'_>,
     ) -> Result<bool, WorkspaceSearchError> {
         let mut context = Context::default();
+        context.add_variable_from_value(
+            "tags",
+            self.tags.tags(path, (task.owner == TaskOwner::ListItem).then_some(task.range.start)).to_vec(),
+        );
         context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value(
             "id",
@@ -1589,6 +1599,7 @@ impl SemanticSearchFilter {
 
     fn event_matches(&self, root: &Path, path: &Path, event: &EventRecord) -> Result<bool, String> {
         let mut context = Context::default();
+        context.add_variable_from_value("tags", self.tags.tags(path, Some(event.range.start)).to_vec());
         context.add_variable_from_value("path", display_workspace_path(root, path));
         context.add_variable_from_value(
             "id",

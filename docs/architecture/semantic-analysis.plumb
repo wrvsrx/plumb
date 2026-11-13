@@ -676,4 +676,14 @@
  CLI vocabulary/exact membership 默认最多 100 条，可 --limit 1..1000，JSON/text 都显式报告截断。
  --document 返回该文档全部 tagged owners，--scope START:END 返回其中完整包含于 UTF-8 byte range 的 block owners。
  输出 JSON 包含 source revision、owner/selection range、optional id 与完整 direct tags；不把 CLI 字符位置当长期身份。
- --query 不适用于 tag 子命令；tag query 与现有 note/task/event CEL schema 分离。
+ --query 不适用于 tag 子命令；tag 子命令提供 owner/vocabulary 查询，note/task/event CEL 使用下述共同 tags 字段。
+
+`# CEL owner tags
+
+ 实现状态：待验证。note、task、event 和 Web graph CEL 共同提供 tags，类型为 string list，仅包含当前节点直接声明的有效标签，按首次声明顺序去重。文档是普通 owner：note/graph 和 document task 使用根节点标签，list task/event 使用自身 block 标签；不继承 ancestor/document 标签，不引入 document_tags。没有标签、标签集合无效或 unresolved graph node 的 tags 为 []；现有标签 diagnostics 保留。contains 与 in 按大小写敏感的完整标签匹配，不展开层级前缀。
+
+ 例如 tags.contains('project/xxx') 与 'project/xxx' in tags 等价；tags.exists(t, t.startsWith('project/')) 显式选择前缀。任意 CEL 类型错误和未知变量仍按现有 filter error contract 报告；不改变 preset AND/OR、task ancestor retention 或 fuzzy query 行为。
+
+ 输入依赖是现有 tagged-owner facts、owner kind/start 与 source revision。仅 expression 引用 tags 时，每次查询取得一次 immutable owner-tag snapshot；按 path 与 Document/Block identity 查找，文档身份不依赖 title/selection offset。snapshot 从现有 source-replaced tag index 取得，带 completeness/provenance；不扫描 workspace 装饰结果，不逐节点访问 SQLite，不解析 source。Cold bootstrap 可枚举 tag facts；warm snapshot 只读取 indexed changes 与 dirty documents，按旧贡献撤回/新贡献插入，不重扫无关 contributors。单节点 lookup 是有序索引查找加输出标签数，snapshot clone 不复制全部 owners。
+
+ 标签值相等时不改变 membership postings；geometry/revision 变化只更新来源身份与 provenance。标签修改、删除、invalid/pending overlay、overlay close 和 missing source 恢复沿用既有 tag index invalidation，invalid/pending 不复用 last-valid 标签；publication 原子且旧 snapshot 保持原值。CEL 继续执行原始 Program，tags 不进入未经证明的 SQL candidate pushdown。测试必须覆盖 memory/persistent/overlay parity、无继承、document task、无标签/无效标签、missing recovery、删除和 snapshot isolation，并以 work counts 验证 repeat reads、unrelated edits 与增长、local updates；cold rebuild 提供结果基准。

@@ -90,6 +90,23 @@ struct Contribution {
     revision: i64,
     owners: OrdMap<OwnerKey, Arc<TaggedOwner>>,
 }
+/// Immutable owner lookup from one synchronized tag generation.
+/// A missing owner has an empty tag set; labels never inherit.
+#[derive(Debug, Clone, Default)]
+pub struct OwnerTagSnapshot {
+    sources: OrdMap<PathBuf, Contribution>,
+}
+impl OwnerTagSnapshot {
+    /// `None` identifies the document root; `Some(start)` a parsed block.
+    pub fn tags(&self, path: &Path, block_start: Option<usize>) -> &[String] {
+        let key = block_start.map_or((TagOwner::Document, 0), |start| (TagOwner::Block, start));
+        self.sources
+            .get(&normalize(path))
+            .and_then(|source| source.owners.get(&key))
+            .map_or(&[], |owner| owner.tags.values.as_slice())
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct Index {
     initialized: bool,
@@ -277,6 +294,21 @@ impl Index {
     }
 }
 impl Workspace {
+    /// Synchronize once per query, then resolve identities without store calls.
+    pub fn owner_tag_snapshot(&self) -> Result<QueryResult<OwnerTagSnapshot>, WorkspaceQueryError> {
+        self.derived
+            .tags
+            .read(self, |index| {
+                Ok(OwnerTagSnapshot {
+                    sources: index.sources.clone(),
+                })
+            })
+            .map_err(|error| match error {
+                TagQueryError::Workspace(error) => error,
+                _ => unreachable!("snapshot lookup has no cursor or limit"),
+            })
+    }
+
     /// Exact, case-sensitive owner membership; no inheritance or implicit hierarchy.
     pub fn query_tag(
         &self,
@@ -395,6 +427,219 @@ mod tests {
             w.insert(path, revision, source);
         }
     }
+    fn cel_titles(w: &Workspace, kind: crate::SearchRecordKind, expression: &str) -> Vec<String> {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-13T12:00:00Z").unwrap();
+        let mut titles = w
+            .search_records_filtered("", Some(kind), "", 100, now, Some(expression))
+            .unwrap()
+            .value
+            .items
+            .into_iter()
+            .map(|r| r.title)
+            .collect::<Vec<_>>();
+        titles.sort();
+        titles
+    }
+
+    #[test]
+    fn cel_tags_are_direct_owner_lists_for_notes_tasks_events_and_pages() {
+        use crate::{
+            SearchRecordKind as Kind, TaskPageQuery, TaskQueryFilter, TaskQueryFilterGroup,
+        };
+        let source = concat!(
+            "`= title Root\n`+ task\n`= tags root\n",
+            "`= date 2026-11-13\n`= timezone +00:00\n",
+            "`- Parent\n `+ task\n `= tags\n  `- project/xxx\n  `- spaced label\n  `- project/xxx\n",
+            " `- Child\n  `+ task\n",
+            "`- Invalid\n `+ task\n `= tags bad\n `= tags duplicate\n",
+            "`- 10:00--11:00 Meeting\n `+ event\n `= tags project/xxx\n",
+            "`- 12:00--13:00 Untagged\n `+ event\n",
+        );
+        for disk in [false, true] {
+            let mut w = if disk {
+                Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+            } else {
+                Workspace::new()
+            };
+            put(&mut w, disk, "a.plumb", 1, source);
+            // A block at byte zero must never be mistaken for the document root.
+            put(
+                &mut w,
+                disk,
+                "b.plumb",
+                1,
+                "`- Zero\n `+ task\n `= tags zero\n",
+            );
+            assert_eq!(
+                cel_titles(&w, Kind::Note, "tags.contains('root')"),
+                ["Root"]
+            );
+            assert!(cel_titles(&w, Kind::Note, "tags.contains('zero')").is_empty());
+            assert_eq!(
+                cel_titles(&w, Kind::Task, "tags.contains('zero')"),
+                ["Zero"]
+            );
+            assert_eq!(cel_titles(&w, Kind::Task, "'root' in tags"), ["Root"]);
+            for expression in [
+                "tags.contains('project/xxx')",
+                "'project/xxx' in tags",
+                "tags.exists(t, t.startsWith('project/'))",
+            ] {
+                assert_eq!(cel_titles(&w, Kind::Task, expression), ["Parent"]);
+                assert_eq!(cel_titles(&w, Kind::Event, expression), ["Meeting"]);
+                let query = TaskPageQuery {
+                    root: PathBuf::new(),
+                    text: String::new(),
+                    filter_groups: vec![TaskQueryFilterGroup {
+                        filters: vec![TaskQueryFilter {
+                            source: "test".into(),
+                            expression: expression.into(),
+                        }],
+                    }],
+                    sort: vec![],
+                    limit: 100,
+                    cursor: None,
+                    workspace_revision: 1,
+                    now: chrono::DateTime::parse_from_rfc3339("2026-11-13T12:00:00Z").unwrap(),
+                };
+                let page = w.query_task_page(&query).unwrap();
+                assert_eq!(
+                    page.value
+                        .tasks
+                        .iter()
+                        .map(|t| t.task.title.as_str())
+                        .collect::<Vec<_>>(),
+                    ["Parent"]
+                );
+            }
+            assert_eq!(
+                cel_titles(&w, Kind::Task, "tags == ['project/xxx', 'spaced label']"),
+                ["Parent"]
+            );
+            assert_eq!(
+                cel_titles(&w, Kind::Task, "size(tags) == 0"),
+                ["Child", "Invalid"]
+            );
+            assert_eq!(cel_titles(&w, Kind::Event, "tags == []"), ["Untagged"]);
+            assert!(cel_titles(
+                &w,
+                Kind::Task,
+                "tags.contains('project') || tags.contains('PROJECT/xxx')"
+            )
+            .is_empty());
+            let now = chrono::DateTime::parse_from_rfc3339("2026-11-13T12:00:00Z").unwrap();
+            assert!(w
+                .search_records_filtered(
+                    "",
+                    Some(Kind::Task),
+                    "",
+                    100,
+                    now,
+                    Some("document_tags.contains('root')")
+                )
+                .is_err());
+            assert!(w
+                .search_records_filtered("", Some(Kind::Task), "", 100, now, Some("tags + 1"))
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn cel_tag_snapshots_bound_work_and_preserve_overlay_revision() {
+        use crate::SearchRecordKind as Kind;
+        for disk in [false, true] {
+            let mut w = if disk {
+                Workspace::with_sqlite_store(SqliteSemanticStore::open_in_memory().unwrap())
+            } else {
+                Workspace::new()
+            };
+            let source = "`= title Root\n`= tags old\n";
+            put(&mut w, disk, "a.plumb", 1, source);
+            let old = w.owner_tag_snapshot().unwrap().value;
+            assert_eq!(old.tags(Path::new("a.plumb"), None), ["old"]);
+            assert!(old.tags(Path::new("missing.plumb"), None).is_empty());
+            for _ in 0..3 {
+                assert_eq!(cel_titles(&w, Kind::Note, "tags.contains('old')"), ["Root"]);
+                assert_eq!(w.tag_query_work(), TagQueryWork::default());
+            }
+            for i in 0..100 {
+                put(
+                    &mut w,
+                    disk,
+                    &format!("unrelated-{i}.plumb"),
+                    1,
+                    "`= tags other\n",
+                );
+            }
+            w.owner_tag_snapshot().unwrap();
+            assert_eq!(w.tag_query_work().documents_read, 100);
+            assert_eq!(cel_titles(&w, Kind::Note, "tags.contains('old')"), ["Root"]);
+            assert_eq!(w.tag_query_work(), TagQueryWork::default());
+            put(
+                &mut w,
+                disk,
+                "unrelated-0.plumb",
+                2,
+                "`= tags other\n\nChanged body\n",
+            );
+            w.owner_tag_snapshot().unwrap();
+            assert_eq!(w.tag_query_work().documents_read, 1);
+            assert_eq!(w.tag_query_work().memberships_changed, 0);
+            w.insert("a.plumb", 2, "`= title Root\n`= tags overlay\n");
+            assert_eq!(
+                cel_titles(&w, Kind::Note, "tags.contains('overlay')"),
+                ["Root"]
+            );
+            assert_eq!(w.tag_query_work().documents_read, 1);
+            let cold = if disk {
+                let mut cold = Workspace::with_sqlite_store(
+                    w.disk_store.as_ref().unwrap().readonly_snapshot().unwrap(),
+                );
+                cold.insert("a.plumb", 2, "`= title Root\n`= tags overlay\n");
+                cold
+            } else {
+                let mut cold = Workspace::new();
+                for (path, entry) in &w.documents {
+                    cold.insert(path, entry.revision, entry.parsed.source());
+                }
+                cold
+            };
+            assert_eq!(
+                cel_titles(&w, Kind::Note, "tags.contains('overlay')"),
+                cel_titles(&cold, Kind::Note, "tags.contains('overlay')")
+            );
+            let pending = w
+                .begin_document_revision("a.plumb", 3, "`= title Root\n`= tags {broken\n")
+                .unwrap();
+            let snapshot = w.owner_tag_snapshot().unwrap();
+            assert!(!snapshot.is_complete());
+            assert!(snapshot.value.tags(Path::new("a.plumb"), None).is_empty());
+            w.install_document_analysis(pending.analyze());
+            assert!(cel_titles(&w, Kind::Note, "tags.contains('overlay')").is_empty());
+            assert_eq!(old.tags(Path::new("a.plumb"), None), ["old"]);
+            w.close_document("a.plumb");
+            if disk {
+                assert_eq!(cel_titles(&w, Kind::Note, "tags.contains('old')"), ["Root"]);
+            }
+            w.remove_disk("a.plumb").unwrap();
+            assert!(w
+                .owner_tag_snapshot()
+                .unwrap()
+                .value
+                .tags(Path::new("a.plumb"), None)
+                .is_empty());
+            put(&mut w, disk, "missing.plumb", 1, "`= tags recovered\n");
+            assert_eq!(
+                w.owner_tag_snapshot()
+                    .unwrap()
+                    .value
+                    .tags(Path::new("missing.plumb"), None),
+                ["recovered"]
+            );
+            assert!(old.tags(Path::new("missing.plumb"), None).is_empty());
+        }
+    }
+
     #[test]
     fn tag_reads_updates_growth_and_negative_lookup_have_bounded_work() {
         for disk in [false, true] {

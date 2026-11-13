@@ -286,6 +286,11 @@ impl Workspace {
         selected: Option<&TaskSelection>,
     ) -> Result<QueryResult<TaskPage>, TaskPageQueryError> {
         let filters = compile_filters(&query.filter_groups)?;
+        let tags = if filters.iter().flatten().any(|filter| filter.variables.contains("tags")) {
+            self.owner_tag_snapshot()?.value
+        } else {
+            crate::OwnerTagSnapshot::default()
+        };
         let candidate = if include_ancestors { None } else { task_candidate_predicate(&filters) };
         let (mut facts, open_records) =
             task_facts(self, candidate.as_ref(), query.now.timestamp_millis())?;
@@ -347,7 +352,7 @@ impl Workspace {
                 .and_then(|target| dependents.get(&target))
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            if filter_groups_match(&filters, &fact, &query.root, query.now, targets, blocking)? {
+            if filter_groups_match(&filters, &fact, &query.root, query.now, targets, blocking, &tags)? {
                 retained.push(fact);
             }
         }
@@ -1167,11 +1172,15 @@ fn filter_groups_match(
     now: DateTime<FixedOffset>,
     dependencies: &[TaskRef],
     dependents: &[TaskRef],
+    tags: &crate::OwnerTagSnapshot,
 ) -> Result<bool, TaskPageQueryError> {
     for group in groups {
         let mut matched = false;
         for filter in group {
             let mut context = Context::default();
+            context.add_variable_from_value("tags", tags.tags(
+                &fact.key.path, (!fact.document_task).then_some(fact.key.start),
+            ).to_vec());
             context.add_variable_from_value("path", display_workspace_path(root, &fact.key.path));
             context.add_variable_from_value(
                 "id",
