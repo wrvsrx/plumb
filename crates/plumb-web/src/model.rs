@@ -142,6 +142,7 @@ pub enum WebTaskLocator {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebTask {
+    pub ancestry: Vec<String>,
     pub matched: bool,
     pub key: String,
     pub document_id: String,
@@ -879,6 +880,7 @@ impl WebWorkspace {
             let focused_since = task.focused_since().map(str::to_string);
             let focus_intervals = web_focus_intervals(&task);
             tasks.push(WebTask {
+                ancestry: std::iter::once(self.title(&record.path)).chain(task.ancestors.iter().map(|ancestor| ancestor.title.clone())).collect(),
                 matched: true,
                 key,
                 document_id,
@@ -1961,6 +1963,45 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
+
+    #[test]
+    fn task_paths_refresh_from_index_without_materializing_documents() {
+        use std::sync::atomic::Ordering;
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("jobs.plumb");
+        let source = "`= title 找工作\n\n`- 字节\n `- 约面试情况确认\n  `+ task\n  `@ interview\n";
+        std::fs::write(&path, source).unwrap();
+        for n in 0..30 {
+            std::fs::write(root.join(format!("other-{n}.plumb")), "Unrelated.").unwrap();
+        }
+        let mut workspace = WebWorkspace::load_with_revision(&root, 1).unwrap();
+        let query = WebQuery { view: WebView::Tasks, query: "interview".into(), ..Default::default() };
+        for _ in 0..2 {
+            let page = workspace.query_tasks(&query).unwrap();
+            assert_eq!(page.tasks.len(), 1);
+            assert_eq!(page.tasks[0].ancestry, ["找工作", "字节"]);
+        }
+        let old = workspace.clone();
+        let unrelated = root.join("other-0.plumb");
+        std::fs::write(&unrelated, "Changed unrelated.").unwrap();
+        workspace.refresh_document(&unrelated, 2).unwrap();
+        assert_eq!(workspace.query_tasks(&query).unwrap().tasks[0].ancestry, ["找工作", "字节"]);
+        std::fs::write(&path, source.replace("字节", "新公司")).unwrap();
+        workspace.refresh_document(&path, 3).unwrap();
+        assert_eq!(workspace.query_tasks(&query).unwrap().tasks[0].ancestry, ["找工作", "新公司"]);
+        assert_eq!(old.query_tasks(&query).unwrap().tasks[0].ancestry, ["找工作", "字节"]);
+        let cold = WebWorkspace::load_with_revision(&root, 3).unwrap();
+        assert_eq!(cold.query_tasks(&query).unwrap().tasks[0].ancestry, workspace.query_tasks(&query).unwrap().tasks[0].ancestry);
+        assert!(workspace.documents.values().all(|doc| doc.materializations.load(Ordering::Relaxed) == 0));
+        std::fs::write(&path, "No tasks.\n").unwrap();
+        workspace.refresh_document(&path, 4).unwrap();
+        assert!(workspace.query_tasks(&query).unwrap().tasks.is_empty());
+        std::fs::write(&path, source).unwrap();
+        workspace.refresh_document(&path, 5).unwrap();
+        assert_eq!(workspace.query_tasks(&query).unwrap().tasks[0].ancestry, ["找工作", "字节"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn node_breadcrumbs_use_structural_sections_and_tasks_without_current_or_siblings() {

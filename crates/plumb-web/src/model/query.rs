@@ -118,6 +118,7 @@ impl WebWorkspace {
         let focused_since = task.focused_since().map(str::to_string);
         let focus_intervals = super::web_focus_intervals(&task);
         Some(WebTask {
+            ancestry: std::iter::once(self.title(&item.path)).chain(task.ancestors.iter().map(|ancestor| ancestor.title.clone())).collect(),
             matched: item.matched,
             key,
             document_id,

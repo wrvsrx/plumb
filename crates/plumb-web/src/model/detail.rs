@@ -106,35 +106,17 @@ impl WebWorkspace {
             })
             .transpose()?
             .flatten();
-        let mut ancestors = Vec::new();
-        if let Some(start) = start {
-            let mut headings = analysis.headings().headings.iter().collect::<Vec<_>>();
-            while let Some(heading) = headings.pop() {
-                if heading.node_range.start < start && start < heading.node_range.end {
-                    ancestors.push((heading.node_range.start, heading.title.clone()));
-                    headings.extend(&heading.children);
-                }
-            }
-            for task in &tasks.tasks {
-                if task.owner == plumb_semantics::TaskOwner::ListItem
-                    && task.range.start < start
-                    && start < task.range.end
-                {
-                    ancestors.push((task.range.start, task.title.clone()));
-                }
-            }
-            ancestors.sort_by_key(|(start, _)| *start);
-            ancestors.dedup_by_key(|(start, _)| *start);
-        }
+        let parsed = entry.parsed.green().materialize();
+        let ancestors = start.map(|start| plumb_semantics::node_ancestors(&parsed, start)).unwrap_or_default();
         let document_title = self.titles.get(path).filter(|title| !title.is_empty())
             .cloned().unwrap_or_else(|| {
                 path.file_name().unwrap_or_default().to_string_lossy().into_owned()
             });
         let mut breadcrumbs = vec![serde_json::json!({"title": document_title, "start": null})];
-        breadcrumbs.extend(ancestors.into_iter().map(|(start, title)|
-            serde_json::json!({"title": title, "start": start})));
+        breadcrumbs.extend(ancestors.into_iter().map(|ancestor|
+            serde_json::json!({"title": ancestor.title, "start": ancestor.start})));
         let mut pandoc =
-            plumb_export::export_detail(&entry.parsed.green().materialize(), analysis, start)?;
+            plumb_export::export_detail(&parsed, analysis, start)?;
         let bibliography = load_bibliography(&self.root, path, analysis.metadata());
         let html = crate::pandoc::render_document_html(self, path, &mut pandoc, &bibliography)?;
         Ok(serde_json::json!({

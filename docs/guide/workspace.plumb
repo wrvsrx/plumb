@@ -77,9 +77,11 @@
   会进入 Tasks 中对应任务的操作上下文；Child tasks 导航可以直接打开子任务。内容加载失败或选择位置
   已过期时显示错误，刷新后重新选择。
 
- 详情标题上方显示可点击的层级路径：文档标题或文件名 / 祖先章节 / 父任务。
-  路径只包含真实祖先，不重复当前标题；点击文档项查看整篇内容，点击章节或父任务查看该节点详情，
-  无 id 的章节也可打开。悬停路径可查看完整源路径，窄屏自动换行。
+ 详情标题上方显示可点击的层级路径：文档标题或文件名 / 祖先节点。
+  路径只包含真实祖先，不重复当前标题；点击文档项查看整篇内容，点击祖先项查看该节点详情，
+  无 id 的节点也可打开。层级仅依据实际嵌套关系，不要求祖先具有 section 或 task facet；透明容器、声明与空标题跳过。
+  Tasks 列表在标题下显示同样的上下文路径，替代原始 id。每项长标题缩略显示，悬停查看完整文本；
+  ID 仍可搜索，并在任务详情中查看和复制。详情路径悬停可查看源路径，窄屏自动换行。
 
  Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、task references 与富文本正文。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 

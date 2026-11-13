@@ -138,6 +138,7 @@ pub enum TaskOwner {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskRecord {
+    pub ancestors: Vec<crate::NodeAncestor>,
     pub category: crate::Category,
     pub owner: TaskOwner,
     pub range: Range<usize>,
@@ -340,6 +341,9 @@ impl RelativeSemanticRecord for TaskRecord {
     }
 
     fn shift(&mut self, delta: isize) {
+        for ancestor in &mut self.ancestors {
+            ancestor.start = ancestor.start.checked_add_signed(delta).unwrap();
+        }
         self.category.shift(delta);
         shift_range(&mut self.range, delta);
         shift_range(&mut self.marker_range, delta);
@@ -419,6 +423,7 @@ pub(crate) fn analyze_list_tasks<'a>(
             std::slice::from_ref(block),
             depth,
             &table_items,
+            &mut Vec::new(),
             &mut output,
         );
     }
@@ -646,6 +651,7 @@ fn collect_blocks(
     blocks: &[Block],
     task_depth: usize,
     table_items: &std::collections::HashSet<usize>,
+    ancestors: &mut Vec<crate::NodeAncestor>,
     output: &mut TaskOutput,
 ) {
     for block in blocks {
@@ -673,10 +679,15 @@ fn collect_blocks(
             });
         }
         if is_task {
-            let task = task_record(source, block, task_depth);
+            let mut task = task_record(source, block, task_depth);
+            task.ancestors = ancestors.clone();
             let attrs = &block.mark.as_ref().expect("task is a marked block").attrs;
             collect_task_diagnostics(&task, attrs.items.as_slice(), output);
             output.tasks.push(task);
+        }
+        let ancestor_count = ancestors.len();
+        if let Some(label) = crate::ancestry::ancestor_label(block) {
+            ancestors.push(label);
         }
         for child in crate::body_children(block) {
             collect_blocks(
@@ -684,9 +695,11 @@ fn collect_blocks(
                 std::slice::from_ref(child),
                 task_depth + usize::from(is_task),
                 table_items,
+                ancestors,
                 output,
             );
         }
+        ancestors.truncate(ancestor_count);
     }
 }
 

@@ -334,3 +334,6 @@ pub use tasks::{
     TaskReferenceTarget, TaskState, TaskStatus,
 };
 pub use text::plain_text as semantic_plain_text;
+
+mod ancestry;
+pub use ancestry::{NodeAncestor, node_ancestors};

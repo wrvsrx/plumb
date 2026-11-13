@@ -979,6 +979,11 @@ import {
     renderNodeDetail(panel, { documentId: node.id, title: node.title }, { fragment });
   }
 
+  function shortAncestorLabel(title) {
+    const characters = Array.from(title);
+    return characters.length > 48 ? `${characters.slice(0, 47).join('')}…` : title;
+  }
+
   // A DOM generation is the request's owner. Replacing the detail or opening a
   // form detaches it, so a late response cannot overwrite the new selection.
   function renderNodeDetail(host, node, { task = null, event = null, fragment = '' } = {}) {
@@ -1046,7 +1051,8 @@ import {
           }
           const button = document.createElement('button');
           button.type = 'button';
-          button.textContent = crumb.title || '(untitled)';
+          button.textContent = shortAncestorLabel(crumb.title || '(untitled)');
+          button.title = crumb.title || '(untitled)';
           button.addEventListener('click', () => renderNodeDetail(host, {
             documentId: detail.id, revision: detail.revision, start: crumb.start,
             title: crumb.title, path: detail.path,
@@ -1670,7 +1676,10 @@ import {
     const title = document.createElement('strong');
     title.textContent = task.title || '(untitled task)';
     const source = document.createElement('small');
-    source.textContent = task.id ? `${task.path}#${task.id}` : task.path;
+    const ancestry = task.ancestry || [task.path];
+    source.className = 'task-ancestry';
+    source.textContent = ancestry.map(shortAncestorLabel).join(' / ');
+    source.title = ancestry.join(' / ');
     identity.append(title, source);
     const spent = document.createElement('small');
     spent.className = 'task-time-spent';
@@ -1980,6 +1989,17 @@ import {
     stateLabel.className = `task-detail-state state-${task.state}`;
     if (isFocused(task)) stateLabel.after(focusAgeBadge(task));
     const fields = taskPanel.querySelector('.task-fields');
+    if (task.id) {
+      addTaskField(fields, 'ID', task.id);
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.textContent = 'Copy ID';
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(task.id); notify('ID copied'); }
+        catch { notify('Cannot copy ID', true); }
+      });
+      taskPanel.querySelector('.task-actions').append(copy);
+    }
     addTaskField(fields, 'Time spent', taskTimeSpent(task));
     addTaskField(fields, 'Created', task.created, { editable: true, property: 'created', task });
     addTaskField(fields, 'Due', task.due, { editable: true, property: 'due', task });

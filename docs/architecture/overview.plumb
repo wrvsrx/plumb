@@ -201,12 +201,12 @@
   facet 来自节点自身的语义记录，不由入口视图决定。无 task/event facet 的节点仍显示正常正文；
   文档 task 在 Graph 与 Tasks 使用同一属性组件。Graph canvas、task tree 与 agenda timeline 不合并。
 
- 层级导航：共享详情在标题前展示文档标题（缺失时使用文件名）及真实祖先章节、父任务，
-  以斜杠分隔，不包含当前节点，不把前置兄弟章节当作祖先；普通段落与透明容器不产生路径项。
+ 层级导航：共享详情在标题前展示文档标题（缺失时使用文件名）及真实祖先节点，
+  以斜杠分隔，不包含当前节点，不把前置兄弟章节当作祖先；透明容器、声明与无标题节点不产生路径项，普通有内容节点也提供上下文。
   文档详情只显示文档项。标签使用纯文本，完整源路径作为 tooltip；窄屏允许换行。
   点击文档项打开整篇详情，点击祖先打开该节点详情，包括无显式 id 的章节。
-  位置定位绑定响应 revision，过期时明确报错。输入仅为目标文档的标题、heading/task 范围及当前 owner，
-  随该文档 revision 整体失效；cold/warm 均只遍历目标文档语义记录，不增加 materialization 或跨文档扫描。
+  位置定位绑定响应 revision，过期时明确报错。输入仅为目标文档的标题、parsed owner 嵌套关系及当前 owner，
+  随该文档 revision 整体失效；cold/warm 均只遍历目标文档 owner tree，不增加 materialization 或跨文档扫描。
 
  文档详情正文是整篇文档的非声明内容；内部 task/event 的正文只包含其自身的非声明 children，
   保持 source order、富文本、嵌套结构、链接与媒体。节点 head 在共享标题中渲染；event schedule
@@ -223,3 +223,9 @@
   切换节点、进入编辑或刷新后到达的旧响应不能覆盖当前详情。外部 revision 按既有可见 view refresh
   重新读取详情；不增加跨文档缓存或全库扫描。Graph 的 task 操作进入 Tasks 中同一任务的编辑上下文，
   不以当前列表 selection 替代被点击任务的 identity；通过层级导航打开父任务后，操作也先建立该父任务的上下文。
+
+ Tasks 列表层级路径：标题下以文档标题 / 祖先节点路径替代原始 id，完整路径保留在 tooltip。
+  祖先标签不依赖 facet，使用 head 的纯文本；每项显示最多 48 个字符，完整文本仍可查看。
+  语义 task record 在已有的单 shard 遍历中保存祖先标签和位置，随 shard 内容变化失效，位置平移同步更新。
+  Web 只投影当前有界 page 与 selected task 已 hydration 的记录；不为每行读取或解析文档，
+  不新增全库扫描。文档标题复用现有 title index；冷启动重建版本化存储，warm read 只增加输出路径长度的工作。
