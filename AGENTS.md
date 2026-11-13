@@ -358,6 +358,11 @@ cherry-picking their commits) and fast-forwarding, never with merge commits.
 
 For the concrete version update sequence, see [`docs/versioning.md`](docs/versioning.md).
 
+Publish versions only as Git tags pushed to the remote. Do not create GitHub
+Release entries, drafts, release notes, or release assets. A request to release
+a version authorizes the version commits and tag publication, not a GitHub
+Release. Keep existing tags when removing GitHub Release entries.
+
 Semantic-ish `0.x.y` while pre-1.0: release `0.x.(y+1)` when the release
 contains only fixes; release `0.(x+1).y` when it includes features or behavior
 changes. Until the Cargo workspace exists, `tree-sitter-plumb/tree-sitter.json`

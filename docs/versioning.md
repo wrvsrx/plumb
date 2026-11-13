@@ -8,6 +8,8 @@ Update every version source together:
 3. Run `cargo check --workspace --all-targets` and the relevant tests.
 4. Commit the release, create a tag matching the version, then bump all version
    sources to the next `-dev` version in a separate commit.
+5. Push the commits and version tag. Publish only Git tags; do not create GitHub
+   Release entries, drafts, release notes, or release assets.
 
 The release tag must contain matching versions in the binary, bundled Neovim
 plugin, and tree-sitter package. Do not move or delete an existing release tag;
