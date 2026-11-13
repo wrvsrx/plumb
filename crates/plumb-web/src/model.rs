@@ -2982,6 +2982,114 @@ mod tests {
     }
 
     #[test]
+    fn web_cel_tags_use_current_direct_owner_facts_and_preserve_snapshots() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("a.plumb");
+        let source = concat!(
+            "`= title Project\n`+ task\n`= tags project/xxx\n",
+            "`- Parent\n `+ task\n `@ parent\n",
+            " `- Child\n  `+ task\n  `@ child\n  `= tags selected\n",
+            "See `->{missing.plumb}.\n",
+        );
+        std::fs::write(&path, source).unwrap();
+        std::fs::write(
+            root.join("b.plumb"),
+            "`= title Other\n`- Block\n `= tags project/xxx\n",
+        )
+        .unwrap();
+        let mut workspace = WebWorkspace::load(&root).unwrap();
+        let graph_query = WebQuery {
+            filters: vec!["tags.contains('project/xxx')".into()],
+            ..WebQuery::default()
+        };
+        let graph = workspace.query_graph(&graph_query, None).unwrap();
+        assert_eq!(
+            graph
+                .nodes
+                .iter()
+                .map(|n| n.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Project"]
+        );
+        let empty = workspace
+            .query_graph(
+                &WebQuery {
+                    filters: vec!["tags == []".into()],
+                    ..WebQuery::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert!(empty.nodes.iter().any(|n| n.title == "Other"));
+        assert!(empty.nodes.iter().any(|n| n.unresolved));
+        assert!(empty.nodes.iter().all(|n| n.title != "Project"));
+        let excluded = workspace
+            .query_graph(&WebQuery::default(), Some("'project/xxx' in tags"))
+            .unwrap();
+        assert!(excluded.nodes.iter().all(|n| n.title != "Project"));
+        let tasks = workspace
+            .query_tasks(&WebQuery {
+                filters: vec!["tags.contains('selected')".into()],
+                presets: vec!["ready".into()],
+                ..WebQuery::default()
+            })
+            .unwrap();
+        assert_eq!(
+            tasks
+                .tasks
+                .iter()
+                .filter(|t| t.matched)
+                .map(|t| t.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Child"]
+        );
+        assert!(tasks
+            .tasks
+            .iter()
+            .any(|t| t.title == "Parent" && !t.matched));
+        assert!(tasks
+            .tasks
+            .iter()
+            .any(|t| t.title == "Project" && !t.matched));
+        let document = workspace.query_tasks(&graph_query).unwrap();
+        assert_eq!(
+            document
+                .tasks
+                .iter()
+                .map(|t| t.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Project"]
+        );
+        // Warm filters must not rescan tags or materialize source documents.
+        workspace.query_graph(&graph_query, None).unwrap();
+        assert_eq!(
+            workspace.workspace.tag_query_work(),
+            plumb_workspace::TagQueryWork::default()
+        );
+        assert!(workspace
+            .documents
+            .values()
+            .all(|doc| doc.materializations.load(Ordering::Relaxed) == 0));
+        let old = workspace.clone();
+        std::fs::write(&path, source.replace("project/xxx", "project/new")).unwrap();
+        workspace.refresh_document(&path, 2).unwrap();
+        assert!(workspace
+            .query_graph(&graph_query, None)
+            .unwrap()
+            .nodes
+            .is_empty());
+        assert_eq!(old.query_graph(&graph_query, None).unwrap().nodes.len(), 1);
+        assert!(workspace
+            .query_tasks(&graph_query)
+            .unwrap()
+            .tasks
+            .is_empty());
+        assert_eq!(old.query_tasks(&graph_query).unwrap().tasks.len(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn web_queries_compose_filters_and_preserve_task_subtrees() {
         let legacy: WebQuery = serde_json::from_str(r#"{"sort":"priority"}"#).unwrap();
         assert_eq!(legacy.sort, [QuerySort::Priority]);

@@ -202,6 +202,20 @@ impl WebWorkspace {
                 .map(|expression| compile_program_group(vec![expression]))
                 .collect::<Result<Vec<_>, _>>()?,
         );
+        let tags = if program_groups
+            .iter()
+            .flatten()
+            .any(|(_, program)| program.references().variables().contains(&"tags"))
+        {
+            let snapshot = self.workspace.owner_tag_snapshot().map_err(|error| QueryFailure {
+                source: "workspace".to_string(),
+                message: error.to_string(),
+            })?;
+            graph.complete &= snapshot.is_complete();
+            snapshot.value
+        } else {
+            plumb_workspace::OwnerTagSnapshot::default()
+        };
         let metrics = self.graph_metrics(&graph).map_err(|message| QueryFailure {
             source: "workspace".to_string(),
             message,
@@ -216,10 +230,12 @@ impl WebWorkspace {
                 continue;
             };
             let metric = metrics.get(&node.id).expect("every graph node has metrics");
+            let node_tags = self.document_path(&node.id)
+                .map_or(&[][..], |path| tags.tags(path, None));
             for group in &program_groups {
                 let mut matches = false;
                 for (source, program) in group {
-                    match graph_node_matches(program, &node, metric) {
+                    match graph_node_matches(program, &node, metric, node_tags) {
                         Ok(true) => matches = true,
                         Ok(false) => {}
                         Err(message) => {
@@ -446,8 +462,10 @@ fn graph_node_matches(
     program: &Program,
     node: &GraphNode,
     metric: &GraphMetric,
+    tags: &[String],
 ) -> Result<bool, String> {
     let mut context = Context::default();
+    context.add_variable_from_value("tags", tags.to_vec());
     context.add_variable_from_value(
         "path",
         node.path

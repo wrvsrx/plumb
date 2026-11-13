@@ -1161,6 +1161,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn web_cel_tags_http_queries_filter_graph_and_task_nodes() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("tasks.plumb"),
+            concat!(
+                "`= title Project\n`+ task\n`= tags project/xxx\n",
+                "`- Child\n `+ task\n `= tags selected\n",
+            ),
+        )
+        .unwrap();
+        let (changes, _) = broadcast::channel(2);
+        let app = router(AppState {
+            workspace: Arc::new(RwLock::new(Arc::new(WebWorkspace::load(&root).unwrap()))),
+            html_cache: Arc::new(Mutex::new(HashMap::new())),
+            changes,
+            current: None,
+            exclude: None,
+            allow_mutations: true,
+            public_origin: None,
+            listen_addr: "127.0.0.1:3000".parse().unwrap(),
+        });
+        for (view, expression, expected) in [
+            ("graph", "tags.contains(\"project/xxx\")", 1),
+            ("graph", "tags.contains(\"selected\")", 0),
+            ("tasks", "tags.contains(\"project/xxx\")", 1),
+            ("tasks", "tags.contains(\"missing\")", 0),
+        ] {
+            let body = json!({ "view": view, "filters": [expression], "presets": [] });
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post("/api/query")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{view}: {expression}");
+            let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            let items = if view == "graph" {
+                &value["graph"]["nodes"]
+            } else {
+                &value["tasks"]["tasks"]
+            };
+            assert_eq!(items.as_array().unwrap().len(), expected, "{value}");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn web_routes_restore_views_and_execute_structured_queries() {
         let root = temp_dir();
         std::fs::create_dir_all(&root).unwrap();
