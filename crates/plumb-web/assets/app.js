@@ -976,27 +976,96 @@ import {
       panel.querySelector('h1').textContent = node.title;
       return;
     }
-    panel.innerHTML = '<div class="note-empty"><p>Loading note...</p></div>';
-    try {
-      const response = await fetch(`${config.noteApiBase}${encodeURIComponent(node.id)}${config.noteApiSuffix}`, { cache: 'no-store' });
-      if (!response.ok) throw new Error(await response.text());
-      const note = await response.json();
-      panel.innerHTML = `
-        <article class="document">
-          <header class="document-header"><p class="document-path"></p><h1></h1></header>
-          <div class="note-actions"><a class="command full-note">Open full note</a><button class="local-note" type="button">Show local graph</button></div>
-          <div class="note-content"></div>
-        </article>`;
-      panel.querySelector('.document-path').textContent = note.path;
-      panel.querySelector('h1').textContent = note.title;
-      panel.querySelector('.note-content').innerHTML = note.html;
-      panel.querySelector('.full-note').href = `${config.notePageBase}${encodeURIComponent(node.id)}${config.notePageSuffix}`;
-      panel.querySelector('.local-note').addEventListener('click', () => { setLocal(true); });
-      scrollPreviewToFragment(fragment);
-    } catch (error) {
-      panel.innerHTML = '<div class="note-empty"><h1>Cannot render note</h1><p></p></div>';
-      panel.querySelector('p').textContent = String(error);
+    renderNodeDetail(panel, { documentId: node.id, title: node.title }, { fragment });
+  }
+
+  // A DOM generation is the request's owner. Replacing the detail or opening a
+  // form detaches it, so a late response cannot overwrite the new selection.
+  function renderNodeDetail(host, node, { task = null, event = null, fragment = '' } = {}) {
+    host.innerHTML = `
+      <article class="document node-detail">
+        <header class="document-header"><p class="document-path"></p><h1></h1></header>
+        <div class="node-facets"></div>
+        <div class="note-actions"><a class="command full-note">Open full note</a><button class="local-note" type="button">Show local graph</button></div>
+        <div class="note-content" aria-busy="true"><p>Loading content...</p></div>
+      </article>`;
+    const article = host.querySelector('article');
+    const title = host.querySelector('h1');
+    const path = host.querySelector('.document-path');
+    const content = host.querySelector('.note-content');
+    const facets = host.querySelector('.node-facets');
+    title.textContent = node.title || '(untitled)';
+    path.textContent = node.id ? `${node.path}#${node.id}` : (node.path || '');
+    host.querySelector('.full-note').href = `${config.notePageBase}${encodeURIComponent(node.documentId)}${config.notePageSuffix}${node.id ? `#${encodeURIComponent(node.id)}` : fragment}`;
+    host.querySelector('.local-note').addEventListener('click', () => {
+      showView('graph', { historyMode: 'push', load: false });
+      state.current = node.documentId;
+      setLocal(true).then(() => selectDocument(node.documentId, ''));
+    });
+    const decorate = (task, event) => {
+      facets.replaceChildren();
+      article.dataset.facet = task ? 'task' : event ? 'event' : '';
+      article.classList.toggle('task-detail', Boolean(task));
+      article.classList.toggle('event-detail', Boolean(event));
+      if (task) renderTaskFacet(task, facets);
+      else if (event) renderEventFacet(event, facets);
+      facets.hidden = !task && !event;
+    };
+    decorate(task, event);
+    const query = new URLSearchParams();
+    if (node.revision !== undefined) query.set('revision', node.revision);
+    if (task?.locator.kind === 'id') query.set('taskId', task.locator.id);
+    else if (task?.locator.kind === 'offset') query.set('start', task.locator.offset);
+    else if (event) query.set('start', event.locator.start);
+    fetch(`${config.nodeApiBase}${encodeURIComponent(node.documentId)}?${query}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      })
+      .then((detail) => {
+        if (!host.contains(content)) return;
+        const template = document.createElement('template');
+        template.innerHTML = detail.html;
+        const richTitle = template.content.querySelector('.node-title');
+        title.textContent = detail.title || '(untitled)';
+        if (richTitle && (richTitle.textContent.trim() || richTitle.querySelector('*'))) title.innerHTML = richTitle.innerHTML.trim();
+        richTitle?.remove();
+        const body = template.content.querySelector('.node-body');
+        if (body) body.replaceWith(...body.childNodes);
+        content.replaceChildren(template.content);
+        content.removeAttribute('aria-busy');
+        path.textContent = node.id ? `${detail.path}#${node.id}` : detail.path;
+        if (!task && !event) decorate(detail.task, detail.event);
+        renderChildTaskNavigation(facets, detail.children || []);
+        if (host === panel) scrollPreviewToFragment(fragment);
+      })
+      .catch((error) => {
+        if (!host.contains(content)) return;
+        content.removeAttribute('aria-busy');
+        content.replaceChildren();
+        const message = document.createElement('p');
+        message.className = 'node-content-error';
+        message.setAttribute('role', 'alert');
+        message.textContent = `Cannot render content: ${error.message || error}`;
+        content.append(message);
+      });
+  }
+
+  async function runTaskAction(task, action) {
+    if (state.view !== 'tasks' || !taskByKey(state.tasks, task.key)) {
+      state.tasks = { ...state.tasks, tasks: (state.tasks?.tasks || []).filter((candidate) => candidate.key !== task.key), selectedTask: task };
+      state.selectedTask = task.key;
+      state.taskDetailHidden = false;
+      showView('tasks', { historyMode: 'push', load: false });
+      await loadTasks();
+      const current = taskByKey(state.tasks, task.key);
+      if (!current || state.selectedTask !== task.key) {
+        notify('Task unavailable. Refresh the view.', true);
+        return;
+      }
+      task = current;
     }
+    return action(taskByKey(state.tasks, task.key) || task);
   }
 
   async function selectDocument(documentId, fragment, history = 'replace') {
@@ -1328,21 +1397,20 @@ import {
 
   function renderEventDetail(event) {
     state.detailForms.agenda = false;
+    renderNodeDetail(eventPanel, event, { event });
+    syncDetail();
+  }
+
+  function renderEventFacet(event, eventPanel) {
     eventPanel.innerHTML = `
-      <article class="event-detail">
-        <header><p class="document-path"></p><h1></h1></header>
         <div class="task-actions"><button class="edit-event" type="button">Edit</button><button class="delete-event" type="button">Delete</button><button class="new-event" type="button">New event</button></div>
         <dl class="task-fields"></dl>
-        <p class="event-details"></p>
-      </article>`;
-    eventPanel.querySelector('.document-path').textContent = event.path;
-    eventPanel.querySelector('h1').textContent = event.title || '(untitled event)';
+`;
     const fields = eventPanel.querySelector('.task-fields');
     addTaskField(fields, 'At', event.at);
     addTaskField(fields, 'Start', event.start);
     addTaskField(fields, 'End', event.end || (event.start ? 'Running' : null));
     addTaskField(fields, 'Tasks', event.tasks);
-    eventPanel.querySelector('.event-details').textContent = event.details;
     eventPanel.querySelector('.edit-event').disabled = !config.eventMutations || state.pendingEvent;
     eventPanel.querySelector('.delete-event').disabled = !config.eventMutations || state.pendingEvent;
     eventPanel.querySelector('.new-event').disabled = !config.eventMutations || !state.events.documents.length;
@@ -1638,7 +1706,7 @@ import {
       ? 'Mark this task as in flight'
       : 'End the current focus span';
     button.disabled = taskMutationBlocked(task, action);
-    button.addEventListener('click', () => mutateFocus(task, action));
+    button.addEventListener('click', () => runTaskAction(task, (current) => mutateFocus(current, action)));
     return button;
   }
 
@@ -1673,7 +1741,7 @@ import {
 
   // Expandable interval history. The document stays authoritative: this only
   // projects the intervals the server returned and never rewrites them.
-  function renderFocusHistory(task) {
+  function renderFocusHistory(task, taskPanel) {
     const rows = focusHistory(task);
     if (rows.length === 0) return;
     const section = taskPanel.querySelector('.task-focus-history');
@@ -1713,13 +1781,13 @@ import {
         now,
       ) || 'focused';
     });
-    taskPanel.querySelectorAll('[data-focus-since]').forEach((element) => {
+    document.querySelectorAll('.node-detail [data-focus-since]').forEach((element) => {
       element.textContent = focusBadge(
         { focused: true, focusedSince: element.dataset.focusSince },
         now,
       ) || 'focused';
     });
-    taskPanel.querySelectorAll('[data-focus-open-start]').forEach((element) => {
+    document.querySelectorAll('.node-detail [data-focus-open-start]').forEach((element) => {
       const age = focusAge(element.dataset.focusOpenStart, now);
       element.textContent = age === null ? '—' : (age.future ? 'future start' : (age.label || 'just now'));
     });
@@ -1778,7 +1846,6 @@ import {
     state.selectedTask = task.key;
     updateUrl(history);
     renderTasks();
-    renderTaskDetail(task);
     syncDetail();
     if (navigate) {
       const row = Array.from(taskList.querySelectorAll('[data-task-key]'))
@@ -1831,7 +1898,7 @@ import {
       button.dataset.property = property;
       button.textContent = Array.isArray(value) ? value.join(', ') : value;
       button.title = `Edit ${label}`;
-      button.addEventListener('click', () => renderTaskPropertyEditor(task, property));
+      button.addEventListener('click', () => runTaskAction(task, (current) => renderTaskPropertyEditor(current, property)));
       detail.append(button);
     } else {
       detail.textContent = Array.isArray(value) ? value.join(', ') : value;
@@ -1868,25 +1935,25 @@ import {
 
   function renderTaskDetail(task) {
     state.detailForms.tasks = false;
+    renderNodeDetail(taskPanel, task, { task });
+  }
+
+  function renderTaskFacet(task, taskPanel) {
     const pending = state.pendingTask === task.key;
     taskPanel.innerHTML = `
-      <article class="task-detail">
-        <header><p class="document-path"></p><h1></h1><span class="task-detail-state"></span></header>
+      <span class="task-detail-state"></span>
         <div class="task-actions"><button class="complete-task" type="button">Complete</button><button class="cancel-task" type="button">Cancel</button><button class="focus-task" type="button">Focus</button><button class="edit-task" type="button">Edit</button><button class="jump-task" type="button">Jump to task</button><button class="open-note" type="button">Open note</button></div>
         <p class="task-mutation-error" role="alert" hidden></p>
         <dl class="task-fields"></dl>
         <section class="task-focus-history" hidden><h2>Focus history</h2><div></div></section>
         <div class="task-property-actions"><button class="add-task-property" type="button">Add property</button><select class="task-property-picker" aria-label="Property to add" hidden></select></div>
-        <section class="task-children" hidden><h2>Child tasks</h2><div></div></section>
-      </article>`;
-    taskPanel.querySelector('.document-path').textContent = task.id ? `${task.path}#${task.id}` : task.path;
-    taskPanel.querySelector('h1').textContent = task.title || '(untitled task)';
+`;
     if (task.locator.kind === 'document') {
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.textContent = 'Remove task facet';
       remove.disabled = pending;
-      remove.addEventListener('click', () => mutateDocumentTask(task.documentId, task.revision, false));
+      remove.addEventListener('click', () => runTaskAction(task, (current) => mutateDocumentTask(current.documentId, current.revision, false)));
       taskPanel.querySelector('.task-actions').append(remove);
     }
 
@@ -1911,18 +1978,18 @@ import {
     addTaskField(fields, 'Previous task', task.prev, { editable: true, property: 'prev', task });
     addTaskField(fields, 'Dependencies', task.depends, { editable: true, property: 'depends', task });
     addTaskField(fields, 'Waiting for', task.waitReasons);
-    renderFocusHistory(task);
+    renderFocusHistory(task, taskPanel);
     const mutable = Boolean(config.taskMutations && task.locator && ['ready', 'waiting'].includes(task.state));
     taskPanel.querySelector('.complete-task').disabled = !mutable || task.blocked || pending;
     taskPanel.querySelector('.cancel-task').disabled = !mutable || pending;
     taskPanel.querySelector('.edit-task').disabled = !config.taskMutations || pending;
     const focusToggle = focusToggleButton(task, 'focus-task');
     taskPanel.querySelector('.focus-task').replaceWith(focusToggle);
-    taskPanel.querySelector('.complete-task').addEventListener('click', () => updateTask(task, 'complete'));
-    taskPanel.querySelector('.cancel-task').addEventListener('click', () => updateTask(task, 'cancel'));
-    taskPanel.querySelector('.edit-task').addEventListener('click', () => renderTaskForm(task));
+    taskPanel.querySelector('.complete-task').addEventListener('click', () => runTaskAction(task, (current) => updateTask(current, 'complete')));
+    taskPanel.querySelector('.cancel-task').addEventListener('click', () => runTaskAction(task, (current) => updateTask(current, 'cancel')));
+    taskPanel.querySelector('.edit-task').addEventListener('click', () => runTaskAction(task, renderTaskForm));
     const jump = taskPanel.querySelector('.jump-task');
-    const canJump = taskJumpAvailable(task);
+    const canJump = state.view !== 'tasks' || taskJumpAvailable(task);
     jump.setAttribute('aria-disabled', String(!canJump));
     if (!canJump) {
       const reason = document.createElement('p');
@@ -1933,7 +2000,7 @@ import {
       jump.setAttribute('aria-describedby', reason.id);
       taskPanel.querySelector('.task-actions').after(reason);
     }
-    jump.addEventListener('click', () => { void jumpToTask(task); });
+    jump.addEventListener('click', () => { void runTaskAction(task, jumpToTask); });
     taskPanel.querySelector('.open-note').addEventListener('click', () => {
       showView('graph', { historyMode: 'push' });
       selectDocument(task.documentId, '', state.narrow ? 'push' : 'replace');
@@ -1948,27 +2015,35 @@ import {
       addProperty.hidden = true;
       propertyPicker.focus();
     });
-    propertyPicker.addEventListener('change', () => renderTaskPropertyEditor(task, propertyPicker.value));
+    propertyPicker.addEventListener('change', () => runTaskAction(task, (current) => renderTaskPropertyEditor(current, propertyPicker.value)));
     propertyPicker.addEventListener('blur', () => {
       if (!propertyPicker.value) {
         propertyPicker.hidden = true;
         addProperty.hidden = false;
       }
     });
-    const children = state.tasks.tasks
-      .filter((candidate) => candidate.parentKey === task.key);
-    if (children.length) {
-      const section = taskPanel.querySelector('.task-children');
-      const list = section.querySelector('div');
-      section.hidden = false;
-      children.forEach((child) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = `${taskStateLabel(child)}  ${child.title || '(untitled task)'}`;
-        button.addEventListener('click', () => selectTask(child, { history: state.narrow ? 'push' : 'replace', navigate: true }));
-        list.append(button);
-      });
-    }
+    renderChildTaskNavigation(taskPanel, (state.tasks?.tasks || []).filter((child) => child.parentKey === task.key));
+  }
+
+  function renderChildTaskNavigation(host, children) {
+    host.querySelector('.task-children')?.remove();
+    if (!children.length) return;
+    const section = document.createElement('section');
+    section.className = 'task-children';
+    const title = document.createElement('h2');
+    title.textContent = 'Child tasks';
+    const list = document.createElement('div');
+    children.forEach((child) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = child.title || '(untitled task)';
+      button.addEventListener('click', () => runTaskAction(child, (current) => {
+        selectTask(current, { history: state.narrow ? 'push' : 'replace', navigate: true });
+      }));
+      list.append(button);
+    });
+    section.append(title, list);
+    host.append(section);
   }
 
   function taskReferenceByIdentity(identity) {
@@ -2451,11 +2526,12 @@ import {
   globalMode.addEventListener('click', () => setLocal(false));
   localMode.addEventListener('click', () => setLocal(true));
   document.getElementById('fit').addEventListener('click', fitVisibleGraph);
-  panel.addEventListener('click', (event) => {
+  document.addEventListener('click', (event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const link = event.target.closest('.note-content a[data-plumb-document]');
+    const link = event.target.closest('.node-detail a[data-plumb-document]');
     if (!link || link.download || (link.target && link.target !== '_self')) return;
     event.preventDefault();
+    showView('graph', { historyMode: 'push', load: false });
     selectDocument(link.dataset.plumbDocument, new URL(link.href, location.href).hash, state.narrow ? 'push' : 'replace');
   });
 
@@ -2465,7 +2541,7 @@ import {
   }
   // Focus ages tick in place; nothing is written to any document.
   setInterval(() => {
-    if (state.view === 'tasks') updateFocusDurations();
+    if (state.view === 'tasks' || state.view === 'graph') updateFocusDurations();
   }, 30000);
   window.addEventListener('popstate', () => {
     readUrlState();

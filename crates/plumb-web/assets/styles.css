@@ -300,9 +300,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .event-row.selected { background: var(--selected); box-shadow: inset 3px 0 var(--teal); }
 .event-row time { color: var(--teal); font-size: 12px; font-weight: 700; }
 .event-panel { min-height: 0; grid-column: 2; grid-row: 2; overflow: auto; border-left: 1px solid var(--border); background: var(--paper); padding: 24px; }
-.event-detail header { border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
-.event-detail h1, .event-form h1 { font-size: 25px; line-height: 1.2; margin: 0 0 12px; overflow-wrap: anywhere; }
-.event-details { white-space: pre-wrap; overflow-wrap: anywhere; }
+.event-form h1 { font-size: 25px; line-height: 1.2; margin: 0 0 12px; overflow-wrap: anywhere; }
 .event-form { display: grid; gap: 14px; }
 .event-form label { display: grid; gap: 5px; color: var(--muted); font-size: 13px; }
 .event-form [hidden] { display: none; }
@@ -315,8 +313,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-form select[multiple] { min-height: 132px; }
 .task-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .field-error, .form-error { min-height: 18px; margin: 0; color: var(--red); font-size: 12px; }
-.task-detail header { border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
-.task-detail h1 { font-size: 25px; line-height: 1.2; margin: 0 0 12px; overflow-wrap: anywhere; }
 .task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 24px; }
 .task-actions button:disabled { cursor: not-allowed; opacity: .48; }
 .task-fields { display: grid; grid-template-columns: 110px minmax(0, 1fr); margin: 0; border-top: 1px solid var(--border); }
@@ -530,3 +526,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 .jump-task[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
 .task-jump-reason { color: var(--muted); font-size: 13px; }
+
+/* Every view uses the same detail regions; facet controls precede content. */
+.node-facets { margin-bottom: 24px; }
+.node-detail .note-content { overflow-wrap: anywhere; }
+.node-content-error { color: var(--red); }
+.node-detail .note-content img, .node-detail .note-content video { max-width: 100%; }

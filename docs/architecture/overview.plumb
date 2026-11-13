@@ -216,5 +216,3 @@
   切换节点、进入编辑或刷新后到达的旧响应不能覆盖当前详情。外部 revision 按既有可见 view refresh
   重新读取详情；不增加跨文档缓存或全库扫描。Graph 的 task 操作进入 Tasks 中同一任务的编辑上下文，
   不以当前列表 selection 替代被点击任务的 identity。
-
- 本节 Web integration 为待实现 contract；共享 exporter 已提供节点标题与正文投影。

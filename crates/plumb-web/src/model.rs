@@ -32,6 +32,7 @@ pub struct RetainedFocusTask {
     pub source: String,
 }
 
+pub(crate) mod detail;
 mod mutations;
 mod query;
 
@@ -1960,6 +1961,158 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
+
+    #[test]
+    fn node_detail_is_scoped_rich_revision_guarded_and_document_local() {
+        use super::detail::DetailQuery;
+        use std::sync::atomic::Ordering;
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let source = "`+ task\n`= title Project\n`= date 2026-11-13\n`= timezone +08:00\n\nDocument body.\n\n`- Rich `!{task}\n `+ task\n `@ target\n `= priority 3\n\n Own `*{body} with `->{other other.plumb} and `->{image image.svg `+{embed}}.\n `- Child\n  `+ task\n  `@ child\n\n`- 10:00--11:00 `!{Meeting}\n `+ event\n `@ meeting\n\n Event `*{details}.\n\n`- Anonymous\n `+ task\n\n Anonymous body.\n";
+        let path = root.join("project.plumb");
+        std::fs::write(&path, source).unwrap();
+        std::fs::write(root.join("other.plumb"), "Other document.").unwrap();
+        std::fs::write(
+            root.join("image.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        for n in 0..30 {
+            std::fs::write(root.join(format!("unrelated-{n}.plumb")), "Unrelated.").unwrap();
+        }
+        let workspace = WebWorkspace::load_with_revision(&root, 1).unwrap();
+        let id = workspace.document_id(&path).unwrap();
+        let revision = workspace.documents[&path].revision.to_string();
+        let query = DetailQuery {
+            task_id: Some("target".into()),
+            revision: Some(revision.clone()),
+            ..Default::default()
+        };
+        for count in 1..=2 {
+            let detail = workspace.node_detail(id, &query).unwrap();
+            let html = detail["html"].as_str().unwrap();
+            assert!(
+                html.contains("<strong>task</strong>") && html.contains("<em>body</em>"),
+                "{html}"
+            );
+            assert!(
+                html.contains("data-plumb-document=") && html.contains("<img"),
+                "{html}"
+            );
+            assert!(
+                !html.contains("Document body")
+                    && !html.contains("Meeting")
+                    && !html.contains("Anonymous")
+            );
+            assert_eq!(detail["task"]["priority"], 3);
+            assert_eq!(detail["children"][0]["title"], "Child");
+            assert!(detail["event"].is_null());
+            assert_eq!(
+                workspace.documents[&path]
+                    .materializations
+                    .load(Ordering::Relaxed),
+                count
+            );
+            assert!(workspace
+                .documents
+                .iter()
+                .filter(|(p, _)| **p != path)
+                .all(|(_, doc)| doc.materializations.load(Ordering::Relaxed) == 0));
+        }
+        let event = workspace
+            .workspace
+            .document_events(&path)
+            .unwrap()
+            .value
+            .remove(0);
+        let event = workspace
+            .node_detail(
+                id,
+                &DetailQuery {
+                    start: Some(event.range.start),
+                    revision: Some(revision.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let html = event["html"].as_str().unwrap();
+        assert!(
+            html.contains("<strong>Meeting</strong>") && html.contains("<em>details</em>"),
+            "{html}"
+        );
+        assert!(!html.contains("10:00") && !html.contains("Document body"));
+        assert!(event["task"].is_null());
+        assert_eq!(event["event"]["start"], "2026-11-13T10:00:00+08:00");
+        let anonymous = workspace
+            .workspace
+            .document_tasks(&path)
+            .unwrap()
+            .value
+            .into_iter()
+            .find(|task| task.title == "Anonymous")
+            .unwrap();
+        let anonymous = workspace
+            .node_detail(
+                id,
+                &DetailQuery {
+                    start: Some(anonymous.source_key()),
+                    revision: Some(revision.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(anonymous["html"]
+            .as_str()
+            .unwrap()
+            .contains("Anonymous body"));
+        let document = workspace.node_detail(id, &DetailQuery::default()).unwrap();
+        assert_eq!(document["task"]["locator"]["kind"], "document");
+        assert!(document["html"].as_str().unwrap().contains("Document body"));
+        let ordinary = workspace
+            .node_detail(
+                workspace.document_id(root.join("other.plumb")).unwrap(),
+                &DetailQuery::default(),
+            )
+            .unwrap();
+        assert!(ordinary["task"].is_null() && ordinary["event"].is_null());
+        assert!(workspace
+            .node_detail(
+                id,
+                &DetailQuery {
+                    start: Some(0),
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert!(workspace
+            .node_detail(
+                id,
+                &DetailQuery {
+                    revision: Some("stale".into()),
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert!(workspace
+            .node_detail(
+                id,
+                &DetailQuery {
+                    start: Some(usize::MAX),
+                    revision: Some(revision),
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        // A newer source cannot alter an in-flight immutable snapshot.
+        std::fs::write(&path, "Changed entirely.").unwrap();
+        let newer = WebWorkspace::load_with_revision(&root, 2).unwrap();
+        assert!(newer.node_detail(id, &query).is_err());
+        assert!(workspace.node_detail(id, &query).unwrap()["html"]
+            .as_str()
+            .unwrap()
+            .contains("<em>body</em>"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn watcher_reload_reuses_duration_graph_and_reads_only_new_generations() {

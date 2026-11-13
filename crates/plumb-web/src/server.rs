@@ -187,6 +187,7 @@ fn router(state: AppState) -> Router {
         .route("/api/events", get(event_snapshot))
         .route("/api/event/{document_id}/{action}", post(update_event))
         .route("/api/note/{id}", get(note_api))
+        .route("/api/node/{id}", get(node_detail))
         .route("/note/{id}", get(note_page))
         .route("/resource/{id}/{name}", get(resource))
         .route("/events", get(events))
@@ -230,6 +231,7 @@ async fn index(State(state): State<AppState>) -> Response {
         "tasksRoute": "/tasks",
         "agendaRoute": "/agenda",
         "noteApiBase": "/api/note/",
+        "nodeApiBase": "/api/node/",
         "noteApiSuffix": "",
         "notePageBase": "/note/",
         "notePageSuffix": "",
@@ -636,6 +638,22 @@ fn parse_graph_query(raw: &str) -> Result<GraphQuery, String> {
         }
     }
     Ok(query)
+}
+
+async fn node_detail(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+    AxumQuery(query): AxumQuery<crate::model::detail::DetailQuery>,
+) -> Response {
+    let workspace = state.workspace.read().await.clone();
+    if workspace.document_path(&id).is_none() {
+        return (StatusCode::NOT_FOUND, "unknown document").into_response();
+    }
+    match tokio::task::spawn_blocking(move || workspace.node_detail(&id, &query)).await {
+        Ok(Ok(detail)) => Json(detail).into_response(),
+        Ok(Err(error)) => (StatusCode::CONFLICT, error).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
 }
 
 async fn note_api(State(state): State<AppState>, AxumPath(id): AxumPath<String>) -> Response {

@@ -101,7 +101,7 @@ impl WebWorkspace {
         })
     }
 
-    fn web_task(
+    pub(super) fn web_task(
         &self,
         item: WorkspaceTask,
         durations: &plumb_workspace::TaskDurationTotals,

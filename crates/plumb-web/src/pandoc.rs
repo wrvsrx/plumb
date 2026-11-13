@@ -13,6 +13,15 @@ pub fn render_note_html(workspace: &WebWorkspace, document_id: &str) -> Result<S
         .ok_or_else(|| format!("unknown document id '{document_id}'"))?;
     let mut document = workspace.pandoc_document(document_id)?;
     let bibliography = workspace.bibliography(document_id)?;
+    render_document_html(workspace, source_path, &mut document, &bibliography)
+}
+
+pub(crate) fn render_document_html(
+    workspace: &WebWorkspace,
+    source_path: &Path,
+    document: &mut Value,
+    bibliography: &plumb_workspace::Bibliography,
+) -> Result<String, String> {
     if bibliography.declared && bibliography.sources.is_empty() {
         let message = bibliography
             .diagnostics
@@ -21,8 +30,8 @@ pub fn render_note_html(workspace: &WebWorkspace, document_id: &str) -> Result<S
             .unwrap_or("no valid bibliography source");
         return Err(format!("cannot render citations: {message}"));
     }
-    project_bibliography_paths(&mut document, &bibliography.sources);
-    adapt_pandoc_targets(workspace, source_path, &mut document)?;
+    project_bibliography_paths(document, &bibliography.sources);
+    adapt_pandoc_targets(workspace, source_path, document)?;
     let input = serde_json::to_vec(&document)
         .map_err(|error| format!("cannot encode Pandoc document: {error}"))?;
     let mut child = Command::new("pandoc")
