@@ -92,7 +92,8 @@ try {
     for (const [source, expected] of [
       [event.replace('--11:00', '--12:30'), '2h 30m'],
       [event.replace('--11:00', '--'), '0s'],
-      [event.replace('#a', '#missing'), 'Unavailable (incomplete)'],
+      [event, '1h'],
+      [event.replace('#a', '#missing'), '0s'],
       [event, '1h'],
     ]) {
       await writeFile(day, source);
@@ -101,7 +102,7 @@ try {
     }
     assert.equal(await evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth'), false);
   }
-  console.log('Task duration browser checks passed: desktop/mobile, zero, focus separation, watcher refresh, ongoing and incomplete accounting.');
+  console.log('Task duration browser checks passed: desktop/mobile, zero, focus separation, watcher refresh, ongoing and invalid-event exclusion.');
 } finally {
   socket?.close();
   for (const child of children.reverse()) {
