@@ -536,3 +536,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .node-breadcrumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .node-breadcrumbs button { color: inherit; font: inherit; background: none; border: 0; padding: 2px 0; text-align: left; overflow-wrap: anywhere; min-width: 0; cursor: pointer; }
 .node-breadcrumbs button:hover { text-decoration: underline; }
+
+.task-document-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px; }
+.task-context-segment { border: 0; background: transparent; color: inherit; font: inherit; padding: 2px 0; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.task-context-segment:hover { text-decoration: underline; }
+
+.task-context-segment[aria-current="true"] { color: var(--teal); text-decoration: underline; }

@@ -45,6 +45,8 @@ async function until(check, message) {
 try {
   await writeFile(join(root, 'project.plumb'), '`+ task\n`= title Project\n`= date 2026-11-13\n`= timezone +08:00\n\nDocument body.\n\n`- Rich `!{task}\n `+ task\n `@ target\n `= priority 3\n\n Own `*{body} with `->{other other.plumb} and `->{image image.svg `+{embed}}.\n `- Child\n  `+ task\n  `@ child\n\n  Child body.\n\n`- Sibling\n `+ task\n `@ sibling\n\n Sibling body.\n\n`- 10:00--11:00 `!{Meeting}\n `+ event\n `@ meeting\n\n Event `*{details}.\n');
   await writeFile(join(root, 'hierarchy.plumb'), '`= title Notebook\n\n`# Earlier\n\n`- Top `!{section}\n `()\n  `- Nested\n   `- Nested task\n    `+ task\n    `@ nested\n\n    Nested body.\n');
+  await writeFile(join(root, 'jobs.plumb'), '`= title 找工作\n\n`- 国内\n `- 字节\n  `- 约面试情况确认\n   `+ task\n   `@ interview\n  `- 准备面试\n   `+ task\n   `@ prepare\n `- 腾讯\n  `- 跟进招聘\n   `+ task\n   `@ followup\n`- Empty branch\n');
+  await writeFile(join(root, 'event-parent.plumb'), '`= title Event context\n\n`- 2026-11-13T12:00:00Z Context event\n `+ event\n `@ context-event\n `- Follow up meeting\n  `+ task\n  `@ event-child\n');
   await writeFile(join(root, 'other.plumb'), '`= title Ordinary\n\nOther `!{document}.\n');
   await writeFile(join(root, 'image.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20"/></svg>');
   start(process.env.PLUMB_E2E_BINARY || fileURLToPath(new URL('../../../target/debug/plumb', import.meta.url)),
@@ -95,6 +97,28 @@ try {
   };
   for (const width of [1280, 390]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+    await navigate(`${base}/tasks?q=${encodeURIComponent('面试')}`);
+    await until(() => evaluate(`document.querySelectorAll('.task-list-item').length === 2`), 'filtered interview tasks missing');
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('.task-context-segment')].map(b => b.textContent)`), ['找工作', '国内', '字节']);
+    await evaluate(`document.querySelector('.task-document-group .task-disclosure').click()`);
+    assert.equal(await evaluate(`document.querySelectorAll('.task-list-item').length`), 0);
+    await evaluate(`document.querySelector('.task-document-group .task-disclosure').click()`);
+    assert.equal(await evaluate(`document.querySelectorAll('.task-list-item').length`), 2);
+    await evaluate(`[...document.querySelectorAll('.task-context-segment')].find(b => b.textContent === '字节').click()`);
+    await until(() => evaluate(`document.querySelector('#task-panel h1')?.textContent === '字节' && !document.querySelector('#task-panel [aria-busy]')`), 'company detail missing');
+    const contextUrl = await evaluate('location.href');
+    await navigate(contextUrl);
+    await until(() => evaluate(`document.querySelector('#task-panel h1')?.textContent === '字节' && !document.querySelector('#task-panel [aria-busy]')`), 'context URL did not restore');
+    await navigate(`${base}/tasks`);
+    await until(() => evaluate(`Boolean([...document.querySelectorAll('.task-context-segment')].find(b => b.textContent === '腾讯'))`), 'branching context missing');
+    const jobsShape = await evaluate(`[...document.querySelectorAll('.task-document-path')].filter(p => ['找工作', '字节', '腾讯'].some(t => p.textContent.includes(t))).map(p => p.textContent)`);
+    assert.deepEqual(jobsShape, ['找工作 / 国内', '字节', '腾讯']);
+    const eventContext = await evaluate(`[...document.querySelectorAll('.task-context-segment')].find(b => b.textContent.includes('Context event'))?.textContent`);
+    assert.ok(eventContext);
+    await evaluate(`[...document.querySelectorAll('.task-context-segment')].find(b => b.textContent.includes('Context event')).click()`);
+    await until(() => evaluate(`document.querySelector('#task-panel h1')?.textContent === 'Context event' && Boolean(document.querySelector('#task-panel .edit-event'))`), 'event ancestor detail missing');
+    await evaluate(`document.querySelector('#task-panel .edit-event').click()`);
+    await until(() => evaluate(`location.pathname === '/agenda' && Boolean(document.querySelector('#event-panel .event-form'))`), 'event ancestor edit did not enter agenda');
     await navigate(`${base}/graph?current=${ordinary}`);
     await until(() => loaded('#note-panel'), 'ordinary document missing');
     assert.equal(await evaluate(`document.querySelector('#note-panel .node-detail').dataset.facet`), '');
@@ -104,12 +128,15 @@ try {
     const graphBody = await evaluate(`document.querySelector('#note-panel .note-content').innerHTML`);
     const graphFields = await evaluate(`document.querySelector('#note-panel .task-fields').textContent`);
     await navigate(`${base}/tasks`);
+    await until(() => evaluate(`Boolean([...document.querySelectorAll('.task-context-segment')].find(b => b.textContent === 'Nested'))`), 'compact context missing');
+    await evaluate(`[...document.querySelectorAll('.task-context-segment')].find(b => b.textContent === 'Nested').click()`);
+    await until(() => evaluate(`document.querySelector('#task-panel h1')?.textContent === 'Nested' && !document.querySelector('#task-panel [aria-busy]')`), 'context node detail missing');
+    assert.equal(await evaluate(`new URLSearchParams(location.search).has('contextStart')`), true);
     await select('Nested task');
     await until(() => loaded('#task-panel'), 'nested content missing');
     assert.deepEqual(await evaluate(`[...document.querySelectorAll('#task-panel .node-breadcrumbs button')].map(b => b.textContent)`), ['Notebook', 'Top section', 'Nested']);
-    assert.equal(await evaluate(`(${row})('Nested task').querySelector('.task-ancestry').textContent`), 'Notebook / Top section / Nested');
-    assert.equal(await evaluate(`(${row})('Nested task').querySelector('.task-ancestry').title`), 'Notebook / Top section / Nested');
-    assert.equal(await evaluate(`(() => { const row = (${row})('Nested task'); return row.querySelector('.task-ancestry').getBoundingClientRect().bottom <= row.querySelector('strong').getBoundingClientRect().top; })()`), true);
+    assert.equal(await evaluate(`(${row})('Nested task').querySelector('.task-ancestry') === null`), true);
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('.task-document-group')].find(r => r.textContent.includes('Notebook')).querySelector('.task-document-path').textContent.split(' / ')`), ['Notebook', 'Top section', 'Nested']);
     assert.equal(await evaluate(`document.querySelector('#task-panel .task-fields').textContent.includes('nested')`), true);
     await evaluate(`Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: async text => { window.copiedId = text; }}}); [...document.querySelectorAll('#task-panel button')].find(b => b.textContent === 'Copy ID').click()`);
     await until(() => evaluate(`window.copiedId === 'nested'`), 'copy ID missing');

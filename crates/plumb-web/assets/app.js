@@ -77,11 +77,12 @@ import {
     view: initialView,
     tasks: null,
     selectedTask: null,
+    taskContext: null,
     taskDetailHidden: false,
     taskLoadRevision: 0,
     taskNavigation: null,
     taskScope: null,
-    collapsed: { documents: new Set(), tasks: new Set(), expandedGroups: new Set() },
+    collapsed: { contexts: new Set(), documents: new Set(), tasks: new Set(), expandedGroups: new Set() },
     presets: { graph: [], tasks: ['ready', 'blocked'], agenda: [] },
     presetsSpecified: { graph: false, tasks: false, agenda: false },
     query: { graph: '', tasks: '', agenda: '' },
@@ -251,7 +252,7 @@ import {
   }
 
   function detailOpenFor(view) {
-    if (view === 'tasks') return (Boolean(state.selectedTask) && !state.taskDetailHidden) || state.detailForms.tasks;
+    if (view === 'tasks') return (Boolean(state.selectedTask || state.taskContext) && !state.taskDetailHidden) || state.detailForms.tasks;
     if (view === 'agenda') return Boolean(state.selectedEvent) || state.detailForms.agenda;
     return Boolean(state.selectedGraph || state.current);
   }
@@ -270,6 +271,7 @@ import {
 
   function closeDetail() {
     if (state.view === 'tasks') {
+      state.taskContext = null;
       state.selectedTask = null;
       renderTasks();
     } else if (state.view === 'agenda') {
@@ -298,6 +300,11 @@ import {
     state.local = Boolean(query.current);
     if (state.view === 'tasks') {
       state.selectedTask = query.selected;
+      const params = new URLSearchParams(location.search);
+      state.taskContext = params.has('contextDocument') && params.has('contextRevision') ? {
+        documentId: params.get('contextDocument'), revision: params.get('contextRevision'),
+        start: params.has('contextStart') ? Number(params.get('contextStart')) : null,
+      } : null;
       state.taskNavigation = query.selected;
     }
     if (state.view === 'agenda') state.selectedEvent = query.selected;
@@ -333,6 +340,11 @@ import {
       direction: direction.value,
       kinds: state.view === 'graph' ? selectedKinds() : [],
     });
+    if (state.view === 'tasks' && state.taskContext) {
+      url.searchParams.set('contextDocument', state.taskContext.documentId);
+      url.searchParams.set('contextRevision', state.taskContext.revision);
+      if (state.taskContext.start != null) url.searchParams.set('contextStart', state.taskContext.start);
+    }
     const payload = mode === 'push' ? { plumb: true, detail: detailOpenFor(state.view) } : null;
     history[mode === 'push' ? 'pushState' : 'replaceState'](payload, '', url);
   }
@@ -1076,6 +1088,7 @@ import {
   }
 
   async function runTaskAction(task, action) {
+    state.taskContext = null;
     if (state.view !== 'tasks' || state.selectedTask !== task.key || !taskByKey(state.tasks, task.key)) {
       state.tasks = { ...state.tasks, tasks: (state.tasks?.tasks || []).filter((candidate) => candidate.key !== task.key), selectedTask: task };
       state.selectedTask = task.key;
@@ -1406,7 +1419,7 @@ import {
   function renderNewEventPrompt() {
     state.detailForms.agenda = false;
     eventPanel.innerHTML = '<div class="note-empty"><h1>Workspace agenda</h1><p>Select an event or create a new one.</p><button id="new-event" type="button">New event</button></div>';
-    eventPanel.querySelector('#new-event').disabled = !config.eventMutations || !state.events.documents.length;
+    eventPanel.querySelector('#new-event').disabled = !config.eventMutations || (state.events ? !state.events.documents.length : false);
     eventPanel.querySelector('#new-event').addEventListener('click', () => renderEventForm());
     newEventFab.disabled = eventPanel.querySelector('#new-event').disabled;
     syncDetail();
@@ -1425,6 +1438,17 @@ import {
     syncDetail();
   }
 
+  async function runEventAction(event, action) {
+    if (state.view !== 'agenda' || !state.events) {
+      state.selectedEvent = event.key;
+      showView('agenda', { historyMode: 'push', load: false });
+      await loadEvents();
+    }
+    const current = state.events?.events.find((candidate) => candidate.key === event.key);
+    if (!current) { notify('Event unavailable. Refresh the view.', true); return; }
+    return action(current);
+  }
+
   function renderEventFacet(event, eventPanel) {
     eventPanel.innerHTML = `
         <div class="task-actions"><button class="edit-event" type="button">Edit</button><button class="delete-event" type="button">Delete</button><button class="new-event" type="button">New event</button></div>
@@ -1437,10 +1461,10 @@ import {
     addTaskField(fields, 'Tasks', event.tasks);
     eventPanel.querySelector('.edit-event').disabled = !config.eventMutations || state.pendingEvent;
     eventPanel.querySelector('.delete-event').disabled = !config.eventMutations || state.pendingEvent;
-    eventPanel.querySelector('.new-event').disabled = !config.eventMutations || !state.events.documents.length;
-    eventPanel.querySelector('.edit-event').addEventListener('click', () => renderEventForm(event));
-    eventPanel.querySelector('.delete-event').addEventListener('click', () => mutateEvent('delete', event));
-    eventPanel.querySelector('.new-event').addEventListener('click', () => renderEventForm());
+    eventPanel.querySelector('.new-event').disabled = !config.eventMutations || (state.events ? !state.events.documents.length : false);
+    eventPanel.querySelector('.edit-event').addEventListener('click', () => runEventAction(event, renderEventForm));
+    eventPanel.querySelector('.delete-event').addEventListener('click', () => runEventAction(event, (current) => mutateEvent('delete', current)));
+    eventPanel.querySelector('.new-event').addEventListener('click', () => runEventAction(event, () => renderEventForm()));
     syncDetail();
     newEventFab.disabled = eventPanel.querySelector('.new-event').disabled;
   }
@@ -1567,12 +1591,6 @@ import {
     return button;
   }
 
-  function toggleTaskDocument(path) {
-    if (state.collapsed.documents.has(path)) state.collapsed.documents.delete(path);
-    else state.collapsed.documents.add(path);
-    renderTasks();
-  }
-
   function toggleTaskSubtree(key) {
     if (state.collapsed.tasks.has(key)) state.collapsed.tasks.delete(key);
     else state.collapsed.tasks.add(key);
@@ -1613,31 +1631,62 @@ import {
   }
 
   function taskDocumentItem(item) {
-    const heading = document.createElement('button');
-    heading.type = 'button';
+    const heading = document.createElement('div');
     heading.className = 'task-document-group task-document-toggle';
+    heading.dataset.contextKey = item.key || item.path;
     heading.style.setProperty('--task-depth', item.depth);
     heading.classList.toggle('collapsed', item.collapsed);
-    heading.setAttribute('aria-expanded', String(!item.collapsed));
-    heading.title = item.collapsed ? `Expand ${item.path}` : `Collapse ${item.path}`;
-    const mark = document.createElement('span');
-    mark.className = 'task-disclosure-mark';
-    mark.setAttribute('aria-hidden', 'true');
-    mark.textContent = item.collapsed ? '▸' : '▾';
+    heading.append(disclosureButton({
+      expanded: !item.collapsed,
+      label: `${item.collapsed ? 'Expand' : 'Collapse'} ${countLabel(item.total, 'task')}`,
+      onClick: () => {
+        const keys = [item.key, ...(item.contextKeys || [])].filter(Boolean);
+        if (item.kind === 'document') {
+          state.collapsed.documents.delete(item.path);
+          if (!item.collapsed) state.collapsed.documents.add(item.path);
+        } else if (!item.collapsed) state.collapsed.contexts.add(item.key);
+        if (item.collapsed) keys.forEach((key) => state.collapsed.contexts.delete(key));
+        renderTasks();
+      },
+    }));
     const path = document.createElement('span');
     path.className = 'task-document-path';
-    path.textContent = item.path;
+    path.title = item.path;
+    for (const [index, segment] of item.segments.entries()) {
+      if (index) {
+        const separator = document.createElement('span');
+        separator.textContent = ' / ';
+        separator.setAttribute('aria-hidden', 'true');
+        path.append(separator);
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'task-context-segment';
+      button.textContent = shortAncestorLabel(segment.title);
+      button.title = segment.title;
+      if (state.taskContext?.documentId === segment.documentId
+        && state.taskContext?.revision === segment.revision && state.taskContext?.start === segment.start) {
+        button.setAttribute('aria-current', 'true');
+      }
+      button.addEventListener('click', () => {
+        state.taskContext = segment;
+        state.selectedTask = null;
+        state.taskNavigation = null;
+        state.taskDetailHidden = false;
+        state.detailForms.tasks = false;
+        updateUrl(state.narrow ? 'push' : 'replace');
+        renderTasks();
+      });
+      path.append(button);
+    }
     const count = document.createElement('span');
     count.className = 'task-document-count';
-    count.textContent = item.collapsed
-      ? `${countLabel(item.total, 'task')} hidden`
-      : countLabel(item.total, 'task');
-    heading.append(mark, path, count);
+    count.textContent = `${countLabel(item.total, 'task')}${item.collapsed ? ' hidden' : ''}`;
+    heading.append(path, count);
     if (item.focusedCount > 0) {
       heading.classList.add('contains-focused');
       count.append(containsFocusBadge(item.focusedCount));
     }
-    heading.addEventListener('click', () => toggleTaskDocument(item.path));
     return heading;
   }
 
@@ -1675,12 +1724,7 @@ import {
     identity.className = 'task-identity';
     const title = document.createElement('strong');
     title.textContent = task.title || '(untitled task)';
-    const source = document.createElement('small');
-    const ancestry = task.ancestry || [task.path];
-    source.className = 'task-ancestry';
-    source.textContent = ancestry.map(shortAncestorLabel).join(' / ');
-    source.title = ancestry.join(' / ');
-    identity.append(source, title);
+    identity.append(title);
     const spent = document.createElement('small');
     spent.className = 'task-time-spent';
     spent.textContent = `Time spent: ${taskTimeSpent(task)}`;
@@ -1748,7 +1792,7 @@ import {
     taskSummary.textContent = `${tasks.filter((task) => task.matched !== false).length} tasks${state.tasks.complete ? '' : ' (truncated)'} · focused first`;
     taskListItems(tasks, state.collapsed).forEach((item) => {
       taskList.append(item.kind === 'group' ? unfocusedGroupItem(item)
-        : item.kind === 'document' ? taskDocumentItem(item) : taskListItem(item));
+        : item.kind === 'document' || item.kind === 'context' ? taskDocumentItem(item) : taskListItem(item));
     });
     if (state.tasks.nextCursor) {
       const more = document.createElement('button');
@@ -1758,7 +1802,9 @@ import {
       more.addEventListener('click', () => loadTasks(state.tasks.nextCursor));
       taskList.append(more);
     }
-    if (state.selectedTask) {
+    if (state.taskContext) {
+      renderNodeDetail(taskPanel, state.taskContext);
+    } else if (state.selectedTask) {
       const selected = taskByKey(state.tasks, state.selectedTask);
       if (selected) renderTaskDetail(selected);
       else clearTaskDetail('Task unavailable', 'This task is not in the current results.');
@@ -1867,6 +1913,7 @@ import {
   }
 
   function selectTask(task, { history = 'replace', navigate = false, showDetail = true } = {}) {
+    state.taskContext = null;
     state.taskDetailHidden = !showDetail;
     state.taskNavigation = null;
     revealTask(state.collapsed, state.tasks.tasks, task);
@@ -1961,6 +2008,7 @@ import {
   }
 
   function renderTaskDetail(task) {
+    state.taskContext = null;
     state.detailForms.tasks = false;
     renderNodeDetail(taskPanel, task, { task });
   }
@@ -2233,6 +2281,7 @@ import {
   }
 
   async function renderTaskForm(task = null) {
+    state.taskContext = null;
     state.taskDetailHidden = false;
     const documents = state.tasks.documents || [];
     if (!documents.length) return clearTaskDetail('Tasks unavailable', 'No valid task document is writable.');

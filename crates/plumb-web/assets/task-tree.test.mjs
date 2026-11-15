@@ -239,3 +239,70 @@ test('focused document task groups unfocused children at their sibling depth', (
   revealTask(collapsed, records, records[1]);
   assert.equal(taskListItems(records, collapsed).at(-1).task.key, 'child');
 });
+
+function contextual(key, start, context = [], extra = {}) {
+  return { ...task('jobs.plumb', key, 0), sourceStart: start, context,
+    ancestry: ['找工作', ...context.map(node => node.title)], documentId: 'jobs', revision: '1',
+    locator: { kind: 'id', id: key }, ...extra };
+}
+const owner = (start, title, facet = false) => ({ start, title, facet });
+const labels = (items) => items.filter(item => item.segments).map(item => item.segments.map(s => s.title).join(' / '));
+
+test('filtered context tree compacts single-child chains and shares branching owners', () => {
+  const company = [owner(10, '国内'), owner(20, '字节')];
+  const a = contextual('a', 30, company), b = contextual('b', 40, company);
+  const c = contextual('c', 60, [owner(10, '国内'), owner(50, '腾讯')]);
+  assert.deepEqual(labels(taskListItems([a, b])), ['找工作 / 国内 / 字节']);
+  const full = taskListItems([a, b, c]);
+  assert.deepEqual(labels(full), ['找工作 / 国内', '字节', '腾讯']);
+  assert.deepEqual(full.filter(i => i.kind === 'task').map(i => [i.task.key, i.depth]), [['a', 2], ['b', 2], ['c', 2]]);
+  assert.equal(full[0].total, 3);
+  assert.deepEqual(labels(taskListItems([])), []);
+});
+
+test('same-label owners remain distinct and task/event boundaries never compact', () => {
+  const a = contextual('a', 30, [owner(10, 'Same')]);
+  const b = contextual('b', 50, [owner(40, 'Same')]);
+  assert.deepEqual(labels(taskListItems([a, b])), ['找工作', 'Same', 'Same']);
+  const parent = contextual('parent', 20, [owner(10, 'Company')]);
+  const child = contextual('child', 40, [owner(10, 'Company'), owner(20, 'Parent', true), owner(30, 'Context')], { parentKey: 'parent' });
+  const items = taskListItems([parent, child]);
+  assert.deepEqual(labels(items), ['找工作 / Company', 'Context']);
+  assert.deepEqual(items.filter(i => i.kind === 'task').map(i => i.task.key), ['parent', 'child']);
+  const event = contextual('a', 40, [owner(10, 'Company'), owner(20, 'Meeting', true), owner(30, 'Context')]);
+  assert.deepEqual(labels(taskListItems([event])), ['找工作 / Company', 'Meeting', 'Context']);
+});
+
+test('context folding and reveal work through compact chains and focused groups', () => {
+  const a = contextual('a', 30, [owner(10, 'Company'), owner(20, 'Team')], { focused: true });
+  const b = contextual('b', 40, a.context);
+  const contextKey = JSON.stringify(['jobs.plumb', '1', 20]);
+  const collapsed = { contexts: new Set([contextKey]), documents: new Set(), tasks: new Set(), expandedGroups: new Set() };
+  assert.equal(taskListItems([a, b], collapsed).filter(i => i.kind === 'task').length, 0);
+  assert.equal(revealTask(collapsed, [a, b], b), true);
+  assert.deepEqual(taskListItems([a, b], collapsed).filter(i => i.kind === 'task').map(i => i.task.key), ['a', 'b']);
+});
+
+test('complete-document continuation cannot split or recompact earlier context rows', () => {
+  const first = [contextual('a', 30, [owner(10, 'Company')]), contextual('b', 40, [owner(10, 'Company')])];
+  const next = contextual('c', 30, [owner(10, 'Elsewhere')], { path: 'other.plumb', documentId: 'other', ancestry: ['Other'] });
+  assert.deepEqual(taskListItems([...first, next]).slice(0, 3), taskListItems(first));
+});
+
+test('document tasks replace the root while keeping ordinary context children', () => {
+  const root = contextual('root', 0, [], { locator: { kind: 'document' } });
+  const child = contextual('a', 30, [owner(10, 'Company')], { parentKey: 'root' });
+  const items = taskListItems([root, child]);
+  assert.equal(items[0].kind, 'task');
+  assert.equal(items[0].task.key, 'root');
+  assert.deepEqual(labels(items), ['Company']);
+});
+
+test('untitled task ancestors remain independent even when context labels skip them', () => {
+  const parent = contextual('parent', 10, [], { title: '' });
+  const child = contextual('child', 30, [owner(20, 'Context')], { parentKey: 'parent' });
+  const items = taskListItems([parent, child]);
+  assert.deepEqual(items.map(item => item.kind), ['document', 'task', 'context', 'task']);
+  assert.equal(items[1].childCount, 1);
+  assert.equal(items[3].depth, 3);
+});

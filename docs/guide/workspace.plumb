@@ -69,7 +69,7 @@
 
  本地视频附件使用浏览器原生播放控件。媒体服务支持分段读取，浏览器支持且具备有效索引的视频可以拖动进度条跳转到未缓冲的位置，无需先下载整个文件。
 
- `"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、 selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。 Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。没有 task facet 的 document 是 task forest 的虚拟结构节点；文档任务直接替代该文件行，不重复显示。Document heading 与含 subtasks 的 task 都可折叠：点击 heading 收起该文件的全部 tasks， 点击 task 的 disclosure control 收起其完整 subtask subtree，collapsed row 仍显示被隐藏的 subtask 数量； 选中被折叠的 task 会自动展开其 ancestors，折叠状态在同一浏览器 session 的 task list 刷新之间保持， 但不进入 URL 或跨刷新保存。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时 默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后， Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task 不会参与这些聚合；详情显示 derived state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示， 切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。 点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
+ `"/graph"、`"/tasks" 与 `"/agenda" 在连接图、任务工作台和日程之间切换，并把 fuzzy query、CEL、preset chips、sort、 selection 与 graph traversal 写入 URL。`"+" menu 的 server-registered presets 覆盖 task state、actionable、 due、wait/dependency 和 graph connectivity/task counts；custom CEL 与 presets 分别验证后使用 logical AND。 Tasks 在 URL 没有显式 preset state 时默认启用 `"State: Ready"。没有 task facet 的 document 是 task forest 的虚拟结构节点；文档任务直接替代该文件行，不重复显示。文档、上下文节点与含 subtasks 的 task 都可折叠：点击行前的 disclosure control 收起子树，点击文档或上下文标题打开详情，collapsed row 仍显示被隐藏的 subtask 数量； 选中被折叠的 task 会自动展开其 ancestors，折叠状态在同一浏览器 session 的 task list 刷新之间保持， 但不进入 URL 或跨刷新保存。Tasks sort 是可增删和重排的 Priority、Due、Relevance keys；无显式 URL state 时 默认为 Priority，显式空列表只使用固定 Source tie-break。Priority 降序，Due 升序且缺失值最后， Relevance 降序；无 fuzzy query 时 Relevance 不改变顺序。所有 keys 只递归排序同一 parent 下的 sibling subtrees，因此 document 和 parent/subtask subtree 始终连续。Priority 取 subtree 最大 effective priority，Due 取 subtree 最早 due，Relevance 取 subtree 最大 fuzzy score。过滤先确定当前结果集合，未显示的 task 不会参与这些聚合；详情显示 derived state、timestamps、dependencies 与 child tasks。`"New Task" 是主 toolbar 的 Tasks-only action：切到 Tasks 时显示， 切到 Graph 或 Agenda 时隐藏，并且不随 detail selection 移动。 点击 detail 中已有的 editable property 会原位打开对应 control；`"Add property" 列出当前缺失的标准 editable fields。 两种操作都复用 revision-guarded task authoring，derived state 与 closure fields 保持只读。
 
  Graph、Tasks、Agenda 共用节点详情：标题与来源之后先显示节点自身的 task/event 属性和操作，再显示
   富文本正文。普通文档直接显示正文，文档任务在 Graph 中也显示任务属性。内部 task/event 只展示
@@ -80,8 +80,12 @@
  详情标题上方显示可点击的层级路径：文档标题或文件名 / 祖先节点。
   路径只包含真实祖先，不重复当前标题；点击文档项查看整篇内容，点击祖先项查看该节点详情，
   无 id 的节点也可打开。层级仅依据实际嵌套关系，不要求祖先具有 section 或 task facet；透明容器、声明与空标题跳过。
-  Tasks 列表在标题上方显示同样的上下文路径，替代原始 id。每项长标题缩略显示，悬停查看完整文本；
-  ID 仍可搜索，并在任务详情中查看和复制。详情路径悬停可查看源路径，窄屏自动换行。
+  Tasks 列表使用上下文树：先筛出匹配任务，再保留必要祖先；没有匹配任务的分支不显示，每个任务只显示自身标题。
+  文档根只显示一次 title 或文件名，完整路径放在悬停信息里。连续单子节点的普通上下文合并成一行，
+  例如找工作 / 国内 / 字节；每一段都可打开详情。遇到分叉或 task/event 节点停止合并。
+  单子节点由完整筛选结果决定，Load more 按完整文档追加，不会拆开已显示的紧凑行；改变筛选时结构随结果变化。
+  折叠按钮与标题点击分开；计数只统计任务。上下文详情位置绑定文档 revision，来源改变后须重新选择。
+  长标题缩略显示，悬停可查看完整文本。ID 仍可搜索，并在任务详情中查看和复制。详情保留层级路径，窄屏自动换行。
 
  Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、task references 与富文本正文。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。
 

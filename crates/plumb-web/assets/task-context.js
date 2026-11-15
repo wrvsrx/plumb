@@ -15,6 +15,7 @@ export function captureTaskContext(tasks, selected, collapsed, selectedTask = nu
     visible: taskListItems(tasks, collapsed).filter((item) => item.kind === 'task').map((item) => item.task),
     collapsed: {
       documents: new Set(collapsed.documents),
+      contexts: new Set(collapsed.contexts),
       tasks: new Set(collapsed.tasks),
       expandedGroups: new Set(collapsed.expandedGroups),
     },
@@ -44,9 +45,15 @@ export function reconcileTaskContext(context, tasks, handoff = null, selectedTas
   const surviving = (task) => task && current.get(identity(task));
   const collapsed = {
     documents: new Set(context.collapsed.documents),
+    contexts: new Set(context.collapsed.contexts),
     tasks: new Set(context.collapsed.tasks),
     expandedGroups: new Set(context.collapsed.expandedGroups),
   };
+  const revisions = new Map(tasks.map((task) => [task.path, task.revision]));
+  for (const key of collapsed.contexts) {
+    const [path, revision] = JSON.parse(key);
+    if (revisions.has(path) && revisions.get(path) !== revision) collapsed.contexts.delete(key);
+  }
   // Do not transfer offset-based folding to a different node in a new revision.
   for (const key of collapsed.tasks) {
     const old = previous.get(key);
@@ -55,6 +62,10 @@ export function reconcileTaskContext(context, tasks, handoff = null, selectedTas
   for (const key of collapsed.expandedGroups) {
     const [kind, owner] = JSON.parse(key);
     const old = previous.get(owner);
+    if (kind === 'context') {
+      const [path, revision] = JSON.parse(owner);
+      if (revisions.has(path) && revisions.get(path) !== revision) collapsed.expandedGroups.delete(key);
+    }
     if (kind === 'task' && old?.locator?.kind === 'offset' && !surviving(old)) collapsed.expandedGroups.delete(key);
   }
   // Preserve the visible frontier when focus grouping inserts new ancestors.

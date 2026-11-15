@@ -52,7 +52,7 @@ try {
       throw new Error('timed out waiting for browser state');
     };
     const listItems = () => Array.from(document.querySelectorAll('.task-list-item'));
-    const keyOf = (item) => item.querySelector('.task-identity small').textContent;
+    const keyOf = (item) => item.dataset.taskKey;
     const itemByKey = (key) => listItems().find((item) => keyOf(item) === key);
     const disclosureItem = () => listItems().find((item) => item.querySelector('.task-disclosure:not(.task-disclosure-empty)'));
     const groupToggle = (path) => Array.from(document.querySelectorAll('.task-document-toggle'))
@@ -65,7 +65,7 @@ try {
     };
     // Clicking re-renders the list, so every DOM reference is re-queried by key.
     const foldTask = (key) => itemByKey(key).querySelector('.task-disclosure').click();
-    const foldGroup = (path) => groupToggle(path).click();
+    const foldGroup = (path) => groupToggle(path).querySelector('.task-disclosure').click();
 
     await waitFor(() => document.querySelector('.task-row'));
     const groups = Array.from(document.querySelectorAll('.task-document-toggle')).length;
@@ -89,11 +89,11 @@ try {
     foldGroup(path);
     await waitFor(() => groupItems(path).length === 0);
     const foldedGroupLabel = groupToggle(path).querySelector('.task-document-count').textContent;
-    const foldedGroupState = groupToggle(path).getAttribute('aria-expanded');
+    const foldedGroupState = groupToggle(path).querySelector('.task-disclosure').getAttribute('aria-expanded');
     const foldedGroupCount = groupItems(path).length;
     foldGroup(path);
     await waitFor(() => groupItems(path).length === groupTotal);
-    const unfoldedGroupState = groupToggle(path).getAttribute('aria-expanded');
+    const unfoldedGroupState = groupToggle(path).querySelector('.task-disclosure').getAttribute('aria-expanded');
 
     // Selecting a hidden subtask must unfold the ancestors that hide it.
     itemByKey(parentKey).querySelector('.task-row').click();

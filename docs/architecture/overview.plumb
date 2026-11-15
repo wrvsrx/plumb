@@ -224,15 +224,16 @@
   重新读取详情；不增加跨文档缓存或全库扫描。Graph 的 task 操作进入 Tasks 中同一任务的编辑上下文，
   不以当前列表 selection 替代被点击任务的 identity；通过层级导航打开父任务后，操作也先建立该父任务的上下文。
 
- Tasks 上下文树（待验证）：先匹配任务，再保留匹配任务及其到文档根的有效祖先；没有匹配任务的分支不显示。
+ Tasks 上下文树：先匹配任务，再保留匹配任务及其到文档根的有效祖先；没有匹配任务的分支不显示。
   文档根只显示一次 title（缺省文件名），普通祖先也是节点，不要求 section/task facet；透明、声明与空标题跳过。
   每个任务只显示自身标题，移除逐行路径。连续且唯一子节点的普通上下文链合并成一行，各段可独立打开详情；
-  task/event 节点及分叉停止合并。上下文行的折叠按钮与详情按钮独立，节点计数只计任务，不计上下文。
+  task/event 节点及分叉停止合并，空标题任务仍保持独立任务行。上下文行的折叠按钮与详情按钮独立，节点计数只计任务，不计上下文。
   合并依据完整筛选结果，先于关注分组与分页展示，不能依据被折叠或关注分组隐藏后的可见孩子判断。
   workspace 已在匹配和补齐任务祖先后按完整文档分页；Web 使用 page 中完整的文档子树补齐上下文并合并，
   与在全结果上先合并再按文档分页等价。Load more 不拆分或重新合并已加载文档，排序按现有有序任务首次出现排列上下文子树。
   祖先 identity 使用 document、revision、owner start，task 使用既有 identity；同名祖先不合并。文档 task 替代文档根。
   上下文详情绑定 revision，revision 改变后不复用旧位置；上下文折叠只在相同 revision 保留。
+  上下文 selection 通过 URL 的 document、revision、可选 start 恢复，与任务 selection 独立；点击事件祖先的操作进入 Agenda 中同一事件的上下文。
   输入为 page task records 的祖先标签、位置、facet 边界及 document title，来自既有语义 shard 的有界 hydration。
   语义记录随 shard 内容失效并随位置平移，版本化存储冷启动重建；无逐行解析、额外 workspace 扫描或全库上下文查询。
   cold/warm 展示工作量与 page 任务及输出祖先数量成比例。新增字段不改变筛选、匹配计数、cursor 或 selected task projection。

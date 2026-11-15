@@ -28,36 +28,84 @@ export function taskChildCounts(tasks) {
 }
 
 // Build a presentation forest from the already filtered, ordered server page.
-// Document pages retain complete trees. Missing parents remain filtered out;
-// never invent task records or interpret focus history in the browser.
+// Each page retains complete filtered documents. The server supplies real owner
+// identities and labels: context rows never invent tasks or matching results.
 function taskForest(tasks) {
   const documents = new Map();
   const nodes = new Map(tasks.map((task) => [task.key, {
     task, children: [], total: 1, focusedCount: task.focused ? 1 : 0,
   }]));
+  const parents = new Map();
+  const owners = new Map(tasks.filter((task) => task.sourceStart !== undefined && task.locator?.kind !== 'document')
+    .map((task) => [JSON.stringify([task.path, task.sourceStart]), nodes.get(task.key)]));
+  const contexts = new Map();
+  const tasksByDocument = new Map(tasks.filter((task) => task.locator?.kind === 'document').map((task) => [task.path, nodes.get(task.key)]));
+  const attach = (parent, node) => {
+    if (parents.has(node)) return;
+    parents.set(node, parent);
+    parent.children.push(node);
+  };
   for (const task of tasks) {
     if (!documents.has(task.path)) documents.set(task.path, {
       path: task.path, children: [], total: 0, focusedCount: 0,
+      segments: [{ title: task.ancestry?.[0] || task.path, documentId: task.documentId, revision: task.revision, start: null }],
     });
+    const document = documents.get(task.path);
     const node = nodes.get(task.key);
-    const parent = nodes.get(task.parentKey);
-    (parent && parent.task.path === task.path ? parent : documents.get(task.path)).children.push(node);
+    if (task.context) {
+      let parent = document;
+      const documentTask = tasksByDocument.get(task.path);
+      if (documentTask && documentTask !== node) {
+        attach(document, documentTask);
+        parent = documentTask;
+      }
+      const ancestry = [...task.context];
+      // Empty heads are omitted from context labels, but a retained task still
+      // owns its descendants and must remain an independent actionable row.
+      const taskParent = nodes.get(task.parentKey)?.task;
+      if (taskParent && taskParent.locator?.kind !== 'document'
+        && !ancestry.some((ancestor) => ancestor.start === taskParent.sourceStart)) {
+        ancestry.push({ start: taskParent.sourceStart });
+        ancestry.sort((a, b) => a.start - b.start);
+      }
+      for (const ancestor of ancestry) {
+        let owner = owners.get(JSON.stringify([task.path, ancestor.start]));
+        if (!owner) {
+          const key = JSON.stringify([task.path, task.revision, ancestor.start]);
+          owner = contexts.get(key);
+          if (!owner) {
+            owner = { kind: 'context', key, path: task.path, facet: ancestor.facet,
+              segments: [{ ...ancestor, documentId: task.documentId, revision: task.revision }],
+              children: [], total: 0, focusedCount: 0 };
+            contexts.set(key, owner);
+          }
+        }
+        attach(parent, owner);
+        parent = owner;
+      }
+      attach(parent, node);
+    } else {
+      const parent = nodes.get(task.parentKey);
+      attach(parent && parent.task.path === task.path ? parent : document, node);
+    }
   }
-  // Records are preorder: aggregate descendants before their parents without
-  // recursion, including trees deeper than the JS call stack.
-  for (let index = tasks.length - 1; index >= 0; index -= 1) {
-    const task = tasks[index];
-    const node = nodes.get(task.key);
-    const candidate = nodes.get(task.parentKey);
-    const parent = candidate && candidate.task.path === task.path ? candidate : documents.get(task.path);
-    parent.total += node.total;
-    parent.focusedCount += node.focusedCount;
+  // Postorder without recursion; context depth is independent of task depth.
+  const ordered = [], pending = [...documents.values()];
+  while (pending.length) {
+    const node = pending.pop();
+    ordered.push(node);
+    pending.push(...node.children);
   }
-  return { documents: [...documents.values()], nodes };
+  for (const node of ordered.reverse()) {
+    const parent = parents.get(node);
+    if (parent) { parent.total += node.total; parent.focusedCount += node.focusedCount; }
+  }
+  return { documents: [...documents.values()], nodes, parents };
 }
 
 function groupKey(parent) {
-  return JSON.stringify(parent.task ? ['task', parent.task.key] : ['document', parent.path]);
+  if (parent.groupOwner) return JSON.stringify(['context', parent.groupOwner]);
+  return JSON.stringify(parent.task ? ['task', parent.task.key] : parent.kind === 'context' ? ['context', parent.key] : ['document', parent.path]);
 }
 const FILES_GROUP = JSON.stringify(['files']);
 
@@ -67,8 +115,23 @@ export function taskDisplayTree(tasks) {
   const forest = taskForest(tasks);
   // A document task owns the file's tree; it replaces the virtual file row.
   const documents = forest.documents.map((document) => (
-    document.children.find((node) => node.task.locator?.kind === 'document') || document
+    document.children.find((node) => node.task?.locator?.kind === 'document') || document
   ));
+  // Compact only the retained structural tree, before focus groups hide branches.
+  const pending = [...documents];
+  while (pending.length) {
+    const node = pending.pop();
+    if (!node.task && !node.facet) {
+      while (node.children.length === 1 && node.children[0].kind === 'context' && !node.children[0].facet) {
+        const child = node.children[0];
+        node.segments.push(...child.segments);
+        (node.contextKeys ||= []).push(child.key, ...(child.contextKeys || []));
+        node.children = child.children;
+        node.groupOwner = child.key;
+      }
+    }
+    pending.push(...node.children);
+  }
   if (!documents.some((node) => node.focusedCount > 0)) return documents;
   const root = { children: documents };
   const work = [root];
@@ -98,15 +161,27 @@ export function taskListItems(tasks, collapsed = {}) {
       folded = !keySet(collapsed.expandedGroups).has(node.key);
       items.push({ ...node, depth, collapsed: folded });
       if (folded && documentRow) documentRow.hidden += node.total;
+    } else if (node.kind === 'context') {
+      folded = [node.key, ...(node.contextKeys || [])].some((key) => keySet(collapsed.contexts).has(key));
+      items.push({ ...node, depth, collapsed: folded, hidden: folded ? node.total : 0 });
+      if (folded && documentRow) documentRow.hidden += node.total;
     } else if (!node.task) {
-      folded = keySet(collapsed.documents).has(node.path);
+      folded = keySet(collapsed.documents).has(node.path)
+        || (node.contextKeys || []).some((key) => keySet(collapsed.contexts).has(key));
       documentRow = {
         kind: 'document', path: node.path, total: node.total, depth,
+        segments: node.segments, contextKeys: node.contextKeys,
         hidden: folded ? node.total : 0, collapsed: folded, focusedCount: node.focusedCount,
       };
       items.push(documentRow);
     } else {
-      const childCount = node.children.reduce((sum, child) => sum + (child.kind === 'group' ? child.children.length : 1), 0);
+      let childCount = 0;
+      const descendants = [...node.children];
+      while (descendants.length) {
+        const child = descendants.pop();
+        if (child.task) childCount += 1;
+        else descendants.push(...child.children);
+      }
       folded = childCount > 0 && keySet(collapsed.tasks).has(node.task.key);
       const hiddenCount = folded ? node.total - 1 : 0;
       if (documentRow) documentRow.hidden += hiddenCount;
@@ -154,19 +229,19 @@ export function revealTasks(collapsed, tasks, targets) {
   };
   for (const task of targets) {
     if (collapsedDocuments.delete(task.path)) changed = true;
-    let ancestor = forest.nodes.get(task.parentKey);
+    let node = forest.nodes.get(task.key);
+    let ancestor = forest.parents.get(node);
     while (ancestor) {
-      if (collapsedTasks.delete(ancestor.task.key)) changed = true;
-      ancestor = forest.nodes.get(ancestor.task.parentKey);
+      if (ancestor.task && collapsedTasks.delete(ancestor.task.key)) changed = true;
+      if (ancestor.kind === 'context' && keySet(collapsed.contexts).delete(ancestor.key)) changed = true;
+      ancestor = forest.parents.get(ancestor);
     }
     if (!grouped || task.focused) continue;
     const document = documents.get(task.path);
     if (document && document.focusedCount === 0) open(FILES_GROUP);
-    let node = forest.nodes.get(task.key);
     while (node && node.focusedCount === 0) {
-      const parent = forest.nodes.get(node.task.parentKey);
+      const parent = forest.parents.get(node);
       if (parent?.focusedCount > 0) open(groupKey(parent));
-      else if (!parent && document?.focusedCount > 0) open(groupKey(document));
       node = parent;
     }
   }

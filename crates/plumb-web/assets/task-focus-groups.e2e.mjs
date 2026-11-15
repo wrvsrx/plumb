@@ -63,10 +63,10 @@ try {
       const noNext = !document.querySelector('#task-mode-next');
       const badge = file().querySelector('.task-focused-count').textContent;
       const groupCount = document.querySelectorAll('.task-unfocused-group').length;
-      file().click();
+      file().querySelector('.task-disclosure').click();
       const collapsedBadge = file().querySelector('.task-focused-count').textContent;
       const collapsedRows = rows().length;
-      file().click();
+      file().querySelector('.task-disclosure').click();
       // Expand all automatic groups. A subtree is shown as a whole, not another
       // series of automatically folded unfocused descendants.
       for (let i = 0; i < 10; i++) {

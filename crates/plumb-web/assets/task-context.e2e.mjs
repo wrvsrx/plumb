@@ -115,7 +115,7 @@ try {
     if (after < loaded) throw new Error('refresh lost loaded extent');
     if (!new URL(location.href).searchParams.get('selected').endsWith(':neighbor')) throw new Error('URL selection disagrees');
     if (!row('neighbor').classList.contains('selected')) throw new Error('row selection disagrees');
-    const fileToggle = [...document.querySelectorAll('.task-document-toggle')].find(button => button.title === 'Collapse 120.plumb');
+    const fileToggle = [...document.querySelectorAll('.task-document-toggle')].find(row => row.querySelector('.task-document-path')?.title === '120.plumb').querySelector('.task-disclosure');
     fileToggle.click();
     if (row('neighbor')) throw new Error('collapse did not hide selected row');
     listPane.scrollTop = 0;
@@ -135,6 +135,7 @@ try {
     const jump = [...document.querySelectorAll('.task-children button')].find(button => button.textContent.includes('Neighbor'));
     if (!jump) throw new Error('missing child navigation');
     jump.click();
+    await wait(() => row('neighbor')?.classList.contains('selected'));
     const targetBounds = row('neighbor').getBoundingClientRect();
     const targetPane = listPane.getBoundingClientRect();
     if (targetBounds.top < targetPane.top - 1 || targetBounds.bottom > targetPane.bottom + 1) throw new Error('explicit navigation did not reveal target');

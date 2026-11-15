@@ -209,3 +209,16 @@ test('cold URL selection restores stable identity but does not trust a bare sour
   assert.equal(reconcileTaskContext(capture([], anonymous.key), tasks).selected, null);
   assert.equal(reconcileTaskContext(capture([], stable.key), tasks).selected, stable.key);
 });
+
+test('context folds survive filtering but never transfer to another source revision', () => {
+  const context = [{ start: 10, title: 'Company', facet: false }];
+  const records = [task('a', { sourceStart: 20, context, ancestry: ['Jobs', 'Company'] })];
+  const key = JSON.stringify(['a.plumb', '1', 10]);
+  const collapsed = { ...folds(), contexts: new Set([key]) };
+  const hidden = reconcileTaskContext(capture(records, null, collapsed), []);
+  assert.equal(hidden.collapsed.contexts.has(key), true);
+  const restored = reconcileTaskContext(capture([], null, hidden.collapsed), records);
+  assert.equal(restored.collapsed.contexts.has(key), true);
+  const changed = reconcileTaskContext(capture(records, null, restored.collapsed), [{ ...records[0], revision: '2' }]);
+  assert.equal(changed.collapsed.contexts.has(key), false);
+});
