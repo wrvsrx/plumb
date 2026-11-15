@@ -229,3 +229,5 @@
   语义 task record 在已有的单 shard 遍历中保存祖先标签和位置，随 shard 内容变化失效，位置平移同步更新。
   Web 只投影当前有界 page 与 selected task 已 hydration 的记录；不为每行读取或解析文档，
   不新增全库扫描。文档标题复用现有 title index；冷启动重建版本化存储，warm read 只增加输出路径长度的工作。
+
+Web browser assets 包含内嵌 SVG favicon；workspace 与 note HTML 均通过 asset prefix 显式声明同一图标，图标路由以 `"image/svg+xml" 返回内容，不依赖 workspace 查询或文件。

@@ -192,6 +192,7 @@ fn router(state: AppState) -> Router {
         .route("/resource/{id}/{name}", get(resource))
         .route("/events", get(events))
         .route("/favicon.ico", get(favicon))
+        .route("/favicon.svg", get(favicon))
         .route("/app.js", get(app_js))
         .route("/agenda-state.js", get(agenda_state_js))
         .route("/query-state.js", get(query_state_js))
@@ -807,8 +808,8 @@ async fn force_graph_license() -> Response {
     asset("text/plain; charset=utf-8", FORCE_GRAPH_LICENSE)
 }
 
-async fn favicon() -> StatusCode {
-    StatusCode::NO_CONTENT
+async fn favicon() -> Response {
+    asset("image/svg+xml", include_str!("../assets/favicon.svg"))
 }
 
 fn asset(content_type: &'static str, body: &'static str) -> Response {
