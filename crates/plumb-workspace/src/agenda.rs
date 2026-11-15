@@ -251,17 +251,33 @@ impl AccountingContext {
         id: Option<&str>,
     ) -> Result<bool, String> {
         if !self.tasks.contains_key(path) {
-            let tasks = workspace.tasks_for_path(path).map_err(|e| e.to_string())?;
-            let identities = tasks
-                .into_iter()
-                .filter_map(|task| {
-                    if task.owner == TaskOwner::Document {
-                        Some(None)
-                    } else {
-                        task.id.map(|field| Some(field.value))
-                    }
-                })
-                .collect();
+            let identities = if workspace.documents.contains_key(path) {
+                workspace
+                    .current_output(path)
+                    .map(|output| {
+                        output
+                            .tasks()
+                            .tasks
+                            .views()
+                            .filter_map(|task| {
+                                if task.owner() == TaskOwner::Document {
+                                    Some(None)
+                                } else {
+                                    task.id_value().map(|id| Some(id.to_owned()))
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else if let Some(store) = &workspace.disk_store {
+                store
+                    .task_reference_ids(path)
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .collect()
+            } else {
+                BTreeSet::new()
+            };
             self.tasks.insert(path.to_owned(), identities);
         }
         Ok(self.tasks[path].contains(&id.map(str::to_owned)))

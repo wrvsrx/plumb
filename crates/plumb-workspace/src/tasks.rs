@@ -1043,19 +1043,21 @@ impl Workspace {
                 if !self.contains_path(&path)? && !path.is_file() {
                     return Ok(TaskTargetResolution::UnresolvedPath { path });
                 }
-                return Ok(
-                    match self
-                        .tasks_for_path(&path)?
-                        .into_iter()
-                        .find(|task| task.owner == TaskOwner::Document)
-                    {
-                        Some(task) => TaskTargetResolution::Task {
-                            target: TaskRef { path, id: None },
-                            task: Box::new(task),
-                        },
-                        None => TaskTargetResolution::NotDocumentTask { path },
+                let task = if self.documents.contains_key(&path) {
+                    self.current_output(&path)
+                        .and_then(|o| o.tasks().document_task().map(|t| t.to_owned()))
+                } else if let Some(store) = &self.disk_store {
+                    store.document_task_for_path(&path)?
+                } else {
+                    None
+                };
+                return Ok(match task {
+                    Some(task) => TaskTargetResolution::Task {
+                        target: TaskRef { path, id: None },
+                        task: Box::new(task),
                     },
-                );
+                    None => TaskTargetResolution::NotDocumentTask { path },
+                });
             }
             TaskReferenceTarget::Invalid => return Ok(TaskTargetResolution::Invalid),
         };
@@ -1148,7 +1150,7 @@ impl Workspace {
                     .entry(TaskRef { path, id: Some(id) })
                     .or_default() += 1;
             }
-            for fact in store.task_facts(&open_paths)? {
+            for fact in store.task_identities(&open_paths)? {
                 let Some(task_ref) = TaskRef::from_parts(&fact.path, fact.document_task, fact.id)
                 else {
                     continue;

@@ -6,10 +6,14 @@ use std::fmt::Write as _;
 pub(super) fn render(
     loaded: &LoadedWorkspace,
     settings: &DiagnosticSettings,
+    stats: bool,
 ) -> Result<(String, u8), String> {
+    let started = std::time::Instant::now();
     let report = loaded
         .workspace
         .policy_diagnostics(&loaded.root, &[], loaded.now, settings)?;
+    let query_time = started.elapsed();
+    let render_started = std::time::Instant::now();
     let mut output = String::new();
     for diagnostic in &report.diagnostics {
         writeln!(
@@ -44,6 +48,12 @@ pub(super) fn render(
     } else {
         0
     };
+    if stats {
+        eprintln!(
+            "plumb check timings: policy_query={query_time:?} policy_render={:?}",
+            render_started.elapsed()
+        );
+    }
     Ok((output, status))
 }
 

@@ -89,7 +89,7 @@
 
  scan/read failure 必须使命令失败，不能沿用旧 generation 宣称成功。缓存 open、migration 或 index failure
   必须以 warning 明确降级至 memory backend；decode failure 明确报告错误，不能转换为空查询；--no-cache 提供排错入口。
-  --cache-stats 在 stderr 报告 documents、hits、实际 parsed 数量与各阶段耗时，不改变 stdout。缺失缓存自动建立，schema/producer mismatch
+  --cache-stats 在 stderr 报告 documents、hits、实际 parsed 数量与各阶段耗时；check 区分基础诊断、policy query 和 policy rendering，不改变 stdout。缺失缓存自动建立，schema/producer mismatch
   原子清空 derived generations 后重建；损坏缓存可以由 cache prune 清理，禁止修改源文件以修复 cache。
 
  mutation 只为目标 source snapshot materialize 当前 revision，验证实际 disk bytes 未改变，再通过 plumb-edit 提出
@@ -121,6 +121,11 @@
  事件核算使用的 links_in_range 查询只返回 normalized path 下完整包含于请求 byte range 的非空 Link records，保持 source order；跨左／右边界、与右边界相接但位于其后的 link 不匹配，空或反向范围返回空。SQLite 必须同时约束 start 下界及严格上界，并保留 end 上界，通过 (path, start, end) 索引限定候选区间，不能为每条 event 扫描同文档所有后续 links。仅 decode 实际匹配 records；被排除的损坏 record 不影响本次查询，匹配的损坏 record 必须报告失败。该优化不改变 category 分摊、completeness、diagnostic locations 或 overlay precedence。
 
  同一 agenda summary 或 event-category check round 内按 normalized target identity 复用引用解析结果、每个文档的 task identities 与根分类。缓存仅属于一次 immutable workspace 查询，不能跨请求沿用；下一次查询必须反映磁盘更新、unsaved overlay 与关闭恢复。普通事项是否允许参与取决于当前 event 的 tasks override，诊断 source range 与引用 spelling 也逐 occurrence 保留，不能把第一条 event 的许可或错误位置缓存为目标属性。
+
+ 核算的 task membership 只读取目标文档的 document-owner 标志与 explicit ids，不解码任务正文、状态历史或其它
+  完整 TaskRecord 字段。文档任务解析只按 document owner 查询唯一 record，不加载同文档的所有列表任务。
+  resident current-valid view、pending/invalid overlay 与 closed disk 的遮蔽规则保持一致；测试以未使用 task BLOB
+  损坏和 memory/disk/overlay parity 验证窄查询边界。
 
  Event policy 的跨轮增量状态与上述 AccountingContext 分离：每轮从当前 snapshot 重新确认 typed inputs 与目标 facts，仅当分类依赖相等时复用成功结论；非法输入重新生成 issues。Timeline 保留边界拓扑并更新变化区域。两条规则每轮重绑定 source locations，均不持久化最终诊断，也不跨 revision 复用未验证的目标解析。无 filter 的全量 policy 输入直接读取 typed event records，避免先构造通用 search results 再重新读取事件。详见 semantic-analysis 的 Incremental event policy checks。
 

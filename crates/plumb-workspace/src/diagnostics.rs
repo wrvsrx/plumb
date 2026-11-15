@@ -1,5 +1,5 @@
 use crate::*;
-use plumb_semantics::EmbedRecord;
+use plumb_semantics::{EmbedRecord, TaskOwner};
 use serde::{Deserialize, Serialize};
 
 /// Owned diagnostic projection for disk generations; codes are data, never leaked strings.
@@ -27,7 +27,40 @@ impl From<Diagnostic> for WorkspaceDiagnostic {
 pub(crate) struct CachedDiagnosticInputs {
     pub local: Vec<WorkspaceDiagnostic>,
     pub embeds: Vec<EmbedRecord>,
+    pub links: Vec<(LinkTarget, std::ops::Range<usize>)>,
+    pub tasks: Vec<TaskDiagnosticInput>,
+    pub event_tasks: Vec<plumb_semantics::TaskDependency>,
 }
+
+/// The source-backed fields consumed by cross-document task diagnostics.
+/// Full records (titles, ancestors, focus history, etc.) stay out of batch checking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct TaskDiagnosticInput {
+    document_task: bool,
+    id: Option<String>,
+    state: TaskState,
+    depth: usize,
+    selection_range: std::ops::Range<usize>,
+    done_range: Option<std::ops::Range<usize>>,
+    prev: Option<plumb_semantics::TaskField>,
+    depends: Vec<plumb_semantics::TaskDependency>,
+}
+
+impl From<TaskRecord> for TaskDiagnosticInput {
+    fn from(task: TaskRecord) -> Self {
+        Self {
+            document_task: task.owner == TaskOwner::Document,
+            state: task.state(),
+            id: task.id.map(|id| id.value),
+            depth: task.depth,
+            selection_range: task.selection_range,
+            done_range: task.done.map(|field| field.range),
+            prev: task.prev,
+            depends: task.depends,
+        }
+    }
+}
+
 impl CachedDiagnosticInputs {
     pub(crate) fn new(syntax: &[Diagnostic], output: Option<&DocumentOutput>) -> Self {
         let mut local = syntax.iter().cloned().map(Into::into).collect::<Vec<_>>();
@@ -42,6 +75,27 @@ impl CachedDiagnosticInputs {
             local,
             embeds: output
                 .map(|o| o.embeds().iter().collect())
+                .unwrap_or_default(),
+            links: output
+                .map(|o| {
+                    o.links()
+                        .iter()
+                        .map(|l| (l.target_kind, l.target.range))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            tasks: output
+                .map(|o| o.tasks().tasks.iter().map(Into::into).collect())
+                .unwrap_or_default(),
+            event_tasks: output
+                .map(|o| {
+                    o.events()
+                        .events
+                        .iter()
+                        .filter(|e| e.tasks_override)
+                        .flat_map(|e| e.tasks)
+                        .collect()
+                })
                 .unwrap_or_default(),
         }
     }
@@ -82,26 +136,25 @@ impl Workspace {
             return Ok(self.query_result(Vec::new()));
         };
         let mut diagnostics = inputs.local;
-        let mut cross =
-            self.reference_diagnostics(&path, store.links_for_path(&path)?, inputs.embeds)?;
+        let mut cross = self.reference_diagnostics(&path, inputs.links, inputs.embeds)?;
         cross.extend(self.task_workspace_diagnostics(
             &path,
-            &store.tasks_for_path(&path)?,
+            &inputs.tasks,
             &context.cycle_members,
         )?);
-        cross.extend(self.event_workspace_diagnostics(&path, store.events_for_path(&path)?)?);
+        cross.extend(self.event_reference_diagnostics(&path, inputs.event_tasks)?);
         diagnostics.extend(cross.into_iter().map(WorkspaceDiagnostic::from));
         Ok(self.query_result(diagnostics))
     }
     fn reference_diagnostics(
         &self,
         path: &Path,
-        links: impl IntoIterator<Item = LinkRecord>,
+        links: impl IntoIterator<Item = (LinkTarget, std::ops::Range<usize>)>,
         embeds: impl IntoIterator<Item = EmbedRecord>,
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
         let mut diagnostics = Vec::new();
-        for link in links {
-            let (code, message) = match self.resolve_link_value(&path, &link)? {
+        for (target, range) in links {
+            let (code, message) = match self.resolve_link_target_value(&path, &target)? {
                 ResolvedTarget::UnresolvedPath { path } => (
                     "link.unresolved-path",
                     format!("unresolved plumb document '{}'", path.display()),
@@ -124,7 +177,7 @@ impl Workspace {
                 code,
                 severity: DiagnosticSeverity::Warning,
                 message,
-                range: link.target.range.clone(),
+                range,
                 related: Vec::new(),
             });
         }
@@ -186,16 +239,30 @@ impl Workspace {
         let Some(current) = &entry.current else {
             return Ok(self.query_result(diagnostics));
         };
-        diagnostics.extend(self.reference_diagnostics(
-            &path,
-            current.output.links().iter(),
-            current.output.embeds().iter(),
-        )?);
-        diagnostics.extend(self.task_workspace_diagnostics(
-            &path,
-            &current.output.tasks().tasks.iter().collect::<Vec<_>>(),
-            &context.cycle_members,
-        )?);
+        diagnostics.extend(
+            self.reference_diagnostics(
+                &path,
+                current
+                    .output
+                    .links()
+                    .iter()
+                    .map(|l| (l.target_kind, l.target.range)),
+                current.output.embeds().iter(),
+            )?,
+        );
+        diagnostics.extend(
+            self.task_workspace_diagnostics(
+                &path,
+                &current
+                    .output
+                    .tasks()
+                    .tasks
+                    .iter()
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
+                &context.cycle_members,
+            )?,
+        );
         diagnostics.extend(
             self.event_workspace_diagnostics(&path, current.output.events().events.iter())?,
         );
@@ -207,30 +274,39 @@ impl Workspace {
         path: &Path,
         events: impl IntoIterator<Item = EventRecord>,
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
+        // Inferred links only associate successfully resolved tasks.
+        self.event_reference_diagnostics(
+            path,
+            events
+                .into_iter()
+                .filter(|e| e.tasks_override)
+                .flat_map(|e| e.tasks),
+        )
+    }
+
+    fn event_reference_diagnostics(
+        &self,
+        path: &Path,
+        references: impl IntoIterator<Item = plumb_semantics::TaskDependency>,
+    ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
         let mut diagnostics = Vec::new();
-        for event in events {
-            // Inferred links only associate successfully resolved tasks; they cannot add diagnostics.
-            if !event.tasks_override {
-                continue;
-            }
-            for reference in &self.event_task_references(path, &event)?.value {
-                if let Some(mut diagnostic) = self.task_target_diagnostic(
-                    path,
-                    &reference.source,
-                    &reference.range,
-                    &reference.target,
-                    "association",
-                )? {
-                    diagnostic.code = match diagnostic.code {
-                        "task.invalid-target" => "event.invalid-task-reference",
-                        "task.unresolved-path" => "event.unresolved-task-path",
-                        "task.unresolved-anchor" => "event.unresolved-task",
-                        "task.ambiguous-anchor" => "event.ambiguous-task",
-                        "task.non-task-target" => "event.target-not-task",
-                        code => code,
-                    };
-                    diagnostics.push(diagnostic);
-                }
+        for reference in references {
+            if let Some(mut diagnostic) = self.task_target_diagnostic(
+                path,
+                &reference.source,
+                &reference.range,
+                &reference.target,
+                "association",
+            )? {
+                diagnostic.code = match diagnostic.code {
+                    "task.invalid-target" => "event.invalid-task-reference",
+                    "task.unresolved-path" => "event.unresolved-task-path",
+                    "task.unresolved-anchor" => "event.unresolved-task",
+                    "task.ambiguous-anchor" => "event.ambiguous-task",
+                    "task.non-task-target" => "event.target-not-task",
+                    code => code,
+                };
+                diagnostics.push(diagnostic);
             }
         }
         Ok(diagnostics)
@@ -239,12 +315,12 @@ impl Workspace {
     fn task_workspace_diagnostics(
         &self,
         path: &Path,
-        tasks: &[TaskRecord],
+        tasks: &[TaskDiagnosticInput],
         cycle_members: &HashSet<TaskRef>,
     ) -> Result<Vec<Diagnostic>, WorkspaceQueryError> {
         let mut diagnostics = Vec::new();
         for (task_index, task) in tasks.iter().enumerate() {
-            let own_ref = TaskRef::from_task(path, &task);
+            let own_ref = TaskRef::from_parts(path, task.document_task, task.id.clone());
             if let Some(prev) = &task.prev {
                 let target = parse_task_reference_target(&prev.value);
                 if let Some(diagnostic) =
@@ -282,7 +358,7 @@ impl Workspace {
                             related: Vec::new(),
                         });
                     }
-                    if task.state() == TaskState::Done && target_task.state() == TaskState::Open {
+                    if target_task.state() == TaskState::Open {
                         blockers.push(ResolvedTaskDependency {
                             source: dependency.source.clone(),
                             target,
@@ -305,7 +381,7 @@ impl Workspace {
                     });
                 }
             }
-            if task.state() == TaskState::Done {
+            if task.state == TaskState::Done {
                 blockers.sort_by(|left, right| {
                     left.target
                         .path
@@ -326,10 +402,9 @@ impl Workspace {
                             if blockers.len() == 1 { "task" } else { "tasks" }
                         ),
                         range: task
-                            .done
+                            .done_range
                             .as_ref()
                             .expect("done task has a done field")
-                            .range
                             .clone(),
                         related: blockers
                             .iter()
@@ -342,18 +417,14 @@ impl Workspace {
                 let open_descendants = tasks[task_index + 1..]
                     .iter()
                     .take_while(|descendant| descendant.depth > task.depth)
-                    .filter(|descendant| descendant.state() == TaskState::Open)
+                    .filter(|descendant| descendant.state == TaskState::Open)
                     .filter(|descendant| {
-                        descendant
-                            .id
-                            .as_ref()
-                            .map(|id| id.value.as_str())
-                            .is_none_or(|id| {
-                                !blocker_targets.contains(&TaskRef {
-                                    path: path.to_path_buf(),
-                                    id: Some(id.to_owned()),
-                                })
+                        descendant.id.as_ref().map(String::as_str).is_none_or(|id| {
+                            !blocker_targets.contains(&TaskRef {
+                                path: path.to_path_buf(),
+                                id: Some(id.to_owned()),
                             })
+                        })
                     })
                     .collect::<Vec<_>>();
                 if !open_descendants.is_empty() {
@@ -370,10 +441,9 @@ impl Workspace {
                             }
                         ),
                         range: task
-                            .done
+                            .done_range
                             .as_ref()
                             .expect("done task has a done field")
-                            .range
                             .clone(),
                         related: open_descendants
                             .iter()
@@ -382,12 +452,7 @@ impl Workspace {
                     });
                 }
             }
-            if task.state() == TaskState::Open {
-                let blockers = self
-                    .task_dependencies_value(path, &task)?
-                    .into_iter()
-                    .filter(|dependency| dependency.task.state() == TaskState::Open)
-                    .collect::<Vec<_>>();
+            if task.state == TaskState::Open {
                 if !blockers.is_empty() {
                     diagnostics.push(Diagnostic {
                         code: "task.blocked",
@@ -472,6 +537,80 @@ impl Workspace {
 #[cfg(test)]
 mod cache_tests {
     use super::*;
+
+    #[test]
+    fn check_projection_does_not_decode_unused_task_event_or_link_records() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut cached = Workspace::with_sqlite_store(store.clone());
+        let mut memory = Workspace::new();
+        let path = Path::new("a.plumb");
+        let source = "`+ task\n`= title Document\n\n`- Task\n `+ task\n `@ item\n\n`- 2026-11-15T10:00:00Z Event\n `+ event\n\n`->{https://example.com}\n\nbroken {\n";
+        cached.insert_disk(path, 0, source).unwrap();
+        memory.open_document(path, 0, source);
+        let check = |workspace: &Workspace| {
+            let context = workspace.diagnostic_context().unwrap();
+            workspace
+                .check_diagnostics_with_context(path, &context)
+                .unwrap()
+                .value
+        };
+        let expected = check(&memory);
+        assert!(!expected.is_empty());
+        assert_eq!(check(&cached), expected);
+        store.execute_batch_for_test(
+            "UPDATE tasks SET record=X'ff'; UPDATE events SET record=X'ff'; UPDATE links SET record=X'ff'"
+        ).unwrap();
+        assert!(store.tasks_for_path(path).is_err());
+        assert!(store.events_for_path(path).is_err());
+        assert!(store.links_for_path(path).is_err());
+        assert_eq!(check(&cached), expected);
+    }
+
+    #[test]
+    fn check_projection_preserves_dependency_diagnostics_and_current_overlay() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut cached = Workspace::with_sqlite_store(store.clone());
+        let mut memory = Workspace::new();
+        let path = Path::new("a.plumb");
+        let source = "`- Closed\n `+ task\n `@ closed\n `= done 2026-11-15T10:00:00Z\n `= depends #open\n `- Child\n  `+ task\n  `@ child\n`- Open\n `+ task\n `@ open\n `= depends #open\n `= prev #missing\n`- Waiting\n `+ task\n `@ waiting\n `= depends #open\n`- 2026-11-15T10:00:00Z Event\n `+ event\n `= tasks #missing\n";
+        cached.insert_disk(path, 0, source).unwrap();
+        memory.open_document(path, 0, source);
+        let check = |workspace: &Workspace| {
+            let context = workspace.diagnostic_context().unwrap();
+            workspace
+                .check_diagnostics_with_context(path, &context)
+                .unwrap()
+                .value
+        };
+        let expected = check(&memory);
+        for code in [
+            "task.self-dependency",
+            "task.dependency-cycle",
+            "task.done-with-open-dependency",
+            "task.done-with-open-descendant",
+            "task.blocked",
+            "task.unresolved-anchor",
+            "event.unresolved-task",
+        ] {
+            assert!(
+                expected.iter().any(|d| d.code == code),
+                "missing {code}: {expected:?}"
+            );
+        }
+        assert_eq!(check(&cached), expected);
+        cached.open_document(path, 1, "Healthy overlay\n");
+        assert!(check(&cached).is_empty());
+        cached.remove(path);
+        assert_eq!(check(&cached), expected);
+        store
+            .execute_batch_for_test("UPDATE diagnostic_inputs SET record=X'ff'")
+            .unwrap();
+        let context = cached.diagnostic_context().unwrap();
+        assert!(cached
+            .check_diagnostics_with_context(path, &context)
+            .is_err());
+    }
+
     #[test]
     fn persistent_check_rejects_missing_or_corrupt_inputs_and_prefers_open_revision() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
@@ -523,7 +662,9 @@ mod local_publication_tests {
         assert!(workspace.document_local_diagnostics(path).is_empty());
         workspace.open_document(path, 3, "`broken{");
         let invalid = workspace.document_local_diagnostics(path);
-        assert!(invalid.iter().any(|d| d.code == "syntax.unclosed-inline-group"));
+        assert!(invalid
+            .iter()
+            .any(|d| d.code == "syntax.unclosed-inline-group"));
         assert!(!invalid.iter().any(|d| d.code == "metadata.duplicate-key"));
     }
 }

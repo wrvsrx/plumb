@@ -832,8 +832,16 @@ impl Workspace {
         from: &Path,
         link: &LinkRecord,
     ) -> Result<ResolvedTarget, WorkspaceQueryError> {
+        self.resolve_link_target_value(from, &link.target_kind)
+    }
+
+    fn resolve_link_target_value(
+        &self,
+        from: &Path,
+        target_kind: &LinkTarget,
+    ) -> Result<ResolvedTarget, WorkspaceQueryError> {
         let from = normalize(from);
-        Ok(match &link.target_kind {
+        Ok(match target_kind {
             LinkTarget::External => ResolvedTarget::External,
             LinkTarget::File { path } => {
                 let target = resolve_relative(&from, path);

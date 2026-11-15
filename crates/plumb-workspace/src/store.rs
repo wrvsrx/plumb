@@ -131,7 +131,7 @@ struct TaskFactSqlRow {
 
 type TaskCandidateSql<'a> = BoxedSqlQuery<'a, Sqlite, SqlQuery>;
 
-const SCHEMA_VERSION: i64 = 32;
+const SCHEMA_VERSION: i64 = 33;
 const PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -1061,6 +1061,38 @@ impl SqliteSemanticStore {
         rows.into_iter()
             .map(|bytes| Ok(bincode::deserialize(&bytes)?))
             .collect()
+    }
+
+    pub(crate) fn document_task_for_path(&self, path: &Path) -> StoreResult<Option<TaskRecord>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let record = tasks::table
+            .filter(tasks::path.eq(path_bytes(&normalize(path))))
+            .filter(tasks::document_task.eq(true))
+            .select(tasks::record)
+            .first::<Vec<u8>>(&mut *connection)
+            .optional()?;
+        record
+            .map(|bytes| Ok(bincode::deserialize(&bytes)?))
+            .transpose()
+    }
+
+    pub(crate) fn task_reference_ids(&self, path: &Path) -> StoreResult<Vec<Option<String>>> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| StoreError::LockPoisoned)?;
+        let rows = tasks::table
+            .filter(tasks::path.eq(path_bytes(&normalize(path))))
+            .filter(tasks::document_task.eq(true).or(tasks::id.is_not_null()))
+            .select((tasks::document_task, tasks::id))
+            .load::<(bool, Option<String>)>(&mut *connection)?;
+        Ok(rows
+            .into_iter()
+            .map(|(document, id)| if document { None } else { id })
+            .collect())
     }
 
     pub fn tasks_for_path(&self, path: &Path) -> StoreResult<Vec<TaskRecord>> {
@@ -2797,6 +2829,37 @@ mod tests {
             1
         );
         assert_eq!(store.tasks(&[]).unwrap()[0].record.title, "New");
+    }
+
+    #[test]
+    fn task_membership_and_document_lookup_do_not_decode_unrelated_task_records() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let path = Path::new("tasks.plumb");
+        let source =
+            "`+ task\n`= title Document\n`- Named\n `+ task\n `@ named\n`- Anonymous\n `+ task\n";
+        store
+            .replace(path, 1, source, Some(&analyzed(source)))
+            .unwrap();
+        store
+            .execute_batch_for_test("UPDATE tasks SET record=X'ff' WHERE document_task=0")
+            .unwrap();
+        assert!(store.tasks_for_path(path).is_err());
+        assert_eq!(
+            store.document_task_for_path(path).unwrap().unwrap().title,
+            "Document"
+        );
+        let mut ids = store.task_reference_ids(path).unwrap();
+        ids.sort();
+        assert_eq!(ids, vec![None, Some("named".to_owned())]);
+        store
+            .execute_batch_for_test("UPDATE tasks SET record=X'ff'")
+            .unwrap();
+        assert!(store.document_task_for_path(path).is_err());
+        assert_eq!(store.task_reference_ids(path).unwrap().len(), 2);
+        assert!(store
+            .task_reference_ids(Path::new("missing.plumb"))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

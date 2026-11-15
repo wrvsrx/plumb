@@ -43,6 +43,14 @@
   诊断输入必须产生相同结果，包含没有内存 DocumentEntry 的文档。跨文件 links、embeds、task prev/dependencies、
   event associations 和 cycles 仍针对当前 query snapshot 检查；外部文件存在性每轮读取。缓存命中不能跳过这些检查。
 
+ 持久诊断输入只保存检查实际使用的字段：Link target 与位置、Task identity/state/depth/selection/prev/depends/done
+  位置、显式 Event tasks references，以及 local diagnostics 和 embeds。基础 check 不为这些输入读取完整
+  TaskRecord、EventRecord 或 LinkRecord；目标解析仍可按需读取被引用的目标。task cycle context 只读取身份与依赖边，
+  不读取 title、priority、focus history 等无关字段。一次任务检查只解析每个 depends occurrence 一次，并复用同一结果
+  生成 self、closed dependency 和 blocked 诊断。输入投影与原 document generation 同事务替换，改变持久形状必须
+  更新 schema epoch。验证覆盖 cached/memory/overlay parity、错误与 related ranges，以及未使用完整 records 损坏时
+  窄查询仍可成功；被实际读取的输入损坏必须失败。
+
 `# 3. Syntax categories
 
  `- structural：top-level indentation、tab indentation、partial dedent 与 illegal parsed control。
