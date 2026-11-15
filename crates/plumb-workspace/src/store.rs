@@ -1250,7 +1250,6 @@ impl SqliteSemanticStore {
                 .filter(tasks::path.eq(path))
                 .filter(tasks::start.eq_any(starts))
                 .select((tasks::path, documents::revision, tasks::record))
-                .order((tasks::document_task.desc(), tasks::start))
                 .load::<(Vec<u8>, i64, Vec<u8>)>(&mut *connection)?;
             records.extend(decode_records(rows.into_iter().map(Ok), &[])?);
         }
@@ -1258,6 +1257,10 @@ impl SqliteSemanticStore {
             left.path
                 .cmp(&right.path)
                 .then(left.record.range.start.cmp(&right.record.range.start))
+                .then_with(|| {
+                    (right.record.owner == TaskOwner::Document)
+                        .cmp(&(left.record.owner == TaskOwner::Document))
+                })
         });
         Ok(records)
     }
@@ -2854,6 +2857,44 @@ mod tests {
             assert!(details.iter().any(|d| d.contains(&format!("COVERING INDEX {index}"))), "{details:?}");
             assert!(!details.iter().any(|d| d.contains("TEMP B-TREE")), "{details:?}");
         }
+        // The covering source-order index must not make exact anchor lookup
+        // scan every anchor in a document just to avoid sorting a few matches.
+        let details = diesel::sql_query(
+            "EXPLAIN QUERY PLAN SELECT record FROM anchors WHERE path = X'61' AND id = 'target' ORDER BY start"
+        )
+        .load::<Plan>(&mut *connection)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.detail)
+        .collect::<Vec<_>>();
+        assert!(details.iter().any(|d| d.contains("anchors_identity (path=? AND id=?)")), "{details:?}");
+        assert!(!details.iter().any(|d| d.contains("TEMP B-TREE")), "{details:?}");
+        let details = diesel::sql_query(
+            "EXPLAIN QUERY PLAN SELECT tasks.path, documents.revision, tasks.record FROM tasks INNER JOIN documents ON documents.path=tasks.path WHERE tasks.path=X'61' AND tasks.start IN (0, 10)"
+        )
+        .load::<Plan>(&mut *connection)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.detail)
+        .collect::<Vec<_>>();
+        assert!(details.iter().any(|d| d.contains("tasks_source_order (path=? AND start=?)")), "{details:?}");
+    }
+
+    #[test]
+    fn keyed_task_hydration_keeps_document_before_list_with_equal_owner_start() {
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let path = Path::new("tasks.plumb");
+        let source = "`- First\n `+ task\n `@ first\n\n`+ task\n`= title Document\n";
+        store.replace(path, 0, source, Some(&analyzed(source))).unwrap();
+        let keys = store.task_identities(&[]).unwrap().into_iter().map(|task| StoredTaskKey {
+            path: task.path,
+            start: task.start,
+        }).collect::<Vec<_>>();
+        let records = store.tasks_by_keys(&keys).unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].record.range.start, records[1].record.range.start);
+        assert_eq!(records[0].record.owner, TaskOwner::Document);
+        assert_eq!(records[1].record.owner, TaskOwner::ListItem);
     }
 
     #[test]

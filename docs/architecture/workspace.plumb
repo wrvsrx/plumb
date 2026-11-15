@@ -130,6 +130,11 @@
  全量 task/anchor identity projection 使用与 source ordering 一致的 covering indexes，避免为了读取轻量身份
   回表访问含完整 record 的页面或建立临时排序。document-local task membership 复用同一索引的 path 前缀。
   query-plan tests 必须验证 covering scan/search 与无临时排序；索引更新仍与 generation publication 同事务。
+  anchor 精确查询的索引同时覆盖 path、id 约束与 start 顺序，防止 source-order 索引让 planner 为每个目标
+  扫描整篇文档的 anchors。精确查询的计划必须同时约束 path 与 id，而非仅保证使用某个索引。
+  按 task source keys hydrate 时使用 path/start 索引限定实际候选，不在 SQL 中按 document-owner 排序而诱导整篇
+  扫描。返回的有界 records 在 Rust 中按 path、owner range start 排序；相同 range start 时 document task 在前，
+  包括 document facet 写在首个列表任务之后的情况。
 
  Event policy 的跨轮增量状态与上述 AccountingContext 分离：每轮从当前 snapshot 重新确认 typed inputs 与目标 facts，仅当分类依赖相等时复用成功结论；非法输入重新生成 issues。Timeline 保留边界拓扑并更新变化区域。两条规则每轮重绑定 source locations，均不持久化最终诊断，也不跨 revision 复用未验证的目标解析。无 filter 的全量 policy 输入直接读取 typed event records，避免先构造通用 search results 再重新读取事件。详见 semantic-analysis 的 Incremental event policy checks。
 
