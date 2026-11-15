@@ -109,6 +109,7 @@ try {
     assert.deepEqual(await evaluate(`[...document.querySelectorAll('#task-panel .node-breadcrumbs button')].map(b => b.textContent)`), ['Notebook', 'Top section', 'Nested']);
     assert.equal(await evaluate(`(${row})('Nested task').querySelector('.task-ancestry').textContent`), 'Notebook / Top section / Nested');
     assert.equal(await evaluate(`(${row})('Nested task').querySelector('.task-ancestry').title`), 'Notebook / Top section / Nested');
+    assert.equal(await evaluate(`(() => { const row = (${row})('Nested task'); return row.querySelector('.task-ancestry').getBoundingClientRect().bottom <= row.querySelector('strong').getBoundingClientRect().top; })()`), true);
     assert.equal(await evaluate(`document.querySelector('#task-panel .task-fields').textContent.includes('nested')`), true);
     await evaluate(`Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: async text => { window.copiedId = text; }}}); [...document.querySelectorAll('#task-panel button')].find(b => b.textContent === 'Copy ID').click()`);
     await until(() => evaluate(`window.copiedId === 'nested'`), 'copy ID missing');

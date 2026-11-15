@@ -1680,7 +1680,7 @@ import {
     source.className = 'task-ancestry';
     source.textContent = ancestry.map(shortAncestorLabel).join(' / ');
     source.title = ancestry.join(' / ');
-    identity.append(title, source);
+    identity.append(source, title);
     const spent = document.createElement('small');
     spent.className = 'task-time-spent';
     spent.textContent = `Time spent: ${taskTimeSpent(task)}`;
