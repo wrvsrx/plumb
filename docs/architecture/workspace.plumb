@@ -71,10 +71,16 @@
   content hash 复用未变 generation；mtime 不是 cache identity。命令固定一次 now，缓存不保存最终 CEL 结果、
   时间状态或显示排序。显式 --no-cache 使用同一 loader 的 memory backend，用于结果一致性对照。
 
- loader 必须在 SQLite immediate transaction 内读取 cached hashes、完成 batch reconcile 并取得 detached readonly
-  query snapshot，然后结束事务；命令的多次关系查询只能读取该 immutable snapshot，不受其它 CLI/Web/LSP writer
-  影响，也不混入其它进程的 unsaved buffers。命令读取的 source bytes 与 hash、local facts、diagnostics 必须对应同一
-  generation。该规则不承诺多文件磁盘原子快照。交互等待和文件编辑不得持有 database write transaction。
+ loader 在 SQLite immediate transaction 内读取 cached hashes、完成 batch reconcile 并记录 generation identity 与
+  sequence，提交后固定 query-only read transaction，并在该 read snapshot 内核对同一 generation token。
+  正常路径不得序列化或复制整库；固定快照只读取常数个 token rows，成本不随无关数据库内容增长。
+  若其它 writer 在交接期间改变 generation，则丢弃该 read transaction，重新 reconcile 并在 immediate transaction
+  内取得 detached readonly snapshot 作为有界回退，不循环重试或返回混合版本。两条路径的多次关系查询都只能读取
+  immutable snapshot，不受其它 CLI/Web/LSP writer 影响，也不混入其它进程的 unsaved buffers。
+  命令读取的 source bytes 与 hash、local facts、diagnostics 必须对应同一 generation。该规则不承诺多文件磁盘原子快照。
+  交互等待和文件编辑不得持有 database write transaction；read snapshot 可以延迟 WAL checkpoint，但不能阻塞 writer。
+  snapshot 持有 namespace lease 到最后一个 clone 释放，防止 cache prune 删除仍在使用的数据库。
+  验证覆盖新增、替换、删除、交接竞争、旧快照隔离、只读约束、lease 生命周期与 memory backend parity。
 
  source bytes 可为 preview、diagnostic location 和 lazy mutation materialization 保存，但热缓存 query/check 不得
   重建全库 syntax trees。local diagnostic input 与其它 records 同事务保存，包括 syntax-invalid document；错误 owner/subtree

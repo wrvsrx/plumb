@@ -305,6 +305,13 @@ pub struct SqliteSemanticStore {
     _lease: Option<CacheNamespaceLease>,
 }
 
+/// Identifies an exact committed set of document generations, including deletions.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StoreGeneration {
+    identity: Vec<u8>,
+    sequence: i64,
+}
+
 pub(crate) struct StoredGeneration<'a> {
     pub path: &'a Path,
     pub revision: i64,
@@ -549,6 +556,36 @@ impl SqliteSemanticStore {
         rows.into_iter()
             .map(|bytes| Ok(bincode::deserialize(&bytes)?))
             .collect()
+    }
+
+    pub(crate) fn generation(&self) -> StoreResult<StoreGeneration> {
+        use schema::generation_clock as clock;
+        let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
+        let (identity, sequence) = clock::table
+            .select((clock::identity, clock::sequence))
+            .first(&mut *connection)?;
+        Ok(StoreGeneration { identity, sequence })
+    }
+
+    /// Consume a command-owned connection after committing its indexing transaction.
+    /// The first read pins the WAL snapshot before checking the expected generation.
+    /// A concurrent publication requires reconciliation, never querying mixed versions.
+    pub(crate) fn into_readonly_generation(
+        self,
+        expected: StoreGeneration,
+    ) -> StoreResult<Option<Self>> {
+        {
+            let mut connection = self.connection.lock().map_err(|_| StoreError::LockPoisoned)?;
+            connection.batch_execute("PRAGMA query_only = ON")?;
+            AnsiTransactionManager::begin_transaction_sql(&mut *connection, "BEGIN DEFERRED")?;
+        }
+        if self.generation()? == expected {
+            Ok(Some(self))
+        } else {
+            // No clones escape the command's indexing round. Dropping the rejected
+            // connection releases the read transaction and namespace lease.
+            Ok(None)
+        }
     }
 
     pub fn readonly_snapshot(&self) -> StoreResult<Self> {
@@ -2760,6 +2797,56 @@ mod tests {
             1
         );
         assert_eq!(store.tasks(&[]).unwrap()[0].record.title, "New");
+    }
+
+    #[test]
+    fn pinned_generation_keeps_old_rows_allows_writers_and_retains_namespace_lease() {
+        use crate::cache::{inspect_cache_namespace, CacheNamespaceState};
+        let directory = tempfile::tempdir().unwrap();
+        let db = directory.path().join("semantic.sqlite3");
+        let store = SqliteSemanticStore::open(&db).unwrap();
+        let path = Path::new("tasks.plumb");
+        let first = "`- First\n `+ task\n `@ first\n";
+        store.replace(path, 1, first, Some(&analyzed(first))).unwrap();
+        let generation = store.generation().unwrap();
+        let snapshot = store.into_readonly_generation(generation).unwrap().unwrap();
+        let writer = SqliteSemanticStore::open(&db).unwrap();
+        let second = "`- Second\n `+ task\n `@ second\n";
+        writer.replace(path, 2, second, Some(&analyzed(second))).unwrap();
+        writer.remove(path).unwrap();
+        writer.replace(Path::new("new.plumb"), 3, second, Some(&analyzed(second))).unwrap();
+        assert_eq!(snapshot.tasks(&[]).unwrap()[0].record.title, "First");
+        assert_eq!(snapshot.documents().unwrap()[0].path, path);
+        assert_eq!(writer.documents().unwrap()[0].path, Path::new("new.plumb"));
+        assert!(snapshot.replace(path, 4, second, Some(&analyzed(second))).is_err());
+        // A rejected write must not discard the read transaction.
+        assert_eq!(snapshot.tasks(&[]).unwrap()[0].record.title, "First");
+        drop(writer);
+        let clone = snapshot.clone();
+        drop(snapshot);
+        assert_eq!(inspect_cache_namespace(directory.path()).unwrap().state, CacheNamespaceState::Active);
+        drop(clone);
+        assert_eq!(inspect_cache_namespace(directory.path()).unwrap().state, CacheNamespaceState::Inactive);
+    }
+
+    #[test]
+    fn pinned_generation_rejects_commit_handoff_races_including_delete_and_recreate() {
+        for delete in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let db = directory.path().join("semantic.sqlite3");
+            let store = SqliteSemanticStore::open(&db).unwrap();
+            let path = Path::new("tasks.plumb");
+            let source = "`- First\n `+ task\n `@ first\n";
+            store.replace(path, 1, source, Some(&analyzed(source))).unwrap();
+            let generation = store.generation().unwrap();
+            let writer = SqliteSemanticStore::open(&db).unwrap();
+            writer.remove(path).unwrap();
+            if !delete {
+                // Equal source bytes still represent a later publication.
+                writer.replace(path, 2, source, Some(&analyzed(source))).unwrap();
+            }
+            assert!(store.into_readonly_generation(generation).unwrap().is_none());
+        }
     }
 
     #[test]

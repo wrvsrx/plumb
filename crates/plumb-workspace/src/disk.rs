@@ -63,6 +63,16 @@ impl DiskWorkspace {
         }
     }
     pub fn load(root: &Path, cache_path: Option<&Path>) -> Result<Self, DiskLoadError> {
+        Self::load_with_snapshot_handoff(root, cache_path, || {})
+    }
+
+    // The handoff hook lets concurrency tests deterministically publish between
+    // commit and the first snapshot read instead of relying on thread scheduling.
+    fn load_with_snapshot_handoff(
+        root: &Path,
+        cache_path: Option<&Path>,
+        before_snapshot: impl FnOnce(),
+    ) -> Result<Self, DiskLoadError> {
         let now = Local::now().fixed_offset();
         let root = normalize(root);
         let scan_started = std::time::Instant::now();
@@ -101,12 +111,28 @@ impl DiskWorkspace {
         let mut snapshot_time = std::time::Duration::ZERO;
         let persistent = cache_path.map(|path| -> Result<_, DiskLoadError> {
             let store = SqliteSemanticStore::open(path)?;
+            let (batch, generation) = store.isolated_update(|| {
+                let mut w = Workspace::with_sqlite_store(store.clone());
+                let batch = prepare(&mut w)?;
+                Ok::<_, DiskLoadError>((batch, store.generation()?))
+            })?;
+            before_snapshot();
+            let started = std::time::Instant::now();
+            let snapshot = store.into_readonly_generation(generation)?;
+            snapshot_time = started.elapsed();
+            if let Some(snapshot) = snapshot {
+                return Ok((Workspace::with_sqlite_store(snapshot), batch));
+            }
+
+            // Another writer won the commit/read handoff. Reconcile fresh sources
+            // under the write lock and detach there, bounding retries under contention.
+            let store = SqliteSemanticStore::open(path)?;
             store.isolated_update(|| {
                 let mut w = Workspace::with_sqlite_store(store.clone());
                 let batch = prepare(&mut w)?;
                 let started = std::time::Instant::now();
                 let snapshot = store.readonly_snapshot()?;
-                snapshot_time = started.elapsed();
+                snapshot_time += started.elapsed();
                 Ok((Workspace::with_sqlite_store(snapshot), batch))
             })
         });
@@ -247,7 +273,7 @@ impl DiskWorkspace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn diagnostics(loaded: &DiskWorkspace) -> BTreeMap<PathBuf, Vec<WorkspaceDiagnostic>> {
+    pub(super) fn diagnostics(loaded: &DiskWorkspace) -> BTreeMap<PathBuf, Vec<WorkspaceDiagnostic>> {
         let context = loaded.workspace.diagnostic_context().unwrap();
         loaded
             .sources
@@ -418,8 +444,28 @@ mod tests {
 #[cfg(test)]
 mod consistency_tests {
     use super::*;
+    use super::tests::diagnostics;
     use chrono::DateTime;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    #[test]
+    fn competing_publication_at_snapshot_handoff_reconciles_sources() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("a.plumb");
+        let db = temp.path().join("cache/a.sqlite3");
+        let original = "`- Original\n `+ task\n `@ original\n";
+        let replacement = "`- Replacement\n `+ task\n `@ replacement\n";
+        std::fs::write(&path, original).unwrap();
+        let loaded = DiskWorkspace::load_with_snapshot_handoff(temp.path(), Some(&db), || {
+            std::fs::write(&path, replacement).unwrap();
+            DiskWorkspace::load(temp.path(), Some(&db)).unwrap();
+        }).unwrap();
+        assert!(loaded.cache_warning.is_none());
+        assert_eq!(loaded.source(&path), Some(replacement));
+        let records = loaded.workspace.disk_store.as_ref().unwrap().tasks_for_path(&path).unwrap();
+        assert_eq!(records[0].id.as_ref().unwrap().value, "replacement");
+        assert_eq!(diagnostics(&loaded), diagnostics(&DiskWorkspace::load(temp.path(), None).unwrap()));
+    }
 
     #[test]
     fn immutable_query_snapshot_survives_another_writer_and_supports_sql_functions() {
