@@ -216,18 +216,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-list { width: 100%; --task-disclosure-width: 22px; --task-state-width: 86px; --task-indent: 20px; --task-row-gap: 14px; --task-row-inset: 5px; }
 .load-more-tasks { display: block; min-height: 38px; margin: 12px auto 18px; padding: 7px 14px; }
 .task-document-group {
-  position: sticky; top: 0; z-index: 2; padding: 6px 16px; border-bottom: 1px solid var(--border);
-  background: var(--group); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px; font-weight: 700; overflow-wrap: anywhere;
+  padding: 6px 16px; border-bottom: 0;
+  background: transparent; color: var(--muted); font-family: inherit;
+  font-size: 12px; font-weight: 400; overflow-wrap: anywhere;
 }
 .task-document-toggle {
   width: 100%; min-height: 0; display: grid; grid-template-columns: var(--task-disclosure-width) minmax(0, 1fr) auto;
   align-items: center; gap: 5px; padding-left: calc(12px + var(--task-depth, 0) * var(--task-indent)); border: 0; border-radius: 0; text-align: left; cursor: pointer;
 }
-.task-document-toggle:hover { background: var(--group-hover); }
+.task-document-root .task-context-segment:first-child { font-weight: 500; }
 .task-document-toggle.collapsed { color: var(--secondary); }
 .task-document-path { min-width: 0; overflow-wrap: anywhere; }
-.task-document-count { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 5px; color: var(--count); font-weight: 600; white-space: nowrap; }
+.task-document-count { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 5px; color: var(--muted); font-weight: 400; font-size: 11px; white-space: nowrap; }
 .task-disclosure {
   width: var(--task-disclosure-width); min-height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 0;
   background: transparent; color: var(--muted); font-size: 11px; line-height: 1;
@@ -539,6 +539,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 
 .task-document-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px; }
 .task-context-segment { border: 0; background: transparent; color: inherit; font: inherit; padding: 2px 0; min-width: 0; text-align: left; overflow-wrap: anywhere; }
-.task-context-segment:hover { text-decoration: underline; }
+.task-context-segment:hover { color: var(--ink); text-decoration: underline; }
 
 .task-context-segment[aria-current="true"] { color: var(--teal); text-decoration: underline; }
+
+.task-context-separator { opacity: .55; }
+.task-document-group > .task-disclosure, .task-document-count { opacity: .7; }
+.task-document-group > .task-disclosure:hover, .task-document-group > .task-disclosure:focus-visible { opacity: 1; }

@@ -1633,6 +1633,7 @@ import {
   function taskDocumentItem(item) {
     const heading = document.createElement('div');
     heading.className = 'task-document-group task-document-toggle';
+    heading.classList.toggle('task-document-root', item.kind === 'document');
     heading.dataset.contextKey = item.key || item.path;
     heading.style.setProperty('--task-depth', item.depth);
     heading.classList.toggle('collapsed', item.collapsed);
@@ -1656,6 +1657,7 @@ import {
       if (index) {
         const separator = document.createElement('span');
         separator.textContent = ' / ';
+        separator.className = 'task-context-separator';
         separator.setAttribute('aria-hidden', 'true');
         path.append(separator);
       }
