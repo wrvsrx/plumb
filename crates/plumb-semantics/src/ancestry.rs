@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct NodeAncestor {
     pub start: usize,
     pub title: String,
+    pub facet: bool,
 }
 
 pub(crate) fn ancestor_label(block: &ParsedBlock) -> Option<NodeAncestor> {
@@ -18,6 +19,7 @@ pub(crate) fn ancestor_label(block: &ParsedBlock) -> Option<NodeAncestor> {
     (!title.is_empty()).then(|| NodeAncestor {
         start: block.range.start,
         title,
+        facet: block.mark.as_ref().is_some_and(|mark| mark.attrs.has_class("task") || mark.attrs.has_class("event")),
     })
 }
 

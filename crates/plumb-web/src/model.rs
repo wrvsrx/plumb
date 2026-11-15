@@ -142,6 +142,8 @@ pub enum WebTaskLocator {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebTask {
+    pub context: Vec<plumb_semantics::NodeAncestor>,
+    pub source_start: usize,
     pub ancestry: Vec<String>,
     pub matched: bool,
     pub key: String,
@@ -880,6 +882,8 @@ impl WebWorkspace {
             let focused_since = task.focused_since().map(str::to_string);
             let focus_intervals = web_focus_intervals(&task);
             tasks.push(WebTask {
+                context: task.ancestors.clone(),
+                source_start: task.range.start,
                 ancestry: std::iter::once(self.title(&record.path)).chain(task.ancestors.iter().map(|ancestor| ancestor.title.clone())).collect(),
                 matched: true,
                 key,
@@ -1981,6 +1985,9 @@ mod tests {
             let page = workspace.query_tasks(&query).unwrap();
             assert_eq!(page.tasks.len(), 1);
             assert_eq!(page.tasks[0].ancestry, ["找工作", "字节"]);
+            assert_eq!(page.tasks[0].context[0].title, "字节");
+            assert_eq!(page.tasks[0].context[0].start, source.find("`- 字节").unwrap());
+            assert!(!page.tasks[0].context[0].facet);
         }
         let old = workspace.clone();
         let unrelated = root.join("other-0.plumb");
@@ -2000,6 +2007,26 @@ mod tests {
         std::fs::write(&path, source).unwrap();
         workspace.refresh_document(&path, 5).unwrap();
         assert_eq!(workspace.query_tasks(&query).unwrap().tasks[0].ancestry, ["找工作", "字节"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn context_projection_keeps_complete_filtered_documents_before_paging() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let source = "`= title Jobs\n\n`- Byte\n `- Match one\n  `+ task\n  `@ one\n `- Match two\n  `+ task\n  `@ two\n`- Other\n `- Excluded\n  `+ task\n  `@ excluded\n";
+        std::fs::write(root.join("a.plumb"), source).unwrap();
+        std::fs::write(root.join("b.plumb"), source).unwrap();
+        let workspace = WebWorkspace::load_with_revision(&root, 1).unwrap();
+        let query = WebQuery { view: WebView::Tasks, query: "Match".into(), limit: Some(1), ..Default::default() };
+        let first = workspace.query_tasks(&query).unwrap();
+        assert_eq!(first.tasks.len(), 2);
+        assert!(first.tasks.iter().all(|t| t.path == "a.plumb" && t.matched && t.context.len() == 1 && t.context[0].title == "Byte"));
+        let second = workspace.query_tasks(&WebQuery { cursor: first.next_cursor.clone(), ..query }).unwrap();
+        assert_eq!(second.tasks.len(), 2);
+        assert!(second.complete);
+        assert!(second.tasks.iter().all(|t| t.path == "b.plumb"));
+        assert!(workspace.documents.values().all(|doc| doc.materializations.load(std::sync::atomic::Ordering::Relaxed) == 0));
         std::fs::remove_dir_all(root).unwrap();
     }
 
