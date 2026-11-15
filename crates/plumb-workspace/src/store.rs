@@ -2832,6 +2832,31 @@ mod tests {
     }
 
     #[test]
+    fn identity_projections_use_covering_indexes_without_temporary_sorting() {
+        #[derive(QueryableByName)]
+        struct Plan {
+            #[diesel(sql_type = Text)]
+            detail: String,
+        }
+        let store = SqliteSemanticStore::open_in_memory().unwrap();
+        let mut connection = store.connection.lock().unwrap();
+        for (query, index) in [
+            ("SELECT document_task, path, start, id, closure_state FROM tasks ORDER BY path, document_task DESC, start", "tasks_ordered_identity"),
+            ("SELECT path, id FROM anchors ORDER BY path, start", "anchors_source_identity"),
+            ("SELECT document_task, id FROM tasks WHERE path = X'61' AND (document_task = 1 OR id IS NOT NULL)", "tasks_ordered_identity"),
+        ] {
+            let details = diesel::sql_query(format!("EXPLAIN QUERY PLAN {query}"))
+                .load::<Plan>(&mut *connection)
+                .unwrap()
+                .into_iter()
+                .map(|p| p.detail)
+                .collect::<Vec<_>>();
+            assert!(details.iter().any(|d| d.contains(&format!("COVERING INDEX {index}"))), "{details:?}");
+            assert!(!details.iter().any(|d| d.contains("TEMP B-TREE")), "{details:?}");
+        }
+    }
+
+    #[test]
     fn task_membership_and_document_lookup_do_not_decode_unrelated_task_records() {
         let store = SqliteSemanticStore::open_in_memory().unwrap();
         let path = Path::new("tasks.plumb");

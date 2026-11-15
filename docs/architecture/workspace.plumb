@@ -127,6 +127,10 @@
   resident current-valid view、pending/invalid overlay 与 closed disk 的遮蔽规则保持一致；测试以未使用 task BLOB
   损坏和 memory/disk/overlay parity 验证窄查询边界。
 
+ 全量 task/anchor identity projection 使用与 source ordering 一致的 covering indexes，避免为了读取轻量身份
+  回表访问含完整 record 的页面或建立临时排序。document-local task membership 复用同一索引的 path 前缀。
+  query-plan tests 必须验证 covering scan/search 与无临时排序；索引更新仍与 generation publication 同事务。
+
  Event policy 的跨轮增量状态与上述 AccountingContext 分离：每轮从当前 snapshot 重新确认 typed inputs 与目标 facts，仅当分类依赖相等时复用成功结论；非法输入重新生成 issues。Timeline 保留边界拓扑并更新变化区域。两条规则每轮重绑定 source locations，均不持久化最终诊断，也不跨 revision 复用未验证的目标解析。无 filter 的全量 policy 输入直接读取 typed event records，避免先构造通用 search results 再重新读取事件。详见 semantic-analysis 的 Incremental event policy checks。
 
  Task CEL optimization 先把 parsed CEL AST 中可证明 exact 且 total 的 typed predicate 降为 protocol-neutral candidate IR，再由 store 编译为带 bind parameters 的 SQLite condition。Store 只能从固定 column、operator、 derived-state spelling 与 typed literal 白名单生成 SQL；不得拼接 CEL source 或 user values。SQL 结果只是完整 CEL result 的 candidate superset，原始 CEL Program 仍对每个 candidate 作最终求值并拥有 bool/error semantics。 不支持、类型不确定或依赖 open-overlay relation 的 expression 保持 Rust-only，不得用近似 SQL 改变结果。
