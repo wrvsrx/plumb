@@ -27,7 +27,7 @@ use tower_http::services::ServeFile;
 use crate::presentation::{
     render_backlinks, render_index, render_note_page, AGENDA_STATE_JS, APP_JS, FOCUS_JS,
     FORCE_GRAPH_JS, FORCE_GRAPH_LICENSE, QUERY_STATE_JS, REVISION_STATE_JS, STYLES_CSS,
-    TASK_CONTEXT_JS, TASK_TREE_JS, TASK_UI_JS,
+    TASK_CONTEXT_JS, TASK_STICKY_JS, TASK_TREE_JS, TASK_UI_JS,
 };
 use crate::{
     render_note_html, GraphDirection, GraphQuery, WebEventInput, WebEventLocator, WebQuery,
@@ -198,6 +198,7 @@ fn router(state: AppState) -> Router {
         .route("/query-state.js", get(query_state_js))
         .route("/task-ui.js", get(task_ui_js))
         .route("/task-tree.js", get(task_tree_js))
+        .route("/task-sticky.js", get(task_sticky_js))
         .route("/task-context.js", get(task_context_js))
         .route("/focus.js", get(focus_js))
         .route("/revision-state.js", get(revision_state_js))
@@ -784,6 +785,10 @@ async fn task_context_js() -> Response {
     asset("application/javascript; charset=utf-8", TASK_CONTEXT_JS)
 }
 
+async fn task_sticky_js() -> Response {
+    asset("application/javascript; charset=utf-8", TASK_STICKY_JS)
+}
+
 async fn task_tree_js() -> Response {
     asset("application/javascript; charset=utf-8", TASK_TREE_JS)
 }
@@ -1268,6 +1273,7 @@ mod tests {
             "/agenda-state.js",
             "/task-ui.js",
             "/task-tree.js",
+            "/task-sticky.js",
             "/task-context.js",
             "/focus.js",
         ] {

@@ -546,3 +546,30 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .task-context-separator { opacity: .55; }
 .task-document-group > .task-disclosure, .task-document-count { opacity: .7; }
 .task-document-group > .task-disclosure:hover, .task-document-group > .task-disclosure:focus-visible { opacity: 1; }
+
+/* A zero-height sticky host preserves scroll geometry as context changes. */
+.task-list-pane { --task-sticky-height: 40px; scroll-padding-top: var(--task-sticky-height); }
+.task-sticky-host { position: sticky; top: 0; height: 0; z-index: 5; }
+.task-sticky-context {
+  height: var(--task-sticky-height); display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  background: var(--paper); border-bottom: 1px solid var(--border); color: var(--muted);
+  font-size: 12px; visibility: hidden;
+}
+.task-sticky-context.is-visible { visibility: visible; }
+.task-sticky-context > button { flex: 0 1 auto; }
+.task-sticky-context > button:last-child { color: var(--ink); }
+.task-sticky-context button {
+  min-width: 24px; border: 0; background: transparent; padding: 4px 2px;
+  text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit;
+}
+.task-sticky-context button:hover { text-decoration: underline; }
+.task-sticky-context > span, .task-sticky-context details { flex: 0 0 auto; }
+.task-sticky-context summary { cursor: pointer; list-style: none; padding: 8px; }
+.task-sticky-context summary::-webkit-details-marker { display: none; }
+.task-sticky-ancestors {
+  position: absolute; top: var(--task-sticky-height); left: 12px; right: 12px; padding: 6px;
+  display: flex; flex-direction: column; max-height: min(40vh, 260px); overflow: auto;
+  border: 1px solid var(--border); background: var(--paper); box-shadow: 0 4px 12px #0002;
+}
+
+.task-sticky-ancestors > button { flex: 0 0 auto; }

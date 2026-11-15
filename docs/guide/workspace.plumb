@@ -85,6 +85,9 @@
   例如找工作 / 国内 / 字节；每一段都可打开详情。遇到分叉或 task/event 节点停止合并。
   单子节点由完整筛选结果决定，Load more 按完整文档追加，不会拆开已显示的紧凑行；改变筛选时结构随结果变化。
   折叠按钮与标题点击分开；计数只统计任务。上下文详情位置绑定文档 revision，来源改变后须重新选择。
+  向下滚动后，列表顶部固定显示当前阅读位置的祖先路径；切换分支时自动更新，回到起点时隐藏。
+  点击路径段回到对应祖先行，不改变当前选择或打开详情。深层路径保留文档根与最近父节点，
+  中间层通过省略控件展开；可用键盘操作。固定路径在窄屏也只占一行，长标题悬停可查看完整文本。
   长标题缩略显示，悬停可查看完整文本。ID 仍可搜索，并在任务详情中查看和复制。详情保留层级路径，窄屏自动换行。
 
  Agenda 按 at 或 start、path 和 source position 显示 point/closed/running events。Loopback server 上可以从已索引 document 创建 event，或通过 revision-guarded operation 编辑、删除已有 event。Event detail 显示 at/start/end、task references 与富文本正文。Event form 显式选择 Point 或 Interval，空 interval end 表示 running，不能再用空 end 表示 point。Agenda 初次打开时定位到当前时间；`"Now" button 随时跳回 当前时间，即使当天没有 event 也显示当天和当前时间 marker。大 agenda 只渲染当前时间附近的有界 window， 使用 Earlier/Later controls 按页浏览其余 events；显式 URL selection 会打开包含目标 event 的 window。 Mobile Web mutation 初版要求在线，不缓存待提交 edits。

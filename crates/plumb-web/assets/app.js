@@ -17,6 +17,7 @@ import {
 } from './agenda-state.js';
 import { EDITABLE_TASK_PROPERTIES, missingTaskProperties, taskTimeSpent } from './task-ui.js';
 import { revealTask, taskListItems } from './task-tree.js';
+import { installTaskStickyContext } from './task-sticky.js';
 import { captureTaskContext, reconcileTaskContext, reconcileTaskViewport, taskQueryScope, queryTaskContext, taskSelectionRequest } from './task-context.js';
 import {
   focusAge,
@@ -119,6 +120,7 @@ import {
   const taskSearch = document.getElementById('task-search');
   const taskSummary = document.getElementById('task-summary');
   const taskList = document.getElementById('task-list');
+  const taskSticky = installTaskStickyContext(taskList, document.getElementById('task-sticky-context'));
   const taskEmpty = document.getElementById('task-empty');
   const taskPanel = document.getElementById('task-panel');
   const newTaskButton = document.getElementById('new-task');
@@ -1792,7 +1794,8 @@ import {
     // Focused-first is the fixed primary order; the ordinary sort keys apply
     // only inside each focused group.
     taskSummary.textContent = `${tasks.filter((task) => task.matched !== false).length} tasks${state.tasks.complete ? '' : ' (truncated)'} · focused first`;
-    taskListItems(tasks, state.collapsed).forEach((item) => {
+    const items = taskListItems(tasks, state.collapsed);
+    items.forEach((item) => {
       taskList.append(item.kind === 'group' ? unfocusedGroupItem(item)
         : item.kind === 'document' || item.kind === 'context' ? taskDocumentItem(item) : taskListItem(item));
     });
@@ -1804,6 +1807,7 @@ import {
       more.addEventListener('click', () => loadTasks(state.tasks.nextCursor));
       taskList.append(more);
     }
+    taskSticky.reset(items);
     if (state.taskContext) {
       renderNodeDetail(taskPanel, state.taskContext);
     } else if (state.selectedTask) {
@@ -1929,7 +1933,7 @@ import {
       if (row) {
         const rect = row.getBoundingClientRect();
         const pane = taskList.parentElement.getBoundingClientRect();
-        const top = Math.max(0, pane.top);
+        const top = Math.max(0, pane.top) + parseFloat(getComputedStyle(taskList.parentElement).scrollPaddingTop);
         const bottom = Math.min(window.innerHeight, pane.bottom);
         if (rect.top < top || rect.bottom > bottom) row.scrollIntoView({ block: 'nearest' });
       }
