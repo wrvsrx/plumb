@@ -132,7 +132,12 @@ try {
     await evaluate(`[...document.querySelectorAll('.task-context-segment')].find(b => b.textContent === 'Nested').click()`);
     await until(() => evaluate(`document.querySelector('#task-panel h1')?.textContent === 'Nested' && !document.querySelector('#task-panel [aria-busy]')`), 'context node detail missing');
     assert.equal(await evaluate(`new URLSearchParams(location.search).has('contextStart')`), true);
+    await evaluate(`window.originalFetch = window.fetch; window.fetch = (...args) => String(args[0]).includes('/api/node/') ? new Promise(resolve => { window.releaseNodeDetail = () => resolve(window.originalFetch(...args)); }) : window.originalFetch(...args)`);
     await select('Nested task');
+    assert.equal(await evaluate(`document.querySelector('#task-panel .note-content').getAttribute('aria-busy')`), 'true');
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('#task-panel .node-breadcrumbs button')].map(b => b.textContent)`), ['Notebook', 'Top section', 'Nested']);
+    assert.equal(await evaluate(`document.querySelector('#task-panel .node-breadcrumbs').textContent.includes('#nested')`), false);
+    await evaluate(`window.fetch = window.originalFetch; window.releaseNodeDetail()`);
     await until(() => loaded('#task-panel'), 'nested content missing');
     assert.deepEqual(await evaluate(`[...document.querySelectorAll('#task-panel .node-breadcrumbs button')].map(b => b.textContent)`), ['Notebook', 'Top section', 'Nested']);
     assert.equal(await evaluate(`(${row})('Nested task').querySelector('.task-ancestry') === null`), true);

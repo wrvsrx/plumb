@@ -1014,7 +1014,35 @@ import {
     const content = host.querySelector('.note-content');
     const facets = host.querySelector('.node-facets');
     title.textContent = node.title || '(untitled)';
-    path.textContent = node.id ? `${node.path}#${node.id}` : (node.path || '');
+    const renderBreadcrumbs = (breadcrumbs, documentId, revision, sourcePath) => {
+      path.replaceChildren();
+      path.title = sourcePath || '';
+      for (const [index, crumb] of breadcrumbs.entries()) {
+        if (index) {
+          const separator = document.createElement('span');
+          separator.textContent = '/';
+          separator.setAttribute('aria-hidden', 'true');
+          path.append(separator);
+        }
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = shortAncestorLabel(crumb.title || '(untitled)');
+        button.title = crumb.title || '(untitled)';
+        button.addEventListener('click', () => renderNodeDetail(host, {
+          documentId, revision, start: crumb.start,
+          title: crumb.title, path: sourcePath,
+        }));
+        path.append(button);
+      }
+    };
+    if (task) {
+      renderBreadcrumbs([
+        { title: task.ancestry?.[0] || task.path, start: null },
+        ...(task.context || []),
+      ], task.documentId, task.revision, task.path);
+    } else {
+      path.textContent = node.id ? `${node.path}#${node.id}` : (node.path || '');
+    }
     host.querySelector('.full-note').href = `${config.notePageBase}${encodeURIComponent(node.documentId)}${config.notePageSuffix}${node.id ? `#${encodeURIComponent(node.id)}` : fragment}`;
     host.querySelector('.local-note').addEventListener('click', () => {
       showView('graph', { historyMode: 'push', load: false });
@@ -1054,25 +1082,7 @@ import {
         if (body) body.replaceWith(...body.childNodes);
         content.replaceChildren(template.content);
         content.removeAttribute('aria-busy');
-        path.replaceChildren();
-        path.title = detail.path;
-        for (const [index, crumb] of (detail.breadcrumbs || []).entries()) {
-          if (index) {
-            const separator = document.createElement('span');
-            separator.textContent = '/';
-            separator.setAttribute('aria-hidden', 'true');
-            path.append(separator);
-          }
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.textContent = shortAncestorLabel(crumb.title || '(untitled)');
-          button.title = crumb.title || '(untitled)';
-          button.addEventListener('click', () => renderNodeDetail(host, {
-            documentId: detail.id, revision: detail.revision, start: crumb.start,
-            title: crumb.title, path: detail.path,
-          }));
-          path.append(button);
-        }
+        renderBreadcrumbs(detail.breadcrumbs || [], detail.id, detail.revision, detail.path);
         if (!task && !event) decorate(detail.task, detail.event);
         renderChildTaskNavigation(facets, detail.children || []);
         if (host === panel) scrollPreviewToFragment(fragment);
