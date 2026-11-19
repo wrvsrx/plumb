@@ -31,7 +31,11 @@
               src = pkgs.lib.cleanSource ./.;
               cargoLock.lockFile = ./Cargo.lock;
 
-              nativeBuildInputs = [ pkgs.makeWrapper ];
+              nativeBuildInputs = [
+                pkgs.makeWrapper
+                pkgs.pkg-config
+              ];
+              buildInputs = [ pkgs.sqlite ];
               nativeCheckInputs = [ pkgs.pandoc ];
 
               preCheck = ''
