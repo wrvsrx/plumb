@@ -101,7 +101,7 @@ impl GreenDocument {
                 Arc::new(GreenShard {
                     id: GreenShardId(
                         NEXT_SHARD_ID
-                            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
+                            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
                                 id.checked_add(1)
                             })
                             .expect("shard identity exhausted"),
